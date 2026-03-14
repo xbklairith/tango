@@ -25,8 +25,8 @@ TDD Red-Green-Refactor in six logical groups:
 ## Progress Summary
 
 - Total Tasks: 7
-- Completed: 1/7
-- In Progress: TASK-02 — Domain Types + logActivity helper
+- Completed: 2/7
+- In Progress: TASK-03 — Squad handler activity integration
 - Test Coverage: TBD
 
 ---
@@ -102,7 +102,7 @@ Also write a compile-time check: in `internal/database/db/` the generated files 
 
 ---
 
-### TASK-02: Domain Types, `logActivity` Helper, and `changedFieldNames` Utility
+### [x] TASK-02: Domain Types, `logActivity` Helper, and `changedFieldNames` Utility
 
 **Requirements:** REQ-026, REQ-029, REQ-031, REQ-037, REQ-042, REQ-043, REQ-044
 **Estimated time:** 45–60 min
