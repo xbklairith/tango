@@ -22,8 +22,8 @@ Build in 5 batches following dependency order. Each batch is independently testa
 ## Progress Summary
 
 - Total Tasks: 18
-- Completed: 9/18
-- In Progress: Batch 3
+- Completed: 13/18
+- In Progress: Batch 4
 - Test Coverage: 0 / 18 tasks tested
 
 ---
@@ -852,7 +852,7 @@ Add to `web/e2e/goal.spec.ts`:
 
 ---
 
-### Task 3.1 — Squad + Project + Goal detail edit mode
+### [x] Task 3.1 — Squad + Project + Goal detail edit mode
 
 **Requirements:** REQ-013, REQ-016, REQ-017, REQ-027, REQ-028, REQ-033, REQ-035, REQ-036, REQ-037, REQ-040, REQ-065, REQ-072, REQ-073
 
@@ -948,7 +948,7 @@ Add to `web/e2e/goal.spec.ts`:
 
 ---
 
-### Task 3.2 — Agent detail: edit mode + status transitions
+### [x] Task 3.2 — Agent detail: edit mode + status transitions
 
 **Requirements:** REQ-014, REQ-018, REQ-027, REQ-028, REQ-033, REQ-034, REQ-035, REQ-036, REQ-037, REQ-040, REQ-047, REQ-048, REQ-049, REQ-056, REQ-057, REQ-066, REQ-072, REQ-073
 
@@ -1035,7 +1035,7 @@ export function useUpdateAgent(options?: { successMessage?: string }) {
 
 ---
 
-### Task 3.3 — Issue detail: edit mode + status transitions + linked metadata
+### [x] Task 3.3 — Issue detail: edit mode + status transitions + linked metadata
 
 **Requirements:** REQ-015, REQ-019, REQ-027, REQ-028, REQ-033, REQ-034, REQ-035, REQ-036, REQ-037, REQ-040, REQ-045, REQ-046, REQ-059, REQ-060, REQ-061, REQ-072, REQ-073
 
@@ -1120,7 +1120,7 @@ export function useUpdateIssue(options?: { successMessage?: string }) {
 
 ---
 
-### Task 3.4 — Issue comments: `useAddComment` + `IssueComments`
+### [x] Task 3.4 — Issue comments: `useAddComment` + `IssueComments`
 
 **Requirements:** REQ-020, REQ-035, REQ-036, REQ-037, REQ-050, REQ-051, REQ-072, REQ-073
 
