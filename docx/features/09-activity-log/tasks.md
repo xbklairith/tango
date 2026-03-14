@@ -25,8 +25,8 @@ TDD Red-Green-Refactor in six logical groups:
 ## Progress Summary
 
 - Total Tasks: 7
-- Completed: 3/7
-- In Progress: TASK-04 — Agent, Issue, Comment handler integration
+- Completed: 6/7
+- In Progress: TASK-07 — React activity feed widget
 - Test Coverage: TBD
 
 ---
@@ -253,7 +253,7 @@ Modify `internal/server/handlers/squad_handler.go`:
 
 ---
 
-### TASK-04: Agent, Issue, and Comment Handler Activity Integration
+### [x] TASK-04: Agent, Issue, and Comment Handler Activity Integration
 
 **Requirements:** REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-026, REQ-037, REQ-043, REQ-044
 **Estimated time:** 60 min
@@ -348,7 +348,7 @@ Extend `activity_integration_test.go` with agent, issue, and comment tests. All 
 
 ---
 
-### TASK-05: Project, Goal, and Membership Handler Activity Integration (Transaction Upgrade)
+### [x] TASK-05: Project, Goal, and Membership Handler Activity Integration (Transaction Upgrade)
 
 **Requirements:** REQ-013, REQ-014, REQ-015, REQ-016, REQ-017, REQ-018, REQ-019, REQ-020, REQ-026, REQ-037, REQ-043, REQ-044
 **Estimated time:** 60 min
@@ -466,7 +466,7 @@ All three handlers currently lack `dbConn *sql.DB`. Add it to each:
 
 ---
 
-### TASK-06: Activity Feed Handler (`GET /api/squads/{id}/activity`)
+### [x] TASK-06: Activity Feed Handler (`GET /api/squads/{id}/activity`)
 
 **Requirements:** REQ-021, REQ-022, REQ-023, REQ-024, REQ-025, REQ-032, REQ-033, REQ-034, REQ-035, REQ-036, REQ-037, REQ-038, REQ-041
 **Estimated time:** 60 min

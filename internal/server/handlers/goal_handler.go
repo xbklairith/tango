@@ -21,11 +21,12 @@ import (
 // GoalHandler handles goal CRUD operations.
 type GoalHandler struct {
 	queries *db.Queries
+	dbConn  *sql.DB
 }
 
 // NewGoalHandler creates a new GoalHandler.
-func NewGoalHandler(q *db.Queries) *GoalHandler {
-	return &GoalHandler{queries: q}
+func NewGoalHandler(q *db.Queries, dbConn *sql.DB) *GoalHandler {
+	return &GoalHandler{queries: q, dbConn: dbConn}
 }
 
 // RegisterRoutes registers goal routes on the given mux.
@@ -101,7 +102,8 @@ func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	userID, ok := h.verifySquadMembership(w, r, squadID)
+	if !ok {
 		return
 	}
 
@@ -161,9 +163,39 @@ func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		params.Description = sql.NullString{String: *req.Description, Valid: true}
 	}
 
-	goal, err := h.queries.CreateGoal(r.Context(), params)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+
+	goal, err := qtx.CreateGoal(r.Context(), params)
 	if err != nil {
 		slog.Error("failed to create goal", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    userID,
+		Action:     "goal.created",
+		EntityType: "goal",
+		EntityID:   goal.ID,
+		Metadata:   map[string]any{"title": goal.Title},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -316,7 +348,8 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+	userID, ok := h.verifySquadMembership(w, r, existing.SquadID)
+	if !ok {
 		return
 	}
 
@@ -398,9 +431,39 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 		params.Status = sql.NullString{String: string(*req.Status), Valid: true}
 	}
 
-	updated, err := h.queries.UpdateGoal(r.Context(), params)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+
+	updated, err := qtx.UpdateGoal(r.Context(), params)
 	if err != nil {
 		slog.Error("failed to update goal", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    existing.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    userID,
+		Action:     "goal.updated",
+		EntityType: "goal",
+		EntityID:   goalID,
+		Metadata:   map[string]any{"changedFields": changedFieldNames(rawBody)},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}

@@ -316,6 +316,31 @@ func (h *IssueHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get actor identity for activity logging
+	identity, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "issue.created",
+		EntityType: "issue",
+		EntityID:   issue.ID,
+		Metadata: map[string]any{
+			"identifier": issue.Identifier,
+			"title":      issue.Title,
+			"status":     string(issue.Status),
+		},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
@@ -668,26 +693,35 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		params.BillingCode = sql.NullString{String: *req.BillingCode, Valid: true}
 	}
 
+	// Get actor identity for activity logging
+	identity, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+
 	// Use transaction if we need to insert a reopen comment
 	isReopen := req.Status != nil && domain.IsReopen(domain.IssueStatus(existing.Status), *req.Status)
+	isStatusChange := req.Status != nil && domain.IssueStatus(existing.Status) != *req.Status
+
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := h.queries.WithTx(tx)
+
+	updated, err := qtx.UpdateIssue(r.Context(), params)
+	if err != nil {
+		slog.Error("failed to update issue", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
 
 	if isReopen {
-		tx, err := h.dbConn.BeginTx(r.Context(), nil)
-		if err != nil {
-			slog.Error("failed to begin transaction", "error", err)
-			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-			return
-		}
-		defer tx.Rollback() //nolint:errcheck
-
-		qtx := h.queries.WithTx(tx)
-		updated, err := qtx.UpdateIssue(r.Context(), params)
-		if err != nil {
-			slog.Error("failed to update issue", "error", err)
-			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-			return
-		}
-
 		// Insert system comment for reopen
 		_, err = qtx.CreateIssueComment(r.Context(), db.CreateIssueCommentParams{
 			IssueID:    issueID,
@@ -700,21 +734,46 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 			return
 		}
+	}
 
-		if err := tx.Commit(); err != nil {
-			slog.Error("failed to commit transaction", "error", err)
+	// Log activity: status change gets a separate action
+	if isStatusChange {
+		if err := logActivity(r.Context(), qtx, ActivityParams{
+			SquadID:    existing.SquadID,
+			ActorType:  domain.ActivityActorUser,
+			ActorID:    identity.UserID,
+			Action:     "issue.status_changed",
+			EntityType: "issue",
+			EntityID:   issueID,
+			Metadata: map[string]any{
+				"from": string(existing.Status),
+				"to":   string(*req.Status),
+			},
+		}); err != nil {
+			slog.Error("failed to log activity", "error", err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 			return
 		}
+	}
 
-		slog.Info("issue updated (reopened)", "issue_id", issueID)
-		writeJSON(w, http.StatusOK, dbIssueToResponse(updated))
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    existing.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "issue.updated",
+		EntityType: "issue",
+		EntityID:   issueID,
+		Metadata: map[string]any{
+			"changedFields": changedFieldNames(rawBody),
+		},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
 
-	updated, err := h.queries.UpdateIssue(r.Context(), params)
-	if err != nil {
-		slog.Error("failed to update issue", "error", err)
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -840,7 +899,24 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		// System comments are allowed with any authorId (typically uuid.Nil)
 	}
 
-	comment, err := h.queries.CreateIssueComment(r.Context(), db.CreateIssueCommentParams{
+	// Get actor identity for activity logging
+	identity, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := h.queries.WithTx(tx)
+
+	comment, err := qtx.CreateIssueComment(r.Context(), db.CreateIssueCommentParams{
 		IssueID:    issueID,
 		AuthorType: db.CommentAuthorType(req.AuthorType),
 		AuthorID:   req.AuthorID,
@@ -848,6 +924,28 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Error("failed to create comment", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    issue.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "comment.created",
+		EntityType: "comment",
+		EntityID:   comment.ID,
+		Metadata: map[string]any{
+			"issueId": issueID.String(),
+		},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}

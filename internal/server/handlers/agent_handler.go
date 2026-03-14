@@ -259,7 +259,24 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		params.BudgetMonthlyCents = sql.NullInt64{Int64: *req.BudgetMonthlyCents, Valid: true}
 	}
 
-	agent, err := h.queries.CreateAgent(r.Context(), params)
+	// Get actor identity for activity logging
+	identity, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := h.queries.WithTx(tx)
+
+	agent, err := qtx.CreateAgent(r.Context(), params)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -273,6 +290,30 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		slog.Error("failed to create agent", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    agent.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "agent.created",
+		EntityType: "agent",
+		EntityID:   agent.ID,
+		Metadata: map[string]any{
+			"name":   agent.Name,
+			"role":   string(agent.Role),
+			"urlKey": agent.ShortName,
+		},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -526,7 +567,24 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		params.BudgetMonthlyCents = sql.NullInt64{Int64: *req.BudgetMonthlyCents, Valid: true}
 	}
 
-	agent, err := h.queries.UpdateAgent(r.Context(), params)
+	// Get actor identity for activity logging
+	identity, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := h.queries.WithTx(tx)
+
+	agent, err := qtx.UpdateAgent(r.Context(), params)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -540,6 +598,28 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		slog.Error("failed to update agent", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    agent.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "agent.updated",
+		EntityType: "agent",
+		EntityID:   agent.ID,
+		Metadata: map[string]any{
+			"changedFields": changedFieldNames(rawBody),
+		},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -584,14 +664,54 @@ func (h *AgentHandler) TransitionAgentStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Get actor identity for activity logging
+	identity, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+
 	params := db.UpdateAgentParams{
 		ID:     agentID,
 		Status: db.NullAgentStatus{AgentStatus: db.AgentStatus(req.Status), Valid: true},
 	}
 
-	agent, err := h.queries.UpdateAgent(r.Context(), params)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := h.queries.WithTx(tx)
+
+	agent, err := qtx.UpdateAgent(r.Context(), params)
 	if err != nil {
 		slog.Error("failed to transition agent", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    agent.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "agent.status_changed",
+		EntityType: "agent",
+		EntityID:   agent.ID,
+		Metadata: map[string]any{
+			"from": string(existing.Status),
+			"to":   string(req.Status),
+		},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}

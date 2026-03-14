@@ -20,11 +20,12 @@ import (
 // ProjectHandler handles project CRUD operations.
 type ProjectHandler struct {
 	queries *db.Queries
+	dbConn  *sql.DB
 }
 
 // NewProjectHandler creates a new ProjectHandler.
-func NewProjectHandler(q *db.Queries) *ProjectHandler {
-	return &ProjectHandler{queries: q}
+func NewProjectHandler(q *db.Queries, dbConn *sql.DB) *ProjectHandler {
+	return &ProjectHandler{queries: q, dbConn: dbConn}
 }
 
 // RegisterRoutes registers project routes on the given mux.
@@ -96,7 +97,8 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	userID, ok := h.verifySquadMembership(w, r, squadID)
+	if !ok {
 		return
 	}
 
@@ -136,9 +138,39 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		params.Description = sql.NullString{String: *req.Description, Valid: true}
 	}
 
-	project, err := h.queries.CreateProject(r.Context(), params)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+
+	project, err := qtx.CreateProject(r.Context(), params)
 	if err != nil {
 		slog.Error("failed to create project", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    userID,
+		Action:     "project.created",
+		EntityType: "project",
+		EntityID:   project.ID,
+		Metadata:   map[string]any{"name": project.Name},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -265,7 +297,8 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+	userID, ok := h.verifySquadMembership(w, r, existing.SquadID)
+	if !ok {
 		return
 	}
 
@@ -308,9 +341,39 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		params.Status = sql.NullString{String: string(*req.Status), Valid: true}
 	}
 
-	updated, err := h.queries.UpdateProject(r.Context(), params)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+
+	updated, err := qtx.UpdateProject(r.Context(), params)
 	if err != nil {
 		slog.Error("failed to update project", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    existing.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    userID,
+		Action:     "project.updated",
+		EntityType: "project",
+		EntityID:   projectID,
+		Metadata:   map[string]any{"changedFields": changedFieldNames(rawBody)},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}

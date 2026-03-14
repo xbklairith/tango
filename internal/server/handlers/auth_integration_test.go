@@ -136,11 +136,12 @@ func makeEnv(t *testing.T, mode auth.DeploymentMode, disableSignUp bool) *testEn
 		mode, disableSignUp, false, 24*time.Hour,
 	)
 	squadHandler := handlers.NewSquadHandler(queries, testDB)
-	membershipHandler := handlers.NewMembershipHandler(queries)
+	membershipHandler := handlers.NewMembershipHandler(queries, testDB)
 	agentHandler := handlers.NewAgentHandler(queries, testDB)
 	issueHandler := handlers.NewIssueHandler(queries, testDB)
-	projectHandler := handlers.NewProjectHandler(queries)
-	goalHandler := handlers.NewGoalHandler(queries)
+	projectHandler := handlers.NewProjectHandler(queries, testDB)
+	goalHandler := handlers.NewGoalHandler(queries, testDB)
+	activityHandler := handlers.NewActivityHandler(queries)
 
 	mux := http.NewServeMux()
 	authHandler.RegisterRoutes(mux)
@@ -150,6 +151,7 @@ func makeEnv(t *testing.T, mode auth.DeploymentMode, disableSignUp bool) *testEn
 	issueHandler.RegisterRoutes(mux)
 	projectHandler.RegisterRoutes(mux)
 	goalHandler.RegisterRoutes(mux)
+	activityHandler.RegisterRoutes(mux)
 
 	var handler http.Handler = mux
 	if mode == auth.ModeAuthenticated {

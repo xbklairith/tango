@@ -19,11 +19,12 @@ import (
 // MembershipHandler handles squad membership operations.
 type MembershipHandler struct {
 	queries *db.Queries
+	dbConn  *sql.DB
 }
 
 // NewMembershipHandler creates a MembershipHandler with dependencies.
-func NewMembershipHandler(q *db.Queries) *MembershipHandler {
-	return &MembershipHandler{queries: q}
+func NewMembershipHandler(q *db.Queries, dbConn *sql.DB) *MembershipHandler {
+	return &MembershipHandler{queries: q, dbConn: dbConn}
 }
 
 // RegisterRoutes registers membership routes.
@@ -155,7 +156,17 @@ func (h *MembershipHandler) Add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newMembership, err := h.queries.CreateSquadMembership(r.Context(), db.CreateSquadMembershipParams{
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+
+	newMembership, err := qtx.CreateSquadMembership(r.Context(), db.CreateSquadMembershipParams{
 		UserID:  targetUserID,
 		SquadID: squadID,
 		Role:    string(targetRole),
@@ -169,6 +180,26 @@ func (h *MembershipHandler) Add(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		slog.Error("failed to add member", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    membership.UserID,
+		Action:     "member.added",
+		EntityType: "member",
+		EntityID:   newMembership.ID,
+		Metadata:   map[string]any{"role": string(targetRole), "userId": targetUserID.String()},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -228,9 +259,21 @@ func (h *MembershipHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	oldRole := target.Role
+
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+
 	// If demoting from owner, use atomic check
 	if target.Role == string(domain.MemberRoleOwner) && newRole != domain.MemberRoleOwner {
-		rows, err := h.queries.DemoteOwnerIfNotLast(r.Context(), db.DemoteOwnerIfNotLastParams{
+		rows, err := qtx.DemoteOwnerIfNotLast(r.Context(), db.DemoteOwnerIfNotLastParams{
 			Role:    string(newRole),
 			ID:      memberID,
 			SquadID: squadID,
@@ -244,32 +287,44 @@ func (h *MembershipHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "Cannot demote the last owner", Code: "LAST_OWNER"})
 			return
 		}
-		// Re-fetch updated membership
-		updated, err := h.queries.GetSquadMembershipByID(r.Context(), db.GetSquadMembershipByIDParams{ID: memberID, SquadID: squadID})
+	} else {
+		// Standard role update
+		_, err = qtx.UpdateSquadMembershipRole(r.Context(), db.UpdateSquadMembershipRoleParams{
+			Role:    string(newRole),
+			ID:      memberID,
+			SquadID: squadID,
+		})
 		if err != nil {
-			slog.Error("failed to re-fetch membership after demote", "error", err)
+			slog.Error("failed to update role", "error", err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 			return
 		}
-		writeJSON(w, http.StatusOK, memberResponse{
-			ID:        updated.ID,
-			UserID:    updated.UserID,
-			SquadID:   updated.SquadID,
-			Role:      domain.MemberRole(updated.Role),
-			CreatedAt: updated.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			UpdatedAt: updated.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-		})
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    membership.UserID,
+		Action:     "member.role_updated",
+		EntityType: "member",
+		EntityID:   memberID,
+		Metadata:   map[string]any{"from": oldRole, "to": string(newRole)},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
 
-	// Standard role update
-	updated, err := h.queries.UpdateSquadMembershipRole(r.Context(), db.UpdateSquadMembershipRoleParams{
-		Role:    string(newRole),
-		ID:      memberID,
-		SquadID: squadID,
-	})
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Re-fetch updated membership
+	updated, err := h.queries.GetSquadMembershipByID(r.Context(), db.GetSquadMembershipByIDParams{ID: memberID, SquadID: squadID})
 	if err != nil {
-		slog.Error("failed to update role", "error", err)
+		slog.Error("failed to re-fetch membership after update", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -307,7 +362,17 @@ func (h *MembershipHandler) Remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.queries.DeleteSquadMembershipIfNotLastOwner(r.Context(), db.DeleteSquadMembershipIfNotLastOwnerParams{
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+
+	rows, err := qtx.DeleteSquadMembershipIfNotLastOwner(r.Context(), db.DeleteSquadMembershipIfNotLastOwnerParams{
 		ID:      memberID,
 		SquadID: squadID,
 	})
@@ -318,6 +383,25 @@ func (h *MembershipHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	}
 	if rows == 0 {
 		writeJSON(w, http.StatusConflict, errorResponse{Error: "Cannot remove the last owner", Code: "LAST_OWNER"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    membership.UserID,
+		Action:     "member.removed",
+		EntityType: "member",
+		EntityID:   memberID,
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
 
