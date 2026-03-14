@@ -40,6 +40,9 @@ export const queryKeys = {
     list: (squadId: string) => ["goals", { squadId }] as const,
     detail: (id: string) => ["goals", id] as const,
   },
+  activity: {
+    list: (squadId: string) => ["activity", { squadId }] as const,
+  },
   auth: {
     me: ["auth", "me"] as const,
   },

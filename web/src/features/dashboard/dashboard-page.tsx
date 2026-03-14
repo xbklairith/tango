@@ -15,6 +15,7 @@ import { Plus } from "lucide-react";
 import { CreateAgentDialog } from "@/features/agents/create-agent-dialog";
 import { CreateIssueDialog } from "@/features/issues/create-issue-dialog";
 import { CreateProjectDialog } from "@/features/projects/create-project-dialog";
+import { ActivityFeed } from "./activity-feed";
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -133,6 +134,8 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {activeSquadId && <ActivityFeed squadId={activeSquadId} />}
 
       {activeSquadId && (
         <>

@@ -1,7 +1,7 @@
 # Tasks: Activity Log
 
 **Created:** 2026-03-15
-**Status:** In Progress
+**Status:** Complete
 
 ## Requirement Traceability
 
@@ -25,8 +25,8 @@ TDD Red-Green-Refactor in six logical groups:
 ## Progress Summary
 
 - Total Tasks: 7
-- Completed: 6/7
-- In Progress: TASK-07 — React activity feed widget
+- Completed: 7/7
+- In Progress: None
 - Test Coverage: TBD
 
 ---
@@ -595,7 +595,7 @@ Extend `activity_integration_test.go` with feed endpoint tests. All will return 
 
 ---
 
-### TASK-07: React Activity Feed Widget on Dashboard
+### [x] TASK-07: React Activity Feed Widget on Dashboard
 
 **Requirements:** REQ-025
 **Estimated time:** 45–60 min
