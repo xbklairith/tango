@@ -9,8 +9,8 @@ GO         := go
 ## all: Build the binary (default target)
 all: build
 
-## build: Compile the binary to bin/ari
-build:
+## build: Build frontend then compile Go binary to bin/ari
+build: ui-build
 	$(GO) build $(LDFLAGS) -o $(BINARY) ./cmd/ari
 
 ## dev: Run the server in development mode

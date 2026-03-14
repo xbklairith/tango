@@ -18,6 +18,7 @@ import (
 	"github.com/xb/ari/internal/config"
 	"github.com/xb/ari/internal/database"
 	dbpkg "github.com/xb/ari/internal/database/db"
+	ari "github.com/xb/ari"
 	"github.com/xb/ari/internal/server"
 	"github.com/xb/ari/internal/server/handlers"
 )
@@ -114,7 +115,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	goalHandler := handlers.NewGoalHandler(queries)
 
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -18,6 +19,7 @@ type Server struct {
 	cfg     *config.Config
 	db      *sql.DB
 	version string
+	webFS   fs.FS
 	http    *http.Server
 }
 
@@ -27,11 +29,12 @@ type RouteRegistrar interface {
 }
 
 // New creates a new Server with routes and middleware configured.
-func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMode, jwtSvc *auth.JWTService, sessions auth.SessionStore, extra ...RouteRegistrar) *Server {
+func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMode, jwtSvc *auth.JWTService, sessions auth.SessionStore, webFS fs.FS, extra ...RouteRegistrar) *Server {
 	s := &Server{
 		cfg:     cfg,
 		db:      db,
 		version: version,
+		webFS:   webFS,
 	}
 
 	mux := http.NewServeMux()
@@ -42,6 +45,11 @@ func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMod
 		if r != nil {
 			r.RegisterRoutes(mux)
 		}
+	}
+
+	// SPA catch-all for non-API routes (serves embedded frontend)
+	if webFS != nil {
+		mux.Handle("/", spaHandler(webFS))
 	}
 
 	// Apply auth middleware before the main middleware chain
