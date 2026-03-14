@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,7 +32,7 @@ func NewGoalHandler(q *db.Queries) *GoalHandler {
 func (h *GoalHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/squads/{squadId}/goals", h.CreateGoal)
 	mux.HandleFunc("GET /api/squads/{squadId}/goals", h.ListGoals)
-	mux.HandleFunc("GET /api/goals/{id}", h.GetGoal)
+	mux.HandleFunc("GET /api/squads/{squadId}/goals/{id}", h.GetGoal)
 	mux.HandleFunc("PATCH /api/goals/{id}", h.UpdateGoal)
 }
 
@@ -108,6 +111,8 @@ func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Title = strings.TrimSpace(req.Title)
+
 	if err := domain.ValidateCreateGoalInput(req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
 		return
@@ -140,7 +145,7 @@ func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		// ancestors includes all ancestors of parent. The parent itself is at depth len(ancestors)+1.
 		// The new child will be at depth len(ancestors)+2.
 		if len(ancestors)+2 > domain.MaxGoalDepth {
-			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "Maximum goal nesting depth exceeded", Code: "MAX_DEPTH_EXCEEDED"})
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: fmt.Sprintf("maximum goal nesting depth of %d exceeded", domain.MaxGoalDepth), Code: "MAX_DEPTH_EXCEEDED"})
 			return
 		}
 	}
@@ -217,10 +222,21 @@ func (h *GoalHandler) ListGoals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *GoalHandler) GetGoal(w http.ResponseWriter, r *http.Request) {
+	squadIDStr := r.PathValue("squadId")
+	squadID, err := uuid.Parse(squadIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid squad ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	idStr := r.PathValue("id")
 	goalID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid goal ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
 		return
 	}
 
@@ -235,7 +251,8 @@ func (h *GoalHandler) GetGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, goal.SquadID); !ok {
+	if goal.SquadID != squadID {
+		writeJSON(w, http.StatusNotFound, errorResponse{Error: "Goal not found", Code: "NOT_FOUND"})
 		return
 	}
 
@@ -250,18 +267,19 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse raw JSON to detect sentinel keys
-	var rawBody map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&rawBody); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
-		return
-	}
-
-	bodyBytes, err := json.Marshal(rawBody)
+	// Read body once, unmarshal twice: once for sentinel detection, once for struct
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
 		return
 	}
+
+	var rawBody map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &rawBody); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	var req domain.UpdateGoalRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
@@ -274,6 +292,11 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, has := rawBody["parentId"]; has {
 		req.SetParent = true
+	}
+
+	if req.Title != nil {
+		trimmed := strings.TrimSpace(*req.Title)
+		req.Title = &trimmed
 	}
 
 	if err := domain.ValidateUpdateGoalInput(req); err != nil {
@@ -309,7 +332,7 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 	if req.SetParent && req.ParentID != nil {
 		// Self-reference check
 		if *req.ParentID == goalID {
-			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "A goal cannot be its own parent", Code: "CIRCULAR_REFERENCE"})
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "circular reference detected: goal cannot be its own ancestor", Code: "CIRCULAR_REFERENCE"})
 			return
 		}
 
@@ -336,20 +359,24 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 			return
 		}
-		for _, ancestorID := range ancestors {
-			if ancestorID == goalID {
-				writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "This parent assignment would create a circular reference", Code: "CIRCULAR_REFERENCE"})
-				return
-			}
+		chain := domain.GoalAncestryChain(ancestors)
+		if chain.ContainsCycle(goalID) {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "circular reference detected: goal cannot be its own ancestor", Code: "CIRCULAR_REFERENCE"})
+			return
 		}
-		// Also check if the parent itself is the goal (already checked above) or if parent's ID is in the chain
-		// The ancestor list doesn't include the node itself, so also check parentID directly
-		// (already handled by self-reference check above)
 
-		// Max depth check: ancestors of the new parent + the parent itself + this goal
-		// Plus any children this goal might have
-		if len(ancestors)+2 > domain.MaxGoalDepth {
-			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "Maximum goal nesting depth exceeded", Code: "MAX_DEPTH_EXCEEDED"})
+		// Max depth check: new position depth + subtree depth below this goal
+		// The goal will be at depth len(ancestors)+2 (ancestors of parent + parent + goal).
+		// Plus the deepest subtree below the goal being moved.
+		subtreeDepth, err := h.queries.GetGoalMaxSubtreeDepth(r.Context(), uuid.NullUUID{UUID: goalID, Valid: true})
+		if err != nil {
+			slog.Error("failed to get goal subtree depth", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
+		newDepth := int64(len(ancestors)+2) + subtreeDepth
+		if newDepth > int64(domain.MaxGoalDepth) {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: fmt.Sprintf("maximum goal nesting depth of %d exceeded", domain.MaxGoalDepth), Code: "MAX_DEPTH_EXCEEDED"})
 			return
 		}
 	}

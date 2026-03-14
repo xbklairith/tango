@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 func TestGoalStatusValid(t *testing.T) {
 	tests := []struct {
@@ -61,6 +65,32 @@ func TestValidateCreateGoalInput(t *testing.T) {
 				t.Errorf("ValidateCreateGoalInput() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestGoalAncestryChain_ContainsCycle(t *testing.T) {
+	id1 := uuid.New()
+	id2 := uuid.New()
+	id3 := uuid.New()
+	chain := GoalAncestryChain{id1, id2}
+
+	if !chain.ContainsCycle(id1) {
+		t.Error("expected ContainsCycle(id1) = true")
+	}
+	if chain.ContainsCycle(id3) {
+		t.Error("expected ContainsCycle(id3) = false")
+	}
+}
+
+func TestGoalAncestryChain_Depth(t *testing.T) {
+	chain := GoalAncestryChain{uuid.New(), uuid.New()}
+	if chain.Depth() != 3 {
+		t.Errorf("Depth() = %d, want 3", chain.Depth())
+	}
+
+	empty := GoalAncestryChain{}
+	if empty.Depth() != 1 {
+		t.Errorf("Depth() = %d, want 1", empty.Depth())
 	}
 }
 

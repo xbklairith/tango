@@ -52,6 +52,7 @@ type Querier interface {
 	GetAgentParent(ctx context.Context, id uuid.UUID) (GetAgentParentRow, error)
 	GetGoalAncestors(ctx context.Context, id uuid.UUID) ([]uuid.UUID, error)
 	GetGoalByID(ctx context.Context, id uuid.UUID) (Goal, error)
+	GetGoalMaxSubtreeDepth(ctx context.Context, goalID uuid.NullUUID) (int64, error)
 	GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
 	GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdentifierParams) (Issue, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)

@@ -170,7 +170,7 @@ func TestGetProject_ByID(t *testing.T) {
 
 	p, _ := createProject(t, env, cookie, squadID, map[string]any{"name": "GetMe"})
 
-	rr := doJSON(t, env.handler, "GET", fmt.Sprintf("/api/projects/%s", p.ID), nil, []*http.Cookie{cookie})
+	rr := doJSON(t, env.handler, "GET", fmt.Sprintf("/api/squads/%s/projects/%s", squadID, p.ID), nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get project: status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -189,9 +189,9 @@ func TestGetProject_NotFound(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 	env := makeEnv(t, auth.ModeAuthenticated, false)
-	cookie, _ := setupSquadAndAuth(t, env, "proj-notfound@example.com")
+	cookie, squadID := setupSquadAndAuth(t, env, "proj-notfound@example.com")
 
-	rr := doJSON(t, env.handler, "GET", "/api/projects/00000000-0000-0000-0000-000000000000", nil, []*http.Cookie{cookie})
+	rr := doJSON(t, env.handler, "GET", fmt.Sprintf("/api/squads/%s/projects/00000000-0000-0000-0000-000000000000", squadID), nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("get non-existent project: status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
@@ -468,7 +468,7 @@ func TestGetGoal_ByID(t *testing.T) {
 
 	g, _ := createGoal(t, env, cookie, squadID, map[string]any{"title": "Fetch Me"})
 
-	rr := doJSON(t, env.handler, "GET", fmt.Sprintf("/api/goals/%s", g.ID), nil, []*http.Cookie{cookie})
+	rr := doJSON(t, env.handler, "GET", fmt.Sprintf("/api/squads/%s/goals/%s", squadID, g.ID), nil, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get goal: status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -609,5 +609,51 @@ func TestUpdateGoal_ClearParent(t *testing.T) {
 	json.NewDecoder(rr.Body).Decode(&updated)
 	if updated.ParentID != nil {
 		t.Errorf("parentId = %v, want nil", updated.ParentID)
+	}
+}
+
+func TestUpdateGoal_MoveSubtreeExceedsMaxDepth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := makeEnv(t, auth.ModeAuthenticated, false)
+	cookie, squadID := setupSquadAndAuth(t, env, "goal-subtree-depth@example.com")
+
+	// Create chain: A -> B -> C (C at depth 3)
+	a, _ := createGoal(t, env, cookie, squadID, map[string]any{"title": "A"})
+	b, _ := createGoal(t, env, cookie, squadID, map[string]any{"title": "B", "parentId": a.ID})
+	createGoal(t, env, cookie, squadID, map[string]any{"title": "C", "parentId": b.ID})
+
+	// Create separate chain: X -> Y -> Z (Z at depth 3)
+	x, _ := createGoal(t, env, cookie, squadID, map[string]any{"title": "X"})
+	y, _ := createGoal(t, env, cookie, squadID, map[string]any{"title": "Y", "parentId": x.ID})
+	z, _ := createGoal(t, env, cookie, squadID, map[string]any{"title": "Z", "parentId": y.ID})
+
+	// Moving A (which has subtree depth 2: B, C) under Y (depth 2) would make:
+	// X(1) -> Y(2) -> A(3) -> B(4) -> C(5) = depth 5, which is exactly at limit (OK)
+	rr := doJSON(t, env.handler, "PATCH", fmt.Sprintf("/api/goals/%s", a.ID),
+		map[string]any{"parentId": y.ID}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("move A under Y (should succeed): status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Now undo: clear A's parent to make it top-level again
+	rr = doJSON(t, env.handler, "PATCH", fmt.Sprintf("/api/goals/%s", a.ID),
+		map[string]any{"parentId": nil}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear A parent: status = %d", rr.Code)
+	}
+
+	// Moving A under Z would make:
+	// X(1) -> Y(2) -> Z(3) -> A(4) -> B(5) -> C(6) = depth 6, exceeds max 5
+	rr = doJSON(t, env.handler, "PATCH", fmt.Sprintf("/api/goals/%s", a.ID),
+		map[string]any{"parentId": z.ID}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("move subtree exceeds max depth: status = %d, want %d; body: %s", rr.Code, http.StatusUnprocessableEntity, rr.Body.String())
+	}
+	var e errResp
+	json.NewDecoder(rr.Body).Decode(&e)
+	if e.Code != "MAX_DEPTH_EXCEEDED" {
+		t.Errorf("error code = %q, want %q", e.Code, "MAX_DEPTH_EXCEEDED")
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,7 +31,7 @@ func NewProjectHandler(q *db.Queries) *ProjectHandler {
 func (h *ProjectHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/squads/{squadId}/projects", h.CreateProject)
 	mux.HandleFunc("GET /api/squads/{squadId}/projects", h.ListProjects)
-	mux.HandleFunc("GET /api/projects/{id}", h.GetProject)
+	mux.HandleFunc("GET /api/squads/{squadId}/projects/{id}", h.GetProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", h.UpdateProject)
 }
 
@@ -104,6 +106,8 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
+
 	if err := domain.ValidateCreateProjectInput(req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
 		return
@@ -170,10 +174,21 @@ func (h *ProjectHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) GetProject(w http.ResponseWriter, r *http.Request) {
+	squadIDStr := r.PathValue("squadId")
+	squadID, err := uuid.Parse(squadIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid squad ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	idStr := r.PathValue("id")
 	projectID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid project ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
 		return
 	}
 
@@ -188,7 +203,8 @@ func (h *ProjectHandler) GetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, project.SquadID); !ok {
+	if project.SquadID != squadID {
+		writeJSON(w, http.StatusNotFound, errorResponse{Error: "Project not found", Code: "NOT_FOUND"})
 		return
 	}
 
@@ -203,18 +219,19 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse raw JSON to detect sentinel keys
-	var rawBody map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&rawBody); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
-		return
-	}
-
-	bodyBytes, err := json.Marshal(rawBody)
+	// Read body once, unmarshal twice: once for sentinel detection, once for struct
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
 		return
 	}
+
+	var rawBody map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &rawBody); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	var req domain.UpdateProjectRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
@@ -224,6 +241,11 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	// Detect sentinel fields
 	if _, has := rawBody["description"]; has {
 		req.SetDescription = true
+	}
+
+	if req.Name != nil {
+		trimmed := strings.TrimSpace(*req.Name)
+		req.Name = &trimmed
 	}
 
 	if err := domain.ValidateUpdateProjectInput(req); err != nil {

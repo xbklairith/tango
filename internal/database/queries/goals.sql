@@ -40,3 +40,16 @@ SELECT parent_id::UUID AS ancestor_id FROM ancestors WHERE parent_id IS NOT NULL
 
 -- name: CountGoalChildren :one
 SELECT count(*) FROM goals WHERE parent_id = @parent_id;
+
+-- name: GetGoalMaxSubtreeDepth :one
+WITH RECURSIVE subtree AS (
+    SELECT goals.id, 1 AS depth
+    FROM goals
+    WHERE goals.parent_id = @goal_id
+    UNION ALL
+    SELECT g.id, s.depth + 1
+    FROM goals g
+    JOIN subtree s ON g.parent_id = s.id
+    WHERE s.depth < 10
+)
+SELECT COALESCE(MAX(depth), 0)::bigint AS max_depth FROM subtree;

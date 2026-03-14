@@ -17,6 +17,13 @@ const (
 	GoalStatusArchived  GoalStatus = "archived"
 )
 
+// ValidGoalStatuses is the set of all valid goal statuses.
+var ValidGoalStatuses = map[GoalStatus]bool{
+	GoalStatusActive:    true,
+	GoalStatusCompleted: true,
+	GoalStatusArchived:  true,
+}
+
 func (s GoalStatus) Valid() bool {
 	switch s {
 	case GoalStatusActive, GoalStatusCompleted, GoalStatusArchived:
@@ -44,7 +51,7 @@ func ValidateGoalTransition(from, to GoalStatus) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("cannot transition from %q to %q", from, to)
+	return fmt.Errorf("invalid goal status transition from %q to %q", from, to)
 }
 
 type Goal struct {
@@ -71,6 +78,25 @@ type UpdateGoalRequest struct {
 	ParentID       *uuid.UUID  `json:"parentId,omitempty"`
 	SetParent      bool        `json:"-"`
 	Status         *GoalStatus `json:"status,omitempty"`
+}
+
+// GoalAncestryChain represents the chain of parent IDs from a goal up to the root.
+type GoalAncestryChain []uuid.UUID
+
+// ContainsCycle returns true if the given goalID appears anywhere in the ancestry chain.
+func (chain GoalAncestryChain) ContainsCycle(goalID uuid.UUID) bool {
+	for _, id := range chain {
+		if id == goalID {
+			return true
+		}
+	}
+	return false
+}
+
+// Depth returns the depth of the node whose ancestors are in this chain.
+// A node with 0 ancestors is at depth 1.
+func (chain GoalAncestryChain) Depth() int {
+	return len(chain) + 1
 }
 
 func ValidateCreateGoalInput(input CreateGoalRequest) error {

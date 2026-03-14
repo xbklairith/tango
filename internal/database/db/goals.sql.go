@@ -114,6 +114,27 @@ func (q *Queries) GetGoalByID(ctx context.Context, id uuid.UUID) (Goal, error) {
 	return i, err
 }
 
+const getGoalMaxSubtreeDepth = `-- name: GetGoalMaxSubtreeDepth :one
+WITH RECURSIVE subtree AS (
+    SELECT goals.id, 1 AS depth
+    FROM goals
+    WHERE goals.parent_id = $1
+    UNION ALL
+    SELECT g.id, s.depth + 1
+    FROM goals g
+    JOIN subtree s ON g.parent_id = s.id
+    WHERE s.depth < 10
+)
+SELECT COALESCE(MAX(depth), 0)::bigint AS max_depth FROM subtree
+`
+
+func (q *Queries) GetGoalMaxSubtreeDepth(ctx context.Context, goalID uuid.NullUUID) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getGoalMaxSubtreeDepth, goalID)
+	var max_depth int64
+	err := row.Scan(&max_depth)
+	return max_depth, err
+}
+
 const listGoalsBySquad = `-- name: ListGoalsBySquad :many
 SELECT id, squad_id, parent_id, title, description, status, created_at, updated_at FROM goals WHERE squad_id = $1 ORDER BY created_at DESC
 `

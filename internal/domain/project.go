@@ -15,6 +15,13 @@ const (
 	ProjectStatusArchived  ProjectStatus = "archived"
 )
 
+// ValidProjectStatuses is the set of all valid project statuses.
+var ValidProjectStatuses = map[ProjectStatus]bool{
+	ProjectStatusActive:    true,
+	ProjectStatusCompleted: true,
+	ProjectStatusArchived:  true,
+}
+
 func (s ProjectStatus) Valid() bool {
 	switch s {
 	case ProjectStatusActive, ProjectStatusCompleted, ProjectStatusArchived:
@@ -42,7 +49,7 @@ func ValidateProjectTransition(from, to ProjectStatus) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("cannot transition from %q to %q", from, to)
+	return fmt.Errorf("invalid project status transition from %q to %q", from, to)
 }
 
 type Project struct {
