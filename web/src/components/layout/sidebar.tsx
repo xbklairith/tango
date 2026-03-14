@@ -1,5 +1,13 @@
 import { NavLink } from "react-router";
 import { useAuth } from "@/lib/auth";
+import { useActiveSquad } from "@/lib/active-squad";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   LayoutDashboard,
   Users,
@@ -19,9 +27,42 @@ const staticNavItems = [
   { to: "/squads", icon: Users, label: "Squads", end: false },
 ];
 
+function SquadSelector() {
+  const { user } = useAuth();
+  const { activeSquadId, setActiveSquadId } = useActiveSquad();
+  const squads = user?.squads ?? [];
+
+  if (squads.length === 0) return null;
+
+  if (squads.length === 1) {
+    return (
+      <p className="px-3 py-1 text-sm font-medium truncate">
+        {squads[0]!.squadName}
+      </p>
+    );
+  }
+
+  return (
+    <div className="px-2">
+      <Select value={activeSquadId ?? ""} onValueChange={(v) => { if (v) setActiveSquadId(v); }}>
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {squads.map((squad) => (
+            <SelectItem key={squad.squadId} value={squad.squadId}>
+              {squad.squadName}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export function Sidebar({ onNavigate }: SidebarProps) {
   const { user, logout } = useAuth();
-  const activeSquadId = user?.squads?.[0]?.squadId;
+  const { activeSquadId } = useActiveSquad();
 
   const squadNavItems = activeSquadId
     ? [
@@ -63,6 +104,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Squad
             </div>
+            <SquadSelector />
             {squadNavItems.map((item) => (
               <NavLink
                 key={item.to}

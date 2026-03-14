@@ -5,6 +5,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function humanize(value: string): string {
+  return value.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
 export function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString("en-US", {
     year: "numeric",

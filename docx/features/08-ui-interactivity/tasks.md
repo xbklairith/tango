@@ -1,7 +1,7 @@
 # Tasks: UI Interactivity
 
 **Created:** 2026-03-15
-**Status:** Ready for Implementation
+**Status:** In Progress
 
 ## Requirement Traceability
 
@@ -22,8 +22,8 @@ Build in 5 batches following dependency order. Each batch is independently testa
 ## Progress Summary
 
 - Total Tasks: 18
-- Completed: 0
-- In Progress: None
+- Completed: 1/18
+- In Progress: Task 0.2 — Dashboard wired to ActiveSquadProvider
 - Test Coverage: 0 / 18 tasks tested
 
 ---
@@ -32,7 +32,7 @@ Build in 5 batches following dependency order. Each batch is independently testa
 
 ---
 
-### Task 0.1 — `humanize` utility and `ActiveSquadProvider`
+### [x] Task 0.1 — `humanize` utility and `ActiveSquadProvider`
 
 **Requirements:** REQ-001, REQ-002, REQ-038, REQ-043, REQ-044, REQ-069
 
