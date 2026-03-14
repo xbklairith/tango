@@ -249,6 +249,20 @@ func TestNew_ConfiguresTimeouts(t *testing.T) {
 	}
 }
 
+func waitForServer(t *testing.T, baseURL string) {
+	t.Helper()
+	// Use the not-found endpoint which doesn't need a DB
+	for range 50 {
+		resp, err := http.Get(baseURL + "/api/readyz")
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("server did not become ready")
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -280,15 +294,7 @@ func TestListenAndServe_StartsAndStops(t *testing.T) {
 	}()
 
 	// Wait for server to be ready
-	addr := fmt.Sprintf("http://127.0.0.1:%d/api/health", port)
-	for i := 0; i < 50; i++ {
-		resp, err := http.Get(addr)
-		if err == nil {
-			resp.Body.Close()
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	waitForServer(t, fmt.Sprintf("http://127.0.0.1:%d", port))
 
 	// Stop the server
 	cancel()
@@ -300,5 +306,125 @@ func TestListenAndServe_StartsAndStops(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("ListenAndServe did not return after context cancellation")
+	}
+}
+
+// Task 8.1: Graceful shutdown tests
+
+func TestGracefulShutdown_OrderedCleanup(t *testing.T) {
+	port := freePort(t)
+	cfg := &config.Config{
+		Env:             "development",
+		Host:            "127.0.0.1",
+		Port:            port,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	dummyDB, _ := sql.Open("postgres", "postgres://dummy")
+	s := New(cfg, dummyDB, "test")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+
+	go func() {
+		errCh <- s.ListenAndServe(ctx)
+	}()
+
+	// Wait for server to start by hitting not-found (doesn't need DB)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	waitForServer(t, baseURL)
+
+	// Cancel context (simulates SIGTERM)
+	cancel()
+
+	// Assert ListenAndServe returns nil
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("ListenAndServe returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ListenAndServe did not return after context cancellation")
+	}
+
+	// Assert server no longer accepts connections
+	_, err := http.Get(baseURL + "/api/ping")
+	if err == nil {
+		t.Error("server should not accept connections after shutdown")
+	}
+}
+
+func TestGracefulShutdown_DrainsInFlight(t *testing.T) {
+	port := freePort(t)
+	cfg := &config.Config{
+		Env:             "development",
+		Host:            "127.0.0.1",
+		Port:            port,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	dummyDB, _ := sql.Open("postgres", "postgres://dummy")
+	s := New(cfg, dummyDB, "test")
+
+	// Register a slow handler on a custom mux
+	mux := http.NewServeMux()
+	s.registerRoutes(mux)
+	mux.HandleFunc("GET /api/slow", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"done"}`))
+	})
+	s.http.Handler = s.middleware(mux)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+
+	go func() {
+		errCh <- s.ListenAndServe(ctx)
+	}()
+
+	// Wait for server to start
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	waitForServer(t, baseURL)
+
+	// Start slow request in goroutine
+	slowDone := make(chan *http.Response, 1)
+	go func() {
+		resp, err := http.Get(baseURL + "/api/slow")
+		if err != nil {
+			t.Logf("slow request error: %v", err)
+			slowDone <- nil
+			return
+		}
+		slowDone <- resp
+	}()
+
+	// Cancel context 100ms after slow request starts
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	// Assert slow request completes successfully
+	select {
+	case resp := <-slowDone:
+		if resp == nil {
+			t.Error("slow request should complete, got error")
+		} else {
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("slow request status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("slow request did not complete")
+	}
+
+	// Assert server shuts down
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("ListenAndServe returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ListenAndServe did not return after shutdown")
 	}
 }
