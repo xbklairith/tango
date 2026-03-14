@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -80,12 +81,19 @@ type loginRequest struct {
 }
 
 type userResponse struct {
-	ID          uuid.UUID `json:"id"`
-	Email       string    `json:"email"`
-	DisplayName string    `json:"displayName"`
-	Status      string    `json:"status"`
-	IsAdmin     bool      `json:"isAdmin"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          uuid.UUID              `json:"id"`
+	Email       string                 `json:"email"`
+	DisplayName string                 `json:"displayName"`
+	Status      string                 `json:"status"`
+	IsAdmin     bool                   `json:"isAdmin"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	Squads      []squadMembershipBrief `json:"squads"`
+}
+
+type squadMembershipBrief struct {
+	SquadID   uuid.UUID `json:"squadId"`
+	SquadName string    `json:"squadName"`
+	Role      string    `json:"role"`
 }
 
 type loginResponse struct {
@@ -353,6 +361,10 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 	// In local_trusted mode, return synthetic identity
 	if h.mode == auth.ModeLocalTrusted {
+		squads, err := h.loadSquadMemberships(r.Context(), identity.UserID)
+		if err != nil {
+			slog.Error("failed to load squad memberships for local operator", "error", err)
+		}
 		writeJSON(w, http.StatusOK, userResponse{
 			ID:          identity.UserID,
 			Email:       identity.Email,
@@ -360,6 +372,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 			Status:      "active",
 			IsAdmin:     true,
 			CreatedAt:   time.Time{},
+			Squads:      squads,
 		})
 		return
 	}
@@ -372,6 +385,11 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	squads, err := h.loadSquadMemberships(r.Context(), user.ID)
+	if err != nil {
+		slog.Error("failed to load squad memberships for /me", "error", err)
+	}
+
 	writeJSON(w, http.StatusOK, userResponse{
 		ID:          user.ID,
 		Email:       user.Email,
@@ -379,10 +397,37 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		Status:      user.Status,
 		IsAdmin:     user.IsAdmin,
 		CreatedAt:   user.CreatedAt,
+		Squads:      squads,
 	})
 }
 
 // Helpers
+
+// loadSquadMemberships returns squad membership briefs for a user.
+func (h *AuthHandler) loadSquadMemberships(ctx context.Context, userID uuid.UUID) ([]squadMembershipBrief, error) {
+	memberships, err := h.queries.ListSquadMembershipsByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(memberships) == 0 {
+		return []squadMembershipBrief{}, nil
+	}
+
+	result := make([]squadMembershipBrief, 0, len(memberships))
+	for _, m := range memberships {
+		squad, err := h.queries.GetSquadByID(ctx, m.SquadID)
+		if err != nil {
+			slog.Error("failed to look up squad", "squad_id", m.SquadID, "error", err)
+			continue
+		}
+		result = append(result, squadMembershipBrief{
+			SquadID:   m.SquadID,
+			SquadName: squad.Name,
+			Role:      m.Role,
+		})
+	}
+	return result, nil
+}
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")

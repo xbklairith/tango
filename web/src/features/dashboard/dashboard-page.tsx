@@ -12,11 +12,11 @@ import { Plus } from "lucide-react";
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const activeSquad = user?.squads[0];
+  const activeSquad = user?.squads?.[0];
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(activeSquad?.squadId ?? ""),
-    queryFn: () => api.get<Agent[]>(`/squads/${activeSquad?.squadId}/agents`),
+    queryFn: () => api.get<Agent[]>(`/agents?squadId=${activeSquad?.squadId}`),
     enabled: !!activeSquad,
   });
 

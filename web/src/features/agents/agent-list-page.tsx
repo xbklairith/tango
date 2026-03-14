@@ -11,7 +11,7 @@ export default function AgentListPage() {
   const { id: squadId } = useParams<{ id: string }>();
   const { data: agents, isLoading } = useQuery({
     queryKey: queryKeys.agents.list(squadId!),
-    queryFn: () => api.get<Agent[]>(`/squads/${squadId}/agents`),
+    queryFn: () => api.get<Agent[]>(`/agents?squadId=${squadId}`),
     enabled: !!squadId,
   });
 

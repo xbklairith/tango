@@ -4,7 +4,7 @@ VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "
 LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 GO         := go
 
-.PHONY: all build dev test lint sqlc migrate-new ui-dev ui-build clean help
+.PHONY: all build dev test lint sqlc migrate-new ui-dev ui-build clean help test-e2e-api test-e2e-web test-e2e
 
 ## all: Build the binary (default target)
 all: build
@@ -42,6 +42,17 @@ ui-dev:
 ## ui-build: Build the frontend for production
 ui-build:
 	cd web && npm run build
+
+## test-e2e-api: Run Go API E2E journey tests
+test-e2e-api:
+	$(GO) test -v -count=1 -run TestE2E ./cmd/ari/
+
+## test-e2e-web: Run Playwright web E2E tests
+test-e2e-web:
+	cd web && npx playwright test
+
+## test-e2e: Run all E2E tests (API + Web)
+test-e2e: test-e2e-api test-e2e-web
 
 ## clean: Remove build artifacts and data directory
 clean:

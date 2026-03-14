@@ -21,7 +21,7 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-func startTestServer(t *testing.T) (baseURL string, cancel context.CancelFunc) {
+func startTestServer(t *testing.T, envOverrides ...string) (baseURL string, cancel context.CancelFunc) {
 	t.Helper()
 
 	port := freePort(t)
@@ -30,6 +30,23 @@ func startTestServer(t *testing.T) (baseURL string, cancel context.CancelFunc) {
 	t.Setenv("ARI_DATA_DIR", t.TempDir())
 	t.Setenv("ARI_DATABASE_URL", "")                              // use embedded PG
 	t.Setenv("ARI_EMBEDDED_PG_PORT", fmt.Sprintf("%d", freePort(t))) // avoid port conflicts
+
+	// Apply optional env overrides (key=value pairs)
+	for _, kv := range envOverrides {
+		parts := [2]string{}
+		if idx := len(kv); idx > 0 {
+			for i := 0; i < len(kv); i++ {
+				if kv[i] == '=' {
+					parts[0] = kv[:i]
+					parts[1] = kv[i+1:]
+					break
+				}
+			}
+		}
+		if parts[0] != "" {
+			t.Setenv(parts[0], parts[1])
+		}
+	}
 
 	ctx, cancelFn := context.WithCancel(context.Background())
 

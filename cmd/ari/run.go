@@ -72,6 +72,22 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	queries := dbpkg.New(db)
 	mode := auth.DeploymentMode(cfg.DeploymentMode)
 
+	// Seed local operator user in local_trusted mode
+	if mode == auth.ModeLocalTrusted {
+		_, err := queries.CreateUser(ctx, dbpkg.CreateUserParams{
+			ID:           auth.LocalOperatorIdentity.UserID,
+			Email:        auth.LocalOperatorIdentity.Email,
+			DisplayName:  "Local Operator",
+			PasswordHash: "not-used",
+			Status:       "active",
+			IsAdmin:      true,
+		})
+		if err != nil {
+			// Ignore duplicate — user already seeded from a previous run
+			slog.Debug("local operator seed", "result", err)
+		}
+	}
+
 	var jwtSvc *auth.JWTService
 	var sessionStore auth.SessionStore
 	rateLimiter := auth.NewRateLimiter(10, time.Minute)

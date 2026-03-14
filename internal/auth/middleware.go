@@ -50,6 +50,12 @@ func Middleware(
 ) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Non-API routes (SPA, static assets) skip auth entirely
+			if !strings.HasPrefix(r.URL.Path, "/api/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Public endpoints skip auth regardless of mode
 			if isPublicEndpoint(r.Method, r.URL.Path) {
 				next.ServeHTTP(w, r)

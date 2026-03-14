@@ -21,7 +21,7 @@ const staticNavItems = [
 
 export function Sidebar({ onNavigate }: SidebarProps) {
   const { user, logout } = useAuth();
-  const activeSquadId = user?.squads[0]?.squadId;
+  const activeSquadId = user?.squads?.[0]?.squadId;
 
   const squadNavItems = activeSquadId
     ? [

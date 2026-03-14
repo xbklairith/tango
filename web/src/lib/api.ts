@@ -39,7 +39,10 @@ async function request<T>(
   }
 
   if (response.status === 401) {
-    window.location.href = "/login";
+    // Only redirect to login if not already there, to avoid infinite loop
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
     throw new ApiClientError(401, "UNAUTHENTICATED", "Session expired");
   }
 
