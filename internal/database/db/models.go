@@ -6,11 +6,167 @@ package db
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sqlc-dev/pqtype"
 )
+
+type AdapterType string
+
+const (
+	AdapterTypeClaudeLocal     AdapterType = "claude_local"
+	AdapterTypeCodexLocal      AdapterType = "codex_local"
+	AdapterTypeCursor          AdapterType = "cursor"
+	AdapterTypeProcess         AdapterType = "process"
+	AdapterTypeHttp            AdapterType = "http"
+	AdapterTypeOpenclawGateway AdapterType = "openclaw_gateway"
+)
+
+func (e *AdapterType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AdapterType(s)
+	case string:
+		*e = AdapterType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AdapterType: %T", src)
+	}
+	return nil
+}
+
+type NullAdapterType struct {
+	AdapterType AdapterType `json:"adapter_type"`
+	Valid       bool        `json:"valid"` // Valid is true if AdapterType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAdapterType) Scan(value interface{}) error {
+	if value == nil {
+		ns.AdapterType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AdapterType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAdapterType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AdapterType), nil
+}
+
+type AgentRole string
+
+const (
+	AgentRoleCaptain AgentRole = "captain"
+	AgentRoleLead    AgentRole = "lead"
+	AgentRoleMember  AgentRole = "member"
+)
+
+func (e *AgentRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AgentRole(s)
+	case string:
+		*e = AgentRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AgentRole: %T", src)
+	}
+	return nil
+}
+
+type NullAgentRole struct {
+	AgentRole AgentRole `json:"agent_role"`
+	Valid     bool      `json:"valid"` // Valid is true if AgentRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAgentRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.AgentRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AgentRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAgentRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AgentRole), nil
+}
+
+type AgentStatus string
+
+const (
+	AgentStatusPendingApproval AgentStatus = "pending_approval"
+	AgentStatusActive          AgentStatus = "active"
+	AgentStatusIdle            AgentStatus = "idle"
+	AgentStatusRunning         AgentStatus = "running"
+	AgentStatusError           AgentStatus = "error"
+	AgentStatusPaused          AgentStatus = "paused"
+	AgentStatusTerminated      AgentStatus = "terminated"
+)
+
+func (e *AgentStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AgentStatus(s)
+	case string:
+		*e = AgentStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AgentStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAgentStatus struct {
+	AgentStatus AgentStatus `json:"agent_status"`
+	Valid       bool        `json:"valid"` // Valid is true if AgentStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAgentStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AgentStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AgentStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAgentStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AgentStatus), nil
+}
+
+type Agent struct {
+	ID                 uuid.UUID             `json:"id"`
+	SquadID            uuid.UUID             `json:"squad_id"`
+	Name               string                `json:"name"`
+	ShortName          string                `json:"short_name"`
+	Role               AgentRole             `json:"role"`
+	Status             AgentStatus           `json:"status"`
+	ParentAgentID      uuid.NullUUID         `json:"parent_agent_id"`
+	AdapterType        NullAdapterType       `json:"adapter_type"`
+	AdapterConfig      pqtype.NullRawMessage `json:"adapter_config"`
+	SystemPrompt       sql.NullString        `json:"system_prompt"`
+	Model              sql.NullString        `json:"model"`
+	BudgetMonthlyCents sql.NullInt64         `json:"budget_monthly_cents"`
+	CreatedAt          time.Time             `json:"created_at"`
+	UpdatedAt          time.Time             `json:"updated_at"`
+}
 
 type Session struct {
 	ID        uuid.UUID `json:"id"`

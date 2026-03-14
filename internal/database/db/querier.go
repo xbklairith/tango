@@ -12,8 +12,22 @@ import (
 )
 
 type Querier interface {
+	// NOTE: CheckCycleInHierarchy uses a recursive CTE which sqlc cannot parse.
+	// It is implemented as a raw SQL query in the repository layer. The query is:
+	//
+	// WITH RECURSIVE ancestors AS (
+	//     SELECT id, parent_agent_id, 1 AS depth
+	//     FROM agents WHERE id = $1
+	//     UNION ALL
+	//     SELECT a.id, a.parent_agent_id, anc.depth + 1
+	//     FROM agents a JOIN ancestors anc ON a.id = anc.parent_agent_id
+	//     WHERE anc.depth < 10
+	// )
+	// SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = $2) AS would_cycle;
+	CountAgentsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountSquadOwners(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
+	CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateSquad(ctx context.Context, arg CreateSquadParams) (Squad, error)
 	CreateSquadMembership(ctx context.Context, arg CreateSquadMembershipParams) (SquadMembership, error)
@@ -25,19 +39,25 @@ type Querier interface {
 	DeleteSquadMembershipByUserIfNotLastOwner(ctx context.Context, arg DeleteSquadMembershipByUserIfNotLastOwnerParams) (int64, error)
 	DeleteSquadMembershipIfNotLastOwner(ctx context.Context, arg DeleteSquadMembershipIfNotLastOwnerParams) (int64, error)
 	DemoteOwnerIfNotLast(ctx context.Context, arg DemoteOwnerIfNotLastParams) (int64, error)
+	GetAgentByID(ctx context.Context, id uuid.UUID) (Agent, error)
+	GetAgentParent(ctx context.Context, id uuid.UUID) (GetAgentParentRow, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	GetSquadByID(ctx context.Context, id uuid.UUID) (Squad, error)
 	GetSquadBySlug(ctx context.Context, slug string) (Squad, error)
+	GetSquadCaptain(ctx context.Context, squadID uuid.UUID) (Agent, error)
 	GetSquadMembership(ctx context.Context, arg GetSquadMembershipParams) (SquadMembership, error)
 	GetSquadMembershipByID(ctx context.Context, arg GetSquadMembershipByIDParams) (SquadMembership, error)
 	GetSquadSettings(ctx context.Context, id uuid.UUID) (json.RawMessage, error)
 	GetUserByEmail(ctx context.Context, lower string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
 	IncrementIssueCounter(ctx context.Context, id uuid.UUID) (IncrementIssueCounterRow, error)
+	ListAgentChildren(ctx context.Context, parentAgentID uuid.NullUUID) ([]Agent, error)
+	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListSquadMembers(ctx context.Context, squadID uuid.UUID) ([]ListSquadMembersRow, error)
 	ListSquadsByUser(ctx context.Context, arg ListSquadsByUserParams) ([]ListSquadsByUserRow, error)
 	Ping(ctx context.Context) error
 	SoftDeleteSquad(ctx context.Context, id uuid.UUID) (Squad, error)
+	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent, error)
 	UpdateSquad(ctx context.Context, arg UpdateSquadParams) (Squad, error)
 	UpdateSquadMembershipRole(ctx context.Context, arg UpdateSquadMembershipRoleParams) (SquadMembership, error)
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
