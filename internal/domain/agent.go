@@ -268,6 +268,9 @@ func ValidateCreateAgentInput(input CreateAgentRequest) error {
 	if !ValidAgentRoles[input.Role] {
 		return fmt.Errorf("role must be one of: captain, lead, member")
 	}
+	if input.Model != nil && len(*input.Model) > 100 {
+		return fmt.Errorf("model must not exceed 100 characters")
+	}
 	if input.BudgetMonthlyCents != nil && *input.BudgetMonthlyCents < 0 {
 		return fmt.Errorf("budgetMonthlyCents must be a non-negative integer")
 	}
@@ -300,6 +303,9 @@ func ValidateUpdateAgentInput(input UpdateAgentRequest) error {
 	}
 	if input.Role != nil && !ValidAgentRoles[*input.Role] {
 		return fmt.Errorf("role must be one of: captain, lead, member")
+	}
+	if input.Model != nil && len(*input.Model) > 100 {
+		return fmt.Errorf("model must not exceed 100 characters")
 	}
 	if input.BudgetMonthlyCents != nil && *input.BudgetMonthlyCents < 0 {
 		return fmt.Errorf("budgetMonthlyCents must be a non-negative integer")

@@ -163,12 +163,12 @@ func TestCreateAgent_SecondCaptain(t *testing.T) {
 		"squadId": squadID, "name": "C1", "shortName": "captain-1", "role": "captain",
 	})
 
-	// Domain validation catches this before DB — returns 400, not 409
+	// REQ-AGT-071: second captain returns 409 CONFLICT
 	rr := doJSON(t, env.handler, "POST", "/api/agents", map[string]any{
 		"squadId": squadID, "name": "C2", "shortName": "captain-2", "role": "captain",
 	}, []*http.Cookie{cookie})
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("second captain: status = %d, want 400; body: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusConflict {
+		t.Errorf("second captain: status = %d, want 409; body: %s", rr.Code, rr.Body.String())
 	}
 }
 

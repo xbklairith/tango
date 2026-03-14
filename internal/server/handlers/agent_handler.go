@@ -194,6 +194,9 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		captain, err := h.queries.GetSquadCaptain(r.Context(), req.SquadID)
 		if err == nil {
 			existingCaptainID = &captain.ID
+			// REQ-AGT-071: second captain returns 409 CONFLICT
+			writeJSON(w, http.StatusConflict, errorResponse{Error: "Squad already has a captain; only one captain is allowed per squad", Code: "CONFLICT"})
+			return
 		} else if !errors.Is(err, sql.ErrNoRows) {
 			slog.Error("failed to check squad captain", "error", err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
