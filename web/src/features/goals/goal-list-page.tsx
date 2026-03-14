@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import type { Goal } from "@/types/goal";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 export default function GoalListPage() {
   const { id: squadId } = useParams<{ id: string }>();
@@ -18,7 +20,10 @@ export default function GoalListPage() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Goals</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Goals</h2>
+        <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create Goal</Button>
+      </div>
       <div className="rounded-md border">
         <table className="w-full">
           <thead>

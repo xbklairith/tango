@@ -4,6 +4,8 @@ import { queryKeys } from "@/lib/query";
 import type { Squad } from "@/types/squad";
 import { Link } from "react-router";
 import { formatDate } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 export default function SquadListPage() {
   const { data: squads, isLoading } = useQuery({
@@ -19,6 +21,7 @@ export default function SquadListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Squads</h2>
+        <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create Squad</Button>
       </div>
       <div className="rounded-md border">
         <table className="w-full">

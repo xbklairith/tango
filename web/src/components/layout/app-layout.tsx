@@ -2,6 +2,7 @@ import { Outlet } from "react-router";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { useState } from "react";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -14,17 +15,11 @@ export function AppLayout() {
       </aside>
 
       {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="fixed inset-0 bg-black/50"
-            onClick={() => setSidebarOpen(false)}
-          />
-          <div className="fixed inset-y-0 left-0 w-64 bg-background shadow-lg">
-            <Sidebar onNavigate={() => setSidebarOpen(false)} />
-          </div>
-        </div>
-      )}
+      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        <SheetContent side="left" className="w-64 p-0">
+          <Sidebar onNavigate={() => setSidebarOpen(false)} />
+        </SheetContent>
+      </Sheet>
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">

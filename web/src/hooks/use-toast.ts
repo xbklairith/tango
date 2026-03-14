@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 interface Toast {
   id: string;
@@ -26,12 +26,12 @@ function dispatch(toasts: Toast[]) {
 export function useToast() {
   const [toasts, setToasts] = useState<Toast[]>(memoryToasts);
 
-  useState(() => {
+  useEffect(() => {
     listeners.add(setToasts);
     return () => {
       listeners.delete(setToasts);
     };
-  });
+  }, []);
 
   const toast = useCallback((input: ToastInput) => {
     const id = String(++toastCount);

@@ -4,6 +4,8 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import type { PaginatedResponse } from "@/types/api";
 import type { Issue } from "@/types/issue";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 export default function IssueListPage() {
   const { id: squadId } = useParams<{ id: string }>();
@@ -23,6 +25,7 @@ export default function IssueListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Issues</h2>
+        <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create Issue</Button>
       </div>
       <div className="rounded-md border">
         <table className="w-full">

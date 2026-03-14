@@ -4,6 +4,8 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import type { Agent } from "@/types/agent";
 import { agentStatusColors } from "@/types/agent";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 export default function AgentListPage() {
   const { id: squadId } = useParams<{ id: string }>();
@@ -21,6 +23,7 @@ export default function AgentListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Agents</h2>
+        <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create Agent</Button>
       </div>
       <div className="rounded-md border">
         <table className="w-full">
