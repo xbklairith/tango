@@ -1,7 +1,7 @@
 # Tasks: Activity Log
 
 **Created:** 2026-03-15
-**Status:** Ready for Implementation
+**Status:** In Progress
 
 ## Requirement Traceability
 
@@ -25,8 +25,8 @@ TDD Red-Green-Refactor in six logical groups:
 ## Progress Summary
 
 - Total Tasks: 7
-- Completed: 0
-- In Progress: None
+- Completed: 1/7
+- In Progress: TASK-02 — Domain Types + logActivity helper
 - Test Coverage: TBD
 
 ---
@@ -35,7 +35,7 @@ TDD Red-Green-Refactor in six logical groups:
 
 ---
 
-### TASK-01: Database Migration and sqlc Query Generation
+### [x] TASK-01: Database Migration and sqlc Query Generation
 
 **Requirements:** REQ-027, REQ-028, REQ-029, REQ-040, REQ-043
 **Estimated time:** 30–45 min

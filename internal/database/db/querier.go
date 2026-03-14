@@ -12,6 +12,7 @@ import (
 )
 
 type Querier interface {
+	CountActivityBySquad(ctx context.Context, arg CountActivityBySquadParams) (int64, error)
 	// NOTE: CheckCycleInHierarchy uses a recursive CTE which sqlc cannot parse.
 	// It is implemented as a raw SQL query in the repository layer. The query is:
 	//
@@ -67,6 +68,8 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
 	IncrementIssueCounter(ctx context.Context, id uuid.UUID) (IncrementIssueCounterRow, error)
 	IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) (IncrementSquadIssueCounterRow, error)
+	InsertActivityEntry(ctx context.Context, arg InsertActivityEntryParams) (ActivityLog, error)
+	ListActivityBySquad(ctx context.Context, arg ListActivityBySquadParams) ([]ActivityLog, error)
 	ListAgentChildren(ctx context.Context, parentAgentID uuid.NullUUID) ([]Agent, error)
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)

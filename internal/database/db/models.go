@@ -15,6 +15,49 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+type ActivityActorType string
+
+const (
+	ActivityActorTypeAgent  ActivityActorType = "agent"
+	ActivityActorTypeUser   ActivityActorType = "user"
+	ActivityActorTypeSystem ActivityActorType = "system"
+)
+
+func (e *ActivityActorType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ActivityActorType(s)
+	case string:
+		*e = ActivityActorType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ActivityActorType: %T", src)
+	}
+	return nil
+}
+
+type NullActivityActorType struct {
+	ActivityActorType ActivityActorType `json:"activity_actor_type"`
+	Valid             bool              `json:"valid"` // Valid is true if ActivityActorType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullActivityActorType) Scan(value interface{}) error {
+	if value == nil {
+		ns.ActivityActorType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ActivityActorType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullActivityActorType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ActivityActorType), nil
+}
+
 type AdapterType string
 
 const (
@@ -324,6 +367,18 @@ func (ns NullIssueType) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.IssueType), nil
+}
+
+type ActivityLog struct {
+	ID         uuid.UUID         `json:"id"`
+	SquadID    uuid.UUID         `json:"squad_id"`
+	ActorType  ActivityActorType `json:"actor_type"`
+	ActorID    uuid.UUID         `json:"actor_id"`
+	Action     string            `json:"action"`
+	EntityType string            `json:"entity_type"`
+	EntityID   uuid.UUID         `json:"entity_id"`
+	Metadata   json.RawMessage   `json:"metadata"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 type Agent struct {
