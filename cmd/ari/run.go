@@ -110,9 +110,11 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	membershipHandler := handlers.NewMembershipHandler(queries)
 	agentHandler := handlers.NewAgentHandler(queries, db)
 	issueHandler := handlers.NewIssueHandler(queries, db)
+	projectHandler := handlers.NewProjectHandler(queries)
+	goalHandler := handlers.NewGoalHandler(queries)
 
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, authHandler, squadHandler, membershipHandler, agentHandler, issueHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

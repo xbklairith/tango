@@ -343,6 +343,17 @@ type Agent struct {
 	UpdatedAt          time.Time             `json:"updated_at"`
 }
 
+type Goal struct {
+	ID          uuid.UUID      `json:"id"`
+	SquadID     uuid.UUID      `json:"squad_id"`
+	ParentID    uuid.NullUUID  `json:"parent_id"`
+	Title       string         `json:"title"`
+	Description sql.NullString `json:"description"`
+	Status      string         `json:"status"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
 type Issue struct {
 	ID              uuid.UUID      `json:"id"`
 	SquadID         uuid.UUID      `json:"squad_id"`
@@ -371,6 +382,16 @@ type IssueComment struct {
 	Body       string            `json:"body"`
 	CreatedAt  time.Time         `json:"created_at"`
 	UpdatedAt  time.Time         `json:"updated_at"`
+}
+
+type Project struct {
+	ID          uuid.UUID      `json:"id"`
+	SquadID     uuid.UUID      `json:"squad_id"`
+	Name        string         `json:"name"`
+	Description sql.NullString `json:"description"`
+	Status      string         `json:"status"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 type Session struct {

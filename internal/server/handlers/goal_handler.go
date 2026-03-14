@@ -1,0 +1,383 @@
+package handlers
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/xb/ari/internal/auth"
+	"github.com/xb/ari/internal/database/db"
+	"github.com/xb/ari/internal/domain"
+)
+
+// GoalHandler handles goal CRUD operations.
+type GoalHandler struct {
+	queries *db.Queries
+}
+
+// NewGoalHandler creates a new GoalHandler.
+func NewGoalHandler(q *db.Queries) *GoalHandler {
+	return &GoalHandler{queries: q}
+}
+
+// RegisterRoutes registers goal routes on the given mux.
+func (h *GoalHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/squads/{squadId}/goals", h.CreateGoal)
+	mux.HandleFunc("GET /api/squads/{squadId}/goals", h.ListGoals)
+	mux.HandleFunc("GET /api/goals/{id}", h.GetGoal)
+	mux.HandleFunc("PATCH /api/goals/{id}", h.UpdateGoal)
+}
+
+// --- Response Types ---
+
+type goalResponse struct {
+	ID          uuid.UUID        `json:"id"`
+	SquadID     uuid.UUID        `json:"squadId"`
+	ParentID    *uuid.UUID       `json:"parentId"`
+	Title       string           `json:"title"`
+	Description *string          `json:"description"`
+	Status      domain.GoalStatus `json:"status"`
+	CreatedAt   string           `json:"createdAt"`
+	UpdatedAt   string           `json:"updatedAt"`
+}
+
+func dbGoalToResponse(g db.Goal) goalResponse {
+	resp := goalResponse{
+		ID:        g.ID,
+		SquadID:   g.SquadID,
+		Title:     g.Title,
+		Status:    domain.GoalStatus(g.Status),
+		CreatedAt: g.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: g.UpdatedAt.Format(time.RFC3339),
+	}
+	if g.ParentID.Valid {
+		resp.ParentID = &g.ParentID.UUID
+	}
+	if g.Description.Valid {
+		resp.Description = &g.Description.String
+	}
+	return resp
+}
+
+// --- Squad Membership Helper ---
+
+func (h *GoalHandler) verifySquadMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (uuid.UUID, bool) {
+	identity, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return uuid.Nil, false
+	}
+	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+		UserID:  identity.UserID,
+		SquadID: squadID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+			return uuid.Nil, false
+		}
+		slog.Error("failed to check squad membership", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return uuid.Nil, false
+	}
+	return identity.UserID, true
+}
+
+// --- Handlers ---
+
+func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
+	squadIDStr := r.PathValue("squadId")
+	squadID, err := uuid.Parse(squadIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid squad ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+		return
+	}
+
+	var req domain.CreateGoalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	if err := domain.ValidateCreateGoalInput(req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Validate parent if provided
+	if req.ParentID != nil {
+		parent, err := h.queries.GetGoalByID(r.Context(), *req.ParentID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusNotFound, errorResponse{Error: "Parent goal not found", Code: "NOT_FOUND"})
+				return
+			}
+			slog.Error("failed to get parent goal", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
+		if parent.SquadID != squadID {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "Parent goal must belong to the same squad", Code: "CROSS_SQUAD_REFERENCE"})
+			return
+		}
+
+		// Check max depth: get ancestors of the parent, new goal will be one level deeper
+		ancestors, err := h.queries.GetGoalAncestors(r.Context(), *req.ParentID)
+		if err != nil {
+			slog.Error("failed to get goal ancestors", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
+		// ancestors includes all ancestors of parent. The parent itself is at depth len(ancestors)+1.
+		// The new child will be at depth len(ancestors)+2.
+		if len(ancestors)+2 > domain.MaxGoalDepth {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "Maximum goal nesting depth exceeded", Code: "MAX_DEPTH_EXCEEDED"})
+			return
+		}
+	}
+
+	params := db.CreateGoalParams{
+		SquadID: squadID,
+		Title:   req.Title,
+	}
+	if req.ParentID != nil {
+		params.ParentID = uuid.NullUUID{UUID: *req.ParentID, Valid: true}
+	}
+	if req.Description != nil {
+		params.Description = sql.NullString{String: *req.Description, Valid: true}
+	}
+
+	goal, err := h.queries.CreateGoal(r.Context(), params)
+	if err != nil {
+		slog.Error("failed to create goal", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	slog.Info("goal created", "goal_id", goal.ID, "squad_id", squadID)
+	writeJSON(w, http.StatusCreated, dbGoalToResponse(goal))
+}
+
+func (h *GoalHandler) ListGoals(w http.ResponseWriter, r *http.Request) {
+	squadIDStr := r.PathValue("squadId")
+	squadID, err := uuid.Parse(squadIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid squad ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+		return
+	}
+
+	parentIDParam := r.URL.Query().Get("parentId")
+
+	var goals []db.Goal
+
+	switch parentIDParam {
+	case "":
+		// No filter — return all goals
+		goals, err = h.queries.ListGoalsBySquad(r.Context(), squadID)
+	case "null":
+		// Top-level goals only
+		goals, err = h.queries.ListTopLevelGoalsBySquad(r.Context(), squadID)
+	default:
+		// Children of specific parent
+		parentID, parseErr := uuid.Parse(parentIDParam)
+		if parseErr != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid parentId", Code: "VALIDATION_ERROR"})
+			return
+		}
+		goals, err = h.queries.ListGoalsBySquadAndParent(r.Context(), db.ListGoalsBySquadAndParentParams{
+			SquadID:  squadID,
+			ParentID: uuid.NullUUID{UUID: parentID, Valid: true},
+		})
+	}
+
+	if err != nil {
+		slog.Error("failed to list goals", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	result := make([]goalResponse, 0, len(goals))
+	for _, g := range goals {
+		result = append(result, dbGoalToResponse(g))
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *GoalHandler) GetGoal(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	goalID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid goal ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	goal, err := h.queries.GetGoalByID(r.Context(), goalID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Goal not found", Code: "NOT_FOUND"})
+			return
+		}
+		slog.Error("failed to get goal", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if _, ok := h.verifySquadMembership(w, r, goal.SquadID); !ok {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dbGoalToResponse(goal))
+}
+
+func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	goalID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid goal ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Parse raw JSON to detect sentinel keys
+	var rawBody map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&rawBody); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	bodyBytes, err := json.Marshal(rawBody)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
+		return
+	}
+	var req domain.UpdateGoalRequest
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Detect sentinel fields
+	if _, has := rawBody["description"]; has {
+		req.SetDescription = true
+	}
+	if _, has := rawBody["parentId"]; has {
+		req.SetParent = true
+	}
+
+	if err := domain.ValidateUpdateGoalInput(req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Fetch existing goal
+	existing, err := h.queries.GetGoalByID(r.Context(), goalID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Goal not found", Code: "NOT_FOUND"})
+			return
+		}
+		slog.Error("failed to get goal", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+		return
+	}
+
+	// Status transition validation
+	if req.Status != nil {
+		if err := domain.ValidateGoalTransition(domain.GoalStatus(existing.Status), *req.Status); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: err.Error(), Code: "INVALID_STATUS_TRANSITION"})
+			return
+		}
+	}
+
+	// Validate parentId if changing
+	if req.SetParent && req.ParentID != nil {
+		// Self-reference check
+		if *req.ParentID == goalID {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "A goal cannot be its own parent", Code: "CIRCULAR_REFERENCE"})
+			return
+		}
+
+		// Parent exists and same squad
+		parent, err := h.queries.GetGoalByID(r.Context(), *req.ParentID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusNotFound, errorResponse{Error: "Parent goal not found", Code: "NOT_FOUND"})
+				return
+			}
+			slog.Error("failed to get parent goal", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
+		if parent.SquadID != existing.SquadID {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "Parent goal must belong to the same squad", Code: "CROSS_SQUAD_REFERENCE"})
+			return
+		}
+
+		// Cycle detection: check if goalID appears in the ancestor chain of the new parent
+		ancestors, err := h.queries.GetGoalAncestors(r.Context(), *req.ParentID)
+		if err != nil {
+			slog.Error("failed to get goal ancestors", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
+		for _, ancestorID := range ancestors {
+			if ancestorID == goalID {
+				writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "This parent assignment would create a circular reference", Code: "CIRCULAR_REFERENCE"})
+				return
+			}
+		}
+		// Also check if the parent itself is the goal (already checked above) or if parent's ID is in the chain
+		// The ancestor list doesn't include the node itself, so also check parentID directly
+		// (already handled by self-reference check above)
+
+		// Max depth check: ancestors of the new parent + the parent itself + this goal
+		// Plus any children this goal might have
+		if len(ancestors)+2 > domain.MaxGoalDepth {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "Maximum goal nesting depth exceeded", Code: "MAX_DEPTH_EXCEEDED"})
+			return
+		}
+	}
+
+	// Build update params
+	params := db.UpdateGoalParams{ID: goalID}
+	if req.Title != nil {
+		params.Title = sql.NullString{String: *req.Title, Valid: true}
+	}
+	params.SetDescription = req.SetDescription
+	if req.SetDescription && req.Description != nil {
+		params.Description = sql.NullString{String: *req.Description, Valid: true}
+	}
+	params.SetParent = req.SetParent
+	if req.SetParent && req.ParentID != nil {
+		params.ParentID = uuid.NullUUID{UUID: *req.ParentID, Valid: true}
+	}
+	if req.Status != nil {
+		params.Status = sql.NullString{String: string(*req.Status), Valid: true}
+	}
+
+	updated, err := h.queries.UpdateGoal(r.Context(), params)
+	if err != nil {
+		slog.Error("failed to update goal", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	slog.Info("goal updated", "goal_id", updated.ID)
+	writeJSON(w, http.StatusOK, dbGoalToResponse(updated))
+}
