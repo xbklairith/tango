@@ -22,8 +22,8 @@ Build in 5 batches following dependency order. Each batch is independently testa
 ## Progress Summary
 
 - Total Tasks: 18
-- Completed: 2/18
-- In Progress: Batch 1
+- Completed: 5/18
+- In Progress: Batch 2
 - Test Coverage: 0 / 18 tasks tested
 
 ---
@@ -221,7 +221,7 @@ test("dashboard reflects active squad after squad switch", async ({ page }) => {
 
 ---
 
-### Task 1.1 — `Textarea` UI primitive
+### [x] Task 1.1 — `Textarea` UI primitive
 
 **Requirements:** REQ-067, REQ-069
 
@@ -289,7 +289,7 @@ export function Textarea({ className, ...props }: TextareaProps) {
 
 ---
 
-### Task 1.2 — `FormDialog` shared shell
+### [x] Task 1.2 — `FormDialog` shared shell
 
 **Requirements:** REQ-030, REQ-067, REQ-068
 
@@ -387,7 +387,7 @@ export function FormDialog({ open, onOpenChange, title, description, isPending, 
 
 ---
 
-### Task 1.3 — `PaginationControls` component
+### [x] Task 1.3 — `PaginationControls` component
 
 **Requirements:** REQ-025, REQ-026, REQ-052, REQ-053, REQ-064
 
