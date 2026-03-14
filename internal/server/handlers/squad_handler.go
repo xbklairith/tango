@@ -22,13 +22,19 @@ import (
 
 // SquadHandler handles squad CRUD operations.
 type SquadHandler struct {
-	queries *db.Queries
-	dbConn  *sql.DB
+	queries       *db.Queries
+	dbConn        *sql.DB
+	budgetService *BudgetEnforcementService
 }
 
 // NewSquadHandler creates a SquadHandler with dependencies.
 func NewSquadHandler(q *db.Queries, dbConn *sql.DB) *SquadHandler {
 	return &SquadHandler{queries: q, dbConn: dbConn}
+}
+
+// SetBudgetService sets the budget enforcement service for squad budget integration.
+func (h *SquadHandler) SetBudgetService(bs *BudgetEnforcementService) {
+	h.budgetService = bs
 }
 
 // RegisterRoutes registers squad CRUD routes. Auth middleware is applied at the server level.
@@ -683,6 +689,13 @@ func (h *SquadHandler) UpdateBudget(w http.ResponseWriter, r *http.Request) {
 		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
+	}
+
+	// Re-evaluate squad budget after change
+	if h.budgetService != nil {
+		if _, err := h.budgetService.ReEvaluateSquad(r.Context(), squadID); err != nil {
+			slog.Error("failed to re-evaluate squad budget after update", "squad_id", squadID, "error", err)
+		}
 	}
 
 	slog.Info("squad budget updated", "squad_id", squad.ID)

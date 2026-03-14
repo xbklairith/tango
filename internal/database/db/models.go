@@ -398,6 +398,19 @@ type Agent struct {
 	UpdatedAt          time.Time             `json:"updated_at"`
 }
 
+type CostEvent struct {
+	ID           uuid.UUID             `json:"id"`
+	SquadID      uuid.UUID             `json:"squad_id"`
+	AgentID      uuid.UUID             `json:"agent_id"`
+	AmountCents  int64                 `json:"amount_cents"`
+	EventType    string                `json:"event_type"`
+	Model        sql.NullString        `json:"model"`
+	InputTokens  sql.NullInt64         `json:"input_tokens"`
+	OutputTokens sql.NullInt64         `json:"output_tokens"`
+	Metadata     pqtype.NullRawMessage `json:"metadata"`
+	CreatedAt    time.Time             `json:"created_at"`
+}
+
 type Goal struct {
 	ID          uuid.UUID      `json:"id"`
 	SquadID     uuid.UUID      `json:"squad_id"`

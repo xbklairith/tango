@@ -20,13 +20,19 @@ import (
 
 // AgentHandler handles agent CRUD and status transition operations.
 type AgentHandler struct {
-	queries *db.Queries
-	dbConn  *sql.DB
+	queries       *db.Queries
+	dbConn        *sql.DB
+	budgetService *BudgetEnforcementService
 }
 
 // NewAgentHandler creates a new AgentHandler.
 func NewAgentHandler(q *db.Queries, dbConn *sql.DB) *AgentHandler {
 	return &AgentHandler{queries: q, dbConn: dbConn}
+}
+
+// SetBudgetService sets the budget enforcement service for agent budget integration.
+func (h *AgentHandler) SetBudgetService(bs *BudgetEnforcementService) {
+	h.budgetService = bs
 }
 
 // RegisterRoutes registers agent routes on the given mux.
@@ -624,6 +630,13 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Re-evaluate budget if budget was changed
+	if req.SetBudget && h.budgetService != nil {
+		if _, err := h.budgetService.ReEvaluateAgent(r.Context(), agentID); err != nil {
+			slog.Error("failed to re-evaluate agent budget after update", "agent_id", agentID, "error", err)
+		}
+	}
+
 	slog.Info("agent updated", "agent_id", agent.ID)
 	writeJSON(w, http.StatusOK, dbAgentToResponse(agent))
 }
@@ -662,6 +675,22 @@ func (h *AgentHandler) TransitionAgentStatus(w http.ResponseWriter, r *http.Requ
 	if err := domain.ValidateStatusTransition(domain.AgentStatus(existing.Status), req.Status); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "INVALID_STATUS_TRANSITION"})
 		return
+	}
+
+	// Guard resume transitions (paused -> active) against budget exceeded
+	if domain.AgentStatus(existing.Status) == domain.AgentStatusPaused &&
+		req.Status == domain.AgentStatusActive &&
+		h.budgetService != nil {
+		if err := h.budgetService.CheckResumeAllowed(r.Context(), agentID); err != nil {
+			var budgetErr *BudgetExceededError
+			if errors.As(err, &budgetErr) {
+				writeJSON(w, http.StatusConflict, errorResponse{Error: budgetErr.Error(), Code: "BUDGET_EXCEEDED"})
+				return
+			}
+			slog.Error("failed to check budget for resume", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	// Get actor identity for activity logging

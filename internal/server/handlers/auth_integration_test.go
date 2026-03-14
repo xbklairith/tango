@@ -101,7 +101,7 @@ func freePortForMain() int {
 // cleanDB truncates users and sessions tables between tests.
 func cleanDB(t *testing.T) {
 	t.Helper()
-	_, err := testDB.ExecContext(context.Background(), "TRUNCATE issue_comments, issues, goals, projects, agents, squad_memberships, squads, sessions, users CASCADE")
+	_, err := testDB.ExecContext(context.Background(), "TRUNCATE activity_log, cost_events, issue_comments, issues, goals, projects, agents, squad_memberships, squads, sessions, users CASCADE")
 	if err != nil {
 		t.Fatalf("failed to clean DB: %v", err)
 	}
@@ -142,6 +142,10 @@ func makeEnv(t *testing.T, mode auth.DeploymentMode, disableSignUp bool) *testEn
 	projectHandler := handlers.NewProjectHandler(queries, testDB)
 	goalHandler := handlers.NewGoalHandler(queries, testDB)
 	activityHandler := handlers.NewActivityHandler(queries)
+	budgetService := handlers.NewBudgetEnforcementService(queries, testDB)
+	agentHandler.SetBudgetService(budgetService)
+	squadHandler.SetBudgetService(budgetService)
+	costHandler := handlers.NewCostHandler(queries, testDB, budgetService)
 
 	mux := http.NewServeMux()
 	authHandler.RegisterRoutes(mux)
@@ -152,6 +156,7 @@ func makeEnv(t *testing.T, mode auth.DeploymentMode, disableSignUp bool) *testEn
 	projectHandler.RegisterRoutes(mux)
 	goalHandler.RegisterRoutes(mux)
 	activityHandler.RegisterRoutes(mux)
+	costHandler.RegisterRoutes(mux)
 
 	var handler http.Handler = mux
 	if mode == auth.ModeAuthenticated {
