@@ -42,6 +42,22 @@ type commentResp struct {
 	UpdatedAt  string `json:"updatedAt"`
 }
 
+type issueListEnvelope struct {
+	Data       []issueResp    `json:"data"`
+	Pagination paginationResp `json:"pagination"`
+}
+
+type commentListEnvelope struct {
+	Data       []commentResp  `json:"data"`
+	Pagination paginationResp `json:"pagination"`
+}
+
+type paginationResp struct {
+	Limit  int   `json:"limit"`
+	Offset int   `json:"offset"`
+	Total  int64 `json:"total"`
+}
+
 // --- Helpers ---
 
 func createIssue(t *testing.T, env *testEnv, cookie *http.Cookie, squadID string, body map[string]any) (*issueResp, int) {
@@ -53,6 +69,25 @@ func createIssue(t *testing.T, env *testEnv, cookie *http.Cookie, squadID string
 		return &i, rr.Code
 	}
 	return nil, rr.Code
+}
+
+// setupSquadAndAuthWithUserID creates a user, logs in, creates a squad, returns (cookie, squadID, userID).
+func setupSquadAndAuthWithUserID(t *testing.T, env *testEnv, email string) (*http.Cookie, string, string) {
+	t.Helper()
+	registerUser(t, env, email, "TestUser", strongPassword())
+	loginRR, lr := loginUser(t, env, email, strongPassword())
+	cookie := sessionCookie(loginRR)
+
+	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
+		"name":        "Test Squad",
+		"issuePrefix": fmt.Sprintf("TS%s", strings.ToUpper(email[:2])),
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create squad: status = %d, body: %s", rr.Code, rr.Body.String())
+	}
+	var squad squadResp
+	json.NewDecoder(rr.Body).Decode(&squad)
+	return cookie, squad.ID, lr.User.ID
 }
 
 // --- Tests ---
@@ -76,7 +111,6 @@ func TestCreateIssue_MinimalFields(t *testing.T) {
 	if issue.SquadID != squadID {
 		t.Errorf("squadId = %q, want %q", issue.SquadID, squadID)
 	}
-	// Default prefix from setupSquadAndAuth: "TS" + upper first 2 chars of email
 	prefix := fmt.Sprintf("TS%s", strings.ToUpper("iss-min@example.com"[:2]))
 	expectedIdentifier := prefix + "-1"
 	if issue.Identifier != expectedIdentifier {
@@ -197,7 +231,6 @@ func TestListIssues_DefaultPagination(t *testing.T) {
 	env := makeEnv(t, auth.ModeAuthenticated, false)
 	cookie, squadID := setupSquadAndAuth(t, env, "iss-list@example.com")
 
-	// Create 3 issues
 	for i := 0; i < 3; i++ {
 		createIssue(t, env, cookie, squadID, map[string]any{
 			"title": fmt.Sprintf("Issue %d", i+1),
@@ -209,10 +242,19 @@ func TestListIssues_DefaultPagination(t *testing.T) {
 		t.Fatalf("list issues: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
 	}
 
-	var issues []issueResp
-	json.NewDecoder(rr.Body).Decode(&issues)
-	if len(issues) != 3 {
-		t.Errorf("got %d issues, want 3", len(issues))
+	var envelope issueListEnvelope
+	json.NewDecoder(rr.Body).Decode(&envelope)
+	if len(envelope.Data) != 3 {
+		t.Errorf("got %d issues, want 3", len(envelope.Data))
+	}
+	if envelope.Pagination.Total != 3 {
+		t.Errorf("total = %d, want 3", envelope.Pagination.Total)
+	}
+	if envelope.Pagination.Limit != 50 {
+		t.Errorf("limit = %d, want 50", envelope.Pagination.Limit)
+	}
+	if envelope.Pagination.Offset != 0 {
+		t.Errorf("offset = %d, want 0", envelope.Pagination.Offset)
 	}
 }
 
@@ -238,7 +280,6 @@ func TestUpdateIssue_Title(t *testing.T) {
 	if updated.Title != "New title" {
 		t.Errorf("title = %q, want %q", updated.Title, "New title")
 	}
-	// Identifier should not change
 	if updated.Identifier != created.Identifier {
 		t.Errorf("identifier changed: %q -> %q", created.Identifier, updated.Identifier)
 	}
@@ -255,7 +296,6 @@ func TestUpdateIssue_ValidStatusTransition(t *testing.T) {
 		"title": "Status test",
 	})
 
-	// backlog -> todo (valid)
 	rr := doJSON(t, env.handler, "PATCH", "/api/issues/"+created.ID,
 		map[string]any{"status": "todo"}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusOK {
@@ -280,7 +320,6 @@ func TestUpdateIssue_InvalidStatusTransition(t *testing.T) {
 		"title": "Bad transition",
 	})
 
-	// backlog -> done (invalid, must go through in_progress first)
 	rr := doJSON(t, env.handler, "PATCH", "/api/issues/"+created.ID,
 		map[string]any{"status": "done"}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusUnprocessableEntity {
@@ -310,6 +349,13 @@ func TestDeleteIssue_NoSubTasks(t *testing.T) {
 		t.Fatalf("delete issue: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
 	}
 
+	// Verify delete response message
+	var body map[string]string
+	json.NewDecoder(rr.Body).Decode(&body)
+	if body["message"] != "issue deleted" {
+		t.Errorf("message = %q, want %q", body["message"], "issue deleted")
+	}
+
 	// Verify issue is gone
 	rr = doJSON(t, env.handler, "GET", "/api/issues/"+created.ID, map[string]any{}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusNotFound {
@@ -332,7 +378,6 @@ func TestDeleteIssue_WithSubTasks(t *testing.T) {
 		"parentId": parent.ID,
 	})
 
-	// Attempt to delete parent with sub-tasks should fail
 	rr := doJSON(t, env.handler, "DELETE", "/api/issues/"+parent.ID, map[string]any{}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusConflict {
 		t.Errorf("delete with sub-tasks: status = %d, want 409; body: %s", rr.Code, rr.Body.String())
@@ -350,14 +395,18 @@ func TestCreateComment(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 	env := makeEnv(t, auth.ModeAuthenticated, false)
-	cookie, squadID := setupSquadAndAuth(t, env, "iss-cmcr@example.com")
+	cookie, squadID, userID := setupSquadAndAuthWithUserID(t, env, "iss-cmcr@example.com")
 
 	issue, _ := createIssue(t, env, cookie, squadID, map[string]any{
 		"title": "Comment target",
 	})
 
 	rr := doJSON(t, env.handler, "POST", "/api/issues/"+issue.ID+"/comments",
-		map[string]any{"body": "This is a comment"}, []*http.Cookie{cookie})
+		map[string]any{
+			"body":       "This is a comment",
+			"authorType": "user",
+			"authorId":   userID,
+		}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create comment: status = %d, want 201; body: %s", rr.Code, rr.Body.String())
 	}
@@ -373,6 +422,9 @@ func TestCreateComment(t *testing.T) {
 	if comment.AuthorType != "user" {
 		t.Errorf("authorType = %q, want %q", comment.AuthorType, "user")
 	}
+	if comment.AuthorID != userID {
+		t.Errorf("authorId = %q, want %q", comment.AuthorID, userID)
+	}
 }
 
 func TestListComments(t *testing.T) {
@@ -380,16 +432,19 @@ func TestListComments(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 	env := makeEnv(t, auth.ModeAuthenticated, false)
-	cookie, squadID := setupSquadAndAuth(t, env, "iss-cmls@example.com")
+	cookie, squadID, userID := setupSquadAndAuthWithUserID(t, env, "iss-cmls@example.com")
 
 	issue, _ := createIssue(t, env, cookie, squadID, map[string]any{
 		"title": "Comments list target",
 	})
 
-	// Create 2 comments
 	for i := 0; i < 2; i++ {
 		doJSON(t, env.handler, "POST", "/api/issues/"+issue.ID+"/comments",
-			map[string]any{"body": fmt.Sprintf("Comment %d", i+1)}, []*http.Cookie{cookie})
+			map[string]any{
+				"body":       fmt.Sprintf("Comment %d", i+1),
+				"authorType": "user",
+				"authorId":   userID,
+			}, []*http.Cookie{cookie})
 	}
 
 	rr := doJSON(t, env.handler, "GET", "/api/issues/"+issue.ID+"/comments", map[string]any{}, []*http.Cookie{cookie})
@@ -397,10 +452,13 @@ func TestListComments(t *testing.T) {
 		t.Fatalf("list comments: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
 	}
 
-	var comments []commentResp
-	json.NewDecoder(rr.Body).Decode(&comments)
-	if len(comments) != 2 {
-		t.Errorf("got %d comments, want 2", len(comments))
+	var envelope commentListEnvelope
+	json.NewDecoder(rr.Body).Decode(&envelope)
+	if len(envelope.Data) != 2 {
+		t.Errorf("got %d comments, want 2", len(envelope.Data))
+	}
+	if envelope.Pagination.Total != 2 {
+		t.Errorf("total = %d, want 2", envelope.Pagination.Total)
 	}
 }
 
@@ -442,11 +500,11 @@ func TestReopenIssue_CreatesSystemComment(t *testing.T) {
 		t.Fatalf("list comments after reopen: status = %d, want 200", cmRR.Code)
 	}
 
-	var comments []commentResp
-	json.NewDecoder(cmRR.Body).Decode(&comments)
+	var envelope commentListEnvelope
+	json.NewDecoder(cmRR.Body).Decode(&envelope)
 
 	found := false
-	for _, c := range comments {
+	for _, c := range envelope.Data {
 		if c.AuthorType == "system" && strings.Contains(c.Body, "reopened") {
 			found = true
 			break
@@ -504,7 +562,6 @@ func TestUpdateIssue_CycleDetection(t *testing.T) {
 	env := makeEnv(t, auth.ModeAuthenticated, false)
 	cookie, squadID := setupSquadAndAuth(t, env, "iss-cycle@example.com")
 
-	// Create A -> B -> C chain
 	issueA, _ := createIssue(t, env, cookie, squadID, map[string]any{
 		"title": "Issue A",
 	})
@@ -565,12 +622,10 @@ func TestListIssues_FilterByStatus(t *testing.T) {
 	env := makeEnv(t, auth.ModeAuthenticated, false)
 	cookie, squadID := setupSquadAndAuth(t, env, "iss-filt@example.com")
 
-	// Create 2 backlog issues and 1 todo
 	createIssue(t, env, cookie, squadID, map[string]any{"title": "Backlog 1"})
 	createIssue(t, env, cookie, squadID, map[string]any{"title": "Backlog 2"})
 	todo, _ := createIssue(t, env, cookie, squadID, map[string]any{"title": "Todo"})
 
-	// Move one to todo
 	doJSON(t, env.handler, "PATCH", "/api/issues/"+todo.ID,
 		map[string]any{"status": "todo"}, []*http.Cookie{cookie})
 
@@ -579,13 +634,16 @@ func TestListIssues_FilterByStatus(t *testing.T) {
 		t.Fatalf("list issues with status filter: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
 	}
 
-	var issues []issueResp
-	json.NewDecoder(rr.Body).Decode(&issues)
-	if len(issues) != 1 {
-		t.Errorf("got %d issues, want 1", len(issues))
+	var envelope issueListEnvelope
+	json.NewDecoder(rr.Body).Decode(&envelope)
+	if len(envelope.Data) != 1 {
+		t.Errorf("got %d issues, want 1", len(envelope.Data))
 	}
-	if len(issues) == 1 && issues[0].Status != "todo" {
-		t.Errorf("issue status = %q, want %q", issues[0].Status, "todo")
+	if len(envelope.Data) == 1 && envelope.Data[0].Status != "todo" {
+		t.Errorf("issue status = %q, want %q", envelope.Data[0].Status, "todo")
+	}
+	if envelope.Pagination.Total != 1 {
+		t.Errorf("total = %d, want 1", envelope.Pagination.Total)
 	}
 }
 
@@ -600,7 +658,6 @@ func TestUpdateIssue_SelfParent(t *testing.T) {
 		"title": "Self parent test",
 	})
 
-	// Attempt to set issue as its own parent
 	rr := doJSON(t, env.handler, "PATCH", "/api/issues/"+issue.ID,
 		map[string]any{"parentId": issue.ID}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusBadRequest {
@@ -626,14 +683,18 @@ func TestCreateComment_EmptyBody(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 	env := makeEnv(t, auth.ModeAuthenticated, false)
-	cookie, squadID := setupSquadAndAuth(t, env, "iss-cmeb@example.com")
+	cookie, squadID, userID := setupSquadAndAuthWithUserID(t, env, "iss-cmeb@example.com")
 
 	issue, _ := createIssue(t, env, cookie, squadID, map[string]any{
 		"title": "Empty comment test",
 	})
 
 	rr := doJSON(t, env.handler, "POST", "/api/issues/"+issue.ID+"/comments",
-		map[string]any{"body": ""}, []*http.Cookie{cookie})
+		map[string]any{
+			"body":       "",
+			"authorType": "user",
+			"authorId":   userID,
+		}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("empty comment body: status = %d, want 400; body: %s", rr.Code, rr.Body.String())
 	}
@@ -680,5 +741,34 @@ func TestCreateIssue_MissingTitle(t *testing.T) {
 	})
 	if status != http.StatusBadRequest {
 		t.Errorf("missing title: status = %d, want 400", status)
+	}
+}
+
+func TestUpdateIssue_ClearDescription(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	env := makeEnv(t, auth.ModeAuthenticated, false)
+	cookie, squadID := setupSquadAndAuth(t, env, "iss-cldesc@example.com")
+
+	issue, _ := createIssue(t, env, cookie, squadID, map[string]any{
+		"title":       "Desc test",
+		"description": "Some description",
+	})
+	if issue.Description == nil || *issue.Description != "Some description" {
+		t.Fatalf("description = %v, want %q", issue.Description, "Some description")
+	}
+
+	// Clear description by sending null
+	rr := doJSON(t, env.handler, "PATCH", "/api/issues/"+issue.ID,
+		map[string]any{"description": nil}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear description: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var updated issueResp
+	json.NewDecoder(rr.Body).Decode(&updated)
+	if updated.Description != nil {
+		t.Errorf("description = %v, want nil after clearing", updated.Description)
 	}
 }

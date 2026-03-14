@@ -20,7 +20,7 @@ SELECT * FROM issues WHERE squad_id = @squad_id AND identifier = @identifier;
 UPDATE issues
 SET
     title             = COALESCE(sqlc.narg('title'), title),
-    description       = COALESCE(sqlc.narg('description'), description),
+    description       = CASE WHEN sqlc.arg('set_description')::boolean THEN sqlc.narg('description') ELSE description END,
     type              = COALESCE(sqlc.narg('type'), type),
     status            = COALESCE(sqlc.narg('status'), status),
     priority          = COALESCE(sqlc.narg('priority'), priority),
@@ -58,6 +58,18 @@ ORDER BY
     created_at DESC
 LIMIT  @page_limit
 OFFSET @page_offset;
+
+-- name: CountIssuesBySquad :one
+SELECT count(*) FROM issues
+WHERE squad_id = @squad_id
+  AND (sqlc.narg('filter_status')::issue_status IS NULL           OR status = sqlc.narg('filter_status'))
+  AND (sqlc.narg('filter_priority')::issue_priority IS NULL       OR priority = sqlc.narg('filter_priority'))
+  AND (sqlc.narg('filter_type')::issue_type IS NULL               OR type = sqlc.narg('filter_type'))
+  AND (sqlc.narg('filter_assignee_agent_id')::UUID IS NULL        OR assignee_agent_id = sqlc.narg('filter_assignee_agent_id'))
+  AND (sqlc.narg('filter_assignee_user_id')::UUID IS NULL         OR assignee_user_id = sqlc.narg('filter_assignee_user_id'))
+  AND (sqlc.narg('filter_project_id')::UUID IS NULL               OR project_id = sqlc.narg('filter_project_id'))
+  AND (sqlc.narg('filter_goal_id')::UUID IS NULL                  OR goal_id = sqlc.narg('filter_goal_id'))
+  AND (sqlc.narg('filter_parent_id')::UUID IS NULL                OR parent_id = sqlc.narg('filter_parent_id'));
 
 -- name: IncrementSquadIssueCounter :one
 UPDATE squads

@@ -12,6 +12,48 @@ import (
 	"github.com/google/uuid"
 )
 
+const countIssuesBySquad = `-- name: CountIssuesBySquad :one
+SELECT count(*) FROM issues
+WHERE squad_id = $1
+  AND ($2::issue_status IS NULL           OR status = $2)
+  AND ($3::issue_priority IS NULL       OR priority = $3)
+  AND ($4::issue_type IS NULL               OR type = $4)
+  AND ($5::UUID IS NULL        OR assignee_agent_id = $5)
+  AND ($6::UUID IS NULL         OR assignee_user_id = $6)
+  AND ($7::UUID IS NULL               OR project_id = $7)
+  AND ($8::UUID IS NULL                  OR goal_id = $8)
+  AND ($9::UUID IS NULL                OR parent_id = $9)
+`
+
+type CountIssuesBySquadParams struct {
+	SquadID               uuid.UUID         `json:"squad_id"`
+	FilterStatus          NullIssueStatus   `json:"filter_status"`
+	FilterPriority        NullIssuePriority `json:"filter_priority"`
+	FilterType            NullIssueType     `json:"filter_type"`
+	FilterAssigneeAgentID uuid.NullUUID     `json:"filter_assignee_agent_id"`
+	FilterAssigneeUserID  uuid.NullUUID     `json:"filter_assignee_user_id"`
+	FilterProjectID       uuid.NullUUID     `json:"filter_project_id"`
+	FilterGoalID          uuid.NullUUID     `json:"filter_goal_id"`
+	FilterParentID        uuid.NullUUID     `json:"filter_parent_id"`
+}
+
+func (q *Queries) CountIssuesBySquad(ctx context.Context, arg CountIssuesBySquadParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countIssuesBySquad,
+		arg.SquadID,
+		arg.FilterStatus,
+		arg.FilterPriority,
+		arg.FilterType,
+		arg.FilterAssigneeAgentID,
+		arg.FilterAssigneeUserID,
+		arg.FilterProjectID,
+		arg.FilterGoalID,
+		arg.FilterParentID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countSubTasks = `-- name: CountSubTasks :one
 SELECT count(*) FROM issues WHERE parent_id = $1
 `
@@ -279,22 +321,23 @@ const updateIssue = `-- name: UpdateIssue :one
 UPDATE issues
 SET
     title             = COALESCE($1, title),
-    description       = COALESCE($2, description),
-    type              = COALESCE($3, type),
-    status            = COALESCE($4, status),
-    priority          = COALESCE($5, priority),
-    parent_id         = CASE WHEN $6::boolean THEN $7 ELSE parent_id END,
-    project_id        = CASE WHEN $8::boolean THEN $9 ELSE project_id END,
-    goal_id           = CASE WHEN $10::boolean THEN $11 ELSE goal_id END,
-    assignee_agent_id = CASE WHEN $12::boolean THEN $13 ELSE assignee_agent_id END,
-    assignee_user_id  = CASE WHEN $14::boolean THEN $15 ELSE assignee_user_id END,
-    billing_code      = CASE WHEN $16::boolean THEN $17 ELSE billing_code END
-WHERE id = $18
+    description       = CASE WHEN $2::boolean THEN $3 ELSE description END,
+    type              = COALESCE($4, type),
+    status            = COALESCE($5, status),
+    priority          = COALESCE($6, priority),
+    parent_id         = CASE WHEN $7::boolean THEN $8 ELSE parent_id END,
+    project_id        = CASE WHEN $9::boolean THEN $10 ELSE project_id END,
+    goal_id           = CASE WHEN $11::boolean THEN $12 ELSE goal_id END,
+    assignee_agent_id = CASE WHEN $13::boolean THEN $14 ELSE assignee_agent_id END,
+    assignee_user_id  = CASE WHEN $15::boolean THEN $16 ELSE assignee_user_id END,
+    billing_code      = CASE WHEN $17::boolean THEN $18 ELSE billing_code END
+WHERE id = $19
 RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at
 `
 
 type UpdateIssueParams struct {
 	Title            sql.NullString    `json:"title"`
+	SetDescription   bool              `json:"set_description"`
 	Description      sql.NullString    `json:"description"`
 	Type             NullIssueType     `json:"type"`
 	Status           NullIssueStatus   `json:"status"`
@@ -317,6 +360,7 @@ type UpdateIssueParams struct {
 func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error) {
 	row := q.db.QueryRowContext(ctx, updateIssue,
 		arg.Title,
+		arg.SetDescription,
 		arg.Description,
 		arg.Type,
 		arg.Status,

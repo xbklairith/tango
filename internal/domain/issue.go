@@ -161,6 +161,7 @@ type CreateIssueRequest struct {
 type UpdateIssueRequest struct {
 	Title            *string        `json:"title,omitempty"`
 	Description      *string        `json:"description,omitempty"`
+	SetDescription   bool           `json:"-"`
 	Type             *IssueType     `json:"type,omitempty"`
 	Status           *IssueStatus   `json:"status,omitempty"`
 	Priority         *IssuePriority `json:"priority,omitempty"`
@@ -179,7 +180,9 @@ type UpdateIssueRequest struct {
 }
 
 type CreateCommentRequest struct {
-	Body string `json:"body"`
+	AuthorType CommentAuthorType `json:"authorType"`
+	AuthorID   uuid.UUID         `json:"authorId"`
+	Body       string            `json:"body"`
 }
 
 type IssueListParams struct {

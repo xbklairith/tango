@@ -26,6 +26,7 @@ type Querier interface {
 	// SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = $2) AS would_cycle;
 	CountAgentsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountIssueComments(ctx context.Context, issueID uuid.UUID) (int64, error)
+	CountIssuesBySquad(ctx context.Context, arg CountIssuesBySquadParams) (int64, error)
 	CountSquadOwners(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountSubTasks(ctx context.Context, parentID uuid.NullUUID) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)

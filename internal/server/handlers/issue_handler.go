@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/xb/ari/internal/domain"
 )
 
-var identifierPattern = regexp.MustCompile(`^[A-Z0-9]{2,10}-\d+$`)
+var identifierPattern = regexp.MustCompile(`^[A-Z]{2,10}-\d+$`)
 
 type IssueHandler struct {
 	queries *db.Queries
@@ -61,6 +62,22 @@ type issueResponse struct {
 	UpdatedAt       string               `json:"updatedAt"`
 }
 
+type paginationMeta struct {
+	Limit  int   `json:"limit"`
+	Offset int   `json:"offset"`
+	Total  int64 `json:"total"`
+}
+
+type issueListResponse struct {
+	Data       []issueResponse `json:"data"`
+	Pagination paginationMeta  `json:"pagination"`
+}
+
+type commentListResponse struct {
+	Data       []commentResponse `json:"data"`
+	Pagination paginationMeta    `json:"pagination"`
+}
+
 type commentResponse struct {
 	ID         uuid.UUID                `json:"id"`
 	IssueID    uuid.UUID                `json:"issueId"`
@@ -81,8 +98,8 @@ func dbIssueToResponse(i db.Issue) issueResponse {
 		Status:       domain.IssueStatus(i.Status),
 		Priority:     domain.IssuePriority(i.Priority),
 		RequestDepth: int(i.RequestDepth),
-		CreatedAt:    i.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:    i.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:    i.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    i.UpdatedAt.Format(time.RFC3339),
 	}
 	if i.Description.Valid {
 		resp.Description = &i.Description.String
@@ -115,8 +132,8 @@ func dbCommentToResponse(c db.IssueComment) commentResponse {
 		AuthorType: domain.CommentAuthorType(c.AuthorType),
 		AuthorID:   c.AuthorID,
 		Body:       c.Body,
-		CreatedAt:  c.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:  c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:  c.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  c.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -365,11 +382,37 @@ func (h *IssueHandler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := make([]issueResponse, 0, len(issues))
-	for _, i := range issues {
-		result = append(result, dbIssueToResponse(i))
+	// Count total matching issues for pagination
+	countParams := db.CountIssuesBySquadParams{
+		SquadID:               dbParams.SquadID,
+		FilterStatus:          dbParams.FilterStatus,
+		FilterPriority:        dbParams.FilterPriority,
+		FilterType:            dbParams.FilterType,
+		FilterAssigneeAgentID: dbParams.FilterAssigneeAgentID,
+		FilterAssigneeUserID:  dbParams.FilterAssigneeUserID,
+		FilterProjectID:       dbParams.FilterProjectID,
+		FilterGoalID:          dbParams.FilterGoalID,
+		FilterParentID:        dbParams.FilterParentID,
 	}
-	writeJSON(w, http.StatusOK, result)
+	total, err := h.queries.CountIssuesBySquad(r.Context(), countParams)
+	if err != nil {
+		slog.Error("failed to count issues", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	data := make([]issueResponse, 0, len(issues))
+	for _, i := range issues {
+		data = append(data, dbIssueToResponse(i))
+	}
+	writeJSON(w, http.StatusOK, issueListResponse{
+		Data: data,
+		Pagination: paginationMeta{
+			Limit:  params.Limit,
+			Offset: params.Offset,
+			Total:  total,
+		},
+	})
 }
 
 func (h *IssueHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
@@ -417,7 +460,7 @@ func (h *IssueHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		// UUID lookup
 		issueID, parseErr := uuid.Parse(idParam)
 		if parseErr != nil {
-			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id must be a UUID or identifier like ARI-39", Code: "VALIDATION_ERROR"})
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "not a valid UUID or identifier format", Code: "INVALID_ID"})
 			return
 		}
 		issue, err = h.queries.GetIssueByID(r.Context(), issueID)
@@ -465,6 +508,9 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Detect sentinel fields (present in JSON means "set this field", even if null)
+	if _, has := rawBody["description"]; has {
+		req.SetDescription = true
+	}
 	if _, has := rawBody["parentId"]; has {
 		req.SetParent = true
 	}
@@ -584,7 +630,8 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	if req.Title != nil {
 		params.Title = sql.NullString{String: *req.Title, Valid: true}
 	}
-	if req.Description != nil {
+	params.SetDescription = req.SetDescription
+	if req.SetDescription && req.Description != nil {
 		params.Description = sql.NullString{String: *req.Description, Valid: true}
 	}
 	if req.Type != nil {
@@ -716,7 +763,7 @@ func (h *IssueHandler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("issue deleted", "issue_id", issueID)
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Issue deleted"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "issue deleted"})
 }
 
 func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
@@ -739,8 +786,7 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := h.verifySquadMembership(w, r, issue.SquadID)
-	if !ok {
+	if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
 		return
 	}
 
@@ -754,11 +800,50 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "body is required", Code: "VALIDATION_ERROR"})
 		return
 	}
+	if !req.AuthorType.Valid() {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "authorType must be one of: agent, user, system", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Validate authorId references
+	switch req.AuthorType {
+	case domain.CommentAuthorAgent:
+		agent, err := h.queries.GetAgentByID(r.Context(), req.AuthorID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusNotFound, errorResponse{Error: "Referenced agent not found", Code: "NOT_FOUND"})
+				return
+			}
+			slog.Error("failed to get agent for comment", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
+		if agent.SquadID != issue.SquadID {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Agent must belong to the same squad", Code: "VALIDATION_ERROR"})
+			return
+		}
+	case domain.CommentAuthorUser:
+		_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  req.AuthorID,
+			SquadID: issue.SquadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusNotFound, errorResponse{Error: "Referenced user is not a member of this squad", Code: "NOT_FOUND"})
+				return
+			}
+			slog.Error("failed to check comment author membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
+	case domain.CommentAuthorSystem:
+		// System comments are allowed with any authorId (typically uuid.Nil)
+	}
 
 	comment, err := h.queries.CreateIssueComment(r.Context(), db.CreateIssueCommentParams{
 		IssueID:    issueID,
-		AuthorType: db.CommentAuthorTypeUser,
-		AuthorID:   userID,
+		AuthorType: db.CommentAuthorType(req.AuthorType),
+		AuthorID:   req.AuthorID,
 		Body:       req.Body,
 	})
 	if err != nil {
@@ -822,11 +907,25 @@ func (h *IssueHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := make([]commentResponse, 0, len(comments))
-	for _, c := range comments {
-		result = append(result, dbCommentToResponse(c))
+	total, err := h.queries.CountIssueComments(r.Context(), issueID)
+	if err != nil {
+		slog.Error("failed to count comments", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
 	}
-	writeJSON(w, http.StatusOK, result)
+
+	data := make([]commentResponse, 0, len(comments))
+	for _, c := range comments {
+		data = append(data, dbCommentToResponse(c))
+	}
+	writeJSON(w, http.StatusOK, commentListResponse{
+		Data: data,
+		Pagination: paginationMeta{
+			Limit:  limit,
+			Offset: offset,
+			Total:  total,
+		},
+	})
 }
 
 // --- Helpers ---
