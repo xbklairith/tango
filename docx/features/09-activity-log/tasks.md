@@ -25,8 +25,8 @@ TDD Red-Green-Refactor in six logical groups:
 ## Progress Summary
 
 - Total Tasks: 7
-- Completed: 2/7
-- In Progress: TASK-03 — Squad handler activity integration
+- Completed: 3/7
+- In Progress: TASK-04 — Agent, Issue, Comment handler integration
 - Test Coverage: TBD
 
 ---
@@ -178,7 +178,7 @@ Use a minimal stub `*db.Queries` (nil pointer is fine for compile check; use int
 
 ---
 
-### TASK-03: Squad Handler Activity Integration
+### [x] TASK-03: Squad Handler Activity Integration
 
 **Requirements:** REQ-001, REQ-002, REQ-003, REQ-004, REQ-026, REQ-037, REQ-043, REQ-044
 **Estimated time:** 45–60 min

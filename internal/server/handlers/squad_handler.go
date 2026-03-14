@@ -284,6 +284,20 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squad.ID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "squad.created",
+		EntityType: "squad",
+		EntityID:   squad.ID,
+		Metadata:   map[string]any{"name": squad.Name, "issuePrefix": squad.IssuePrefix},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
@@ -491,7 +505,16 @@ func (h *SquadHandler) Update(w http.ResponseWriter, r *http.Request) {
 		params.BrandColor = sql.NullString{String: *req.BrandColor, Valid: true}
 	}
 
-	squad, err := h.queries.UpdateSquad(r.Context(), params)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+	qtx := h.queries.WithTx(tx)
+
+	squad, err := qtx.UpdateSquad(r.Context(), params)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" && strings.Contains(pqErr.Constraint, "slug") {
@@ -499,6 +522,26 @@ func (h *SquadHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("failed to update squad", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    membership.UserID,
+		Action:     "squad.updated",
+		EntityType: "squad",
+		EntityID:   squadID,
+		Metadata:   map[string]any{"changedFields": changedFieldNames(rawBody)},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -534,9 +577,37 @@ func (h *SquadHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	squad, err := h.queries.SoftDeleteSquad(r.Context(), squadID)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+	qtx := h.queries.WithTx(tx)
+
+	squad, err := qtx.SoftDeleteSquad(r.Context(), squadID)
 	if err != nil {
 		slog.Error("failed to delete squad", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    membership.UserID,
+		Action:     "squad.deleted",
+		EntityType: "squad",
+		EntityID:   squadID,
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
@@ -578,9 +649,38 @@ func (h *SquadHandler) UpdateBudget(w http.ResponseWriter, r *http.Request) {
 		params.BudgetMonthlyCents = sql.NullInt64{Int64: *req.BudgetMonthlyCents, Valid: true}
 	}
 
-	squad, err := h.queries.UpdateSquad(r.Context(), params)
+	tx, err := h.dbConn.BeginTx(r.Context(), nil)
+	if err != nil {
+		slog.Error("failed to begin transaction", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer tx.Rollback()
+	qtx := h.queries.WithTx(tx)
+
+	squad, err := qtx.UpdateSquad(r.Context(), params)
 	if err != nil {
 		slog.Error("failed to update budget", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    membership.UserID,
+		Action:     "squad.budget_updated",
+		EntityType: "squad",
+		EntityID:   squadID,
+		Metadata:   map[string]any{"budgetMonthlyCents": req.BudgetMonthlyCents},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
 	}
