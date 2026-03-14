@@ -237,6 +237,52 @@ func (ns NullCommentAuthorType) Value() (driver.Value, error) {
 	return string(ns.CommentAuthorType), nil
 }
 
+type HeartbeatRunStatus string
+
+const (
+	HeartbeatRunStatusQueued    HeartbeatRunStatus = "queued"
+	HeartbeatRunStatusRunning   HeartbeatRunStatus = "running"
+	HeartbeatRunStatusSucceeded HeartbeatRunStatus = "succeeded"
+	HeartbeatRunStatusFailed    HeartbeatRunStatus = "failed"
+	HeartbeatRunStatusCancelled HeartbeatRunStatus = "cancelled"
+	HeartbeatRunStatusTimedOut  HeartbeatRunStatus = "timed_out"
+)
+
+func (e *HeartbeatRunStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = HeartbeatRunStatus(s)
+	case string:
+		*e = HeartbeatRunStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for HeartbeatRunStatus: %T", src)
+	}
+	return nil
+}
+
+type NullHeartbeatRunStatus struct {
+	HeartbeatRunStatus HeartbeatRunStatus `json:"heartbeat_run_status"`
+	Valid              bool               `json:"valid"` // Valid is true if HeartbeatRunStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullHeartbeatRunStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.HeartbeatRunStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.HeartbeatRunStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullHeartbeatRunStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.HeartbeatRunStatus), nil
+}
+
 type IssuePriority string
 
 const (
@@ -369,6 +415,94 @@ func (ns NullIssueType) Value() (driver.Value, error) {
 	return string(ns.IssueType), nil
 }
 
+type WakeupInvocationSource string
+
+const (
+	WakeupInvocationSourceOnDemand            WakeupInvocationSource = "on_demand"
+	WakeupInvocationSourceTimer               WakeupInvocationSource = "timer"
+	WakeupInvocationSourceAssignment          WakeupInvocationSource = "assignment"
+	WakeupInvocationSourceInboxResolved       WakeupInvocationSource = "inbox_resolved"
+	WakeupInvocationSourceConversationMessage WakeupInvocationSource = "conversation_message"
+)
+
+func (e *WakeupInvocationSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WakeupInvocationSource(s)
+	case string:
+		*e = WakeupInvocationSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WakeupInvocationSource: %T", src)
+	}
+	return nil
+}
+
+type NullWakeupInvocationSource struct {
+	WakeupInvocationSource WakeupInvocationSource `json:"wakeup_invocation_source"`
+	Valid                  bool                   `json:"valid"` // Valid is true if WakeupInvocationSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWakeupInvocationSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.WakeupInvocationSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WakeupInvocationSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWakeupInvocationSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WakeupInvocationSource), nil
+}
+
+type WakeupRequestStatus string
+
+const (
+	WakeupRequestStatusPending    WakeupRequestStatus = "pending"
+	WakeupRequestStatusDispatched WakeupRequestStatus = "dispatched"
+	WakeupRequestStatusDiscarded  WakeupRequestStatus = "discarded"
+)
+
+func (e *WakeupRequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WakeupRequestStatus(s)
+	case string:
+		*e = WakeupRequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WakeupRequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWakeupRequestStatus struct {
+	WakeupRequestStatus WakeupRequestStatus `json:"wakeup_request_status"`
+	Valid               bool                `json:"valid"` // Valid is true if WakeupRequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWakeupRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WakeupRequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WakeupRequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWakeupRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WakeupRequestStatus), nil
+}
+
 type ActivityLog struct {
 	ID         uuid.UUID         `json:"id"`
 	SquadID    uuid.UUID         `json:"squad_id"`
@@ -398,6 +532,22 @@ type Agent struct {
 	UpdatedAt          time.Time             `json:"updated_at"`
 }
 
+type AgentConversationSession struct {
+	ID           uuid.UUID `json:"id"`
+	AgentID      uuid.UUID `json:"agent_id"`
+	IssueID      uuid.UUID `json:"issue_id"`
+	SessionState string    `json:"session_state"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type AgentTaskSession struct {
+	ID           uuid.UUID `json:"id"`
+	AgentID      uuid.UUID `json:"agent_id"`
+	IssueID      uuid.UUID `json:"issue_id"`
+	SessionState string    `json:"session_state"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type CostEvent struct {
 	ID           uuid.UUID             `json:"id"`
 	SquadID      uuid.UUID             `json:"squad_id"`
@@ -422,24 +572,44 @@ type Goal struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
+type HeartbeatRun struct {
+	ID               uuid.UUID              `json:"id"`
+	SquadID          uuid.UUID              `json:"squad_id"`
+	AgentID          uuid.UUID              `json:"agent_id"`
+	WakeupRequestID  uuid.NullUUID          `json:"wakeup_request_id"`
+	InvocationSource WakeupInvocationSource `json:"invocation_source"`
+	Status           HeartbeatRunStatus     `json:"status"`
+	SessionIDBefore  sql.NullString         `json:"session_id_before"`
+	SessionIDAfter   sql.NullString         `json:"session_id_after"`
+	ExitCode         sql.NullInt32          `json:"exit_code"`
+	UsageJson        pqtype.NullRawMessage  `json:"usage_json"`
+	StdoutExcerpt    sql.NullString         `json:"stdout_excerpt"`
+	StderrExcerpt    sql.NullString         `json:"stderr_excerpt"`
+	StartedAt        sql.NullTime           `json:"started_at"`
+	FinishedAt       sql.NullTime           `json:"finished_at"`
+	CreatedAt        time.Time              `json:"created_at"`
+}
+
 type Issue struct {
-	ID              uuid.UUID      `json:"id"`
-	SquadID         uuid.UUID      `json:"squad_id"`
-	Identifier      string         `json:"identifier"`
-	Type            IssueType      `json:"type"`
-	Title           string         `json:"title"`
-	Description     sql.NullString `json:"description"`
-	Status          IssueStatus    `json:"status"`
-	Priority        IssuePriority  `json:"priority"`
-	ParentID        uuid.NullUUID  `json:"parent_id"`
-	ProjectID       uuid.NullUUID  `json:"project_id"`
-	GoalID          uuid.NullUUID  `json:"goal_id"`
-	AssigneeAgentID uuid.NullUUID  `json:"assignee_agent_id"`
-	AssigneeUserID  uuid.NullUUID  `json:"assignee_user_id"`
-	BillingCode     sql.NullString `json:"billing_code"`
-	RequestDepth    int32          `json:"request_depth"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	ID                uuid.UUID      `json:"id"`
+	SquadID           uuid.UUID      `json:"squad_id"`
+	Identifier        string         `json:"identifier"`
+	Type              IssueType      `json:"type"`
+	Title             string         `json:"title"`
+	Description       sql.NullString `json:"description"`
+	Status            IssueStatus    `json:"status"`
+	Priority          IssuePriority  `json:"priority"`
+	ParentID          uuid.NullUUID  `json:"parent_id"`
+	ProjectID         uuid.NullUUID  `json:"project_id"`
+	GoalID            uuid.NullUUID  `json:"goal_id"`
+	AssigneeAgentID   uuid.NullUUID  `json:"assignee_agent_id"`
+	AssigneeUserID    uuid.NullUUID  `json:"assignee_user_id"`
+	BillingCode       sql.NullString `json:"billing_code"`
+	RequestDepth      int32          `json:"request_depth"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	CheckoutRunID     uuid.NullUUID  `json:"checkout_run_id"`
+	ExecutionLockedAt sql.NullTime   `json:"execution_locked_at"`
 }
 
 type IssueComment struct {
@@ -503,4 +673,16 @@ type User struct {
 	IsAdmin      bool      `json:"is_admin"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type WakeupRequest struct {
+	ID               uuid.UUID              `json:"id"`
+	SquadID          uuid.UUID              `json:"squad_id"`
+	AgentID          uuid.UUID              `json:"agent_id"`
+	InvocationSource WakeupInvocationSource `json:"invocation_source"`
+	Status           WakeupRequestStatus    `json:"status"`
+	ContextJson      json.RawMessage        `json:"context_json"`
+	CreatedAt        time.Time              `json:"created_at"`
+	DispatchedAt     sql.NullTime           `json:"dispatched_at"`
+	DiscardedAt      sql.NullTime           `json:"discarded_at"`
 }

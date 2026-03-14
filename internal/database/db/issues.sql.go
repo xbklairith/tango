@@ -75,7 +75,7 @@ INSERT INTO issues (
     $8, $9, $10, $11, $12,
     $13, $14
 )
-RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at
+RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at
 `
 
 type CreateIssueParams struct {
@@ -131,6 +131,8 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.RequestDepth,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CheckoutRunID,
+		&i.ExecutionLockedAt,
 	)
 	return i, err
 }
@@ -145,7 +147,7 @@ func (q *Queries) DeleteIssue(ctx context.Context, id uuid.UUID) error {
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at FROM issues WHERE id = $1
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues WHERE id = $1
 `
 
 func (q *Queries) GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error) {
@@ -169,12 +171,14 @@ func (q *Queries) GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
 		&i.RequestDepth,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CheckoutRunID,
+		&i.ExecutionLockedAt,
 	)
 	return i, err
 }
 
 const getIssueByIdentifier = `-- name: GetIssueByIdentifier :one
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at FROM issues WHERE squad_id = $1 AND identifier = $2
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues WHERE squad_id = $1 AND identifier = $2
 `
 
 type GetIssueByIdentifierParams struct {
@@ -203,6 +207,8 @@ func (q *Queries) GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdenti
 		&i.RequestDepth,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CheckoutRunID,
+		&i.ExecutionLockedAt,
 	)
 	return i, err
 }
@@ -228,7 +234,7 @@ func (q *Queries) IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) 
 }
 
 const listIssuesBySquad = `-- name: ListIssuesBySquad :many
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at FROM issues
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
 WHERE squad_id = $1
   AND ($2::issue_status IS NULL           OR status = $2)
   AND ($3::issue_priority IS NULL       OR priority = $3)
@@ -303,6 +309,8 @@ func (q *Queries) ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadPa
 			&i.RequestDepth,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CheckoutRunID,
+			&i.ExecutionLockedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -332,7 +340,7 @@ SET
     assignee_user_id  = CASE WHEN $15::boolean THEN $16 ELSE assignee_user_id END,
     billing_code      = CASE WHEN $17::boolean THEN $18 ELSE billing_code END
 WHERE id = $19
-RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at
+RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at
 `
 
 type UpdateIssueParams struct {
@@ -398,6 +406,8 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.RequestDepth,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CheckoutRunID,
+		&i.ExecutionLockedAt,
 	)
 	return i, err
 }

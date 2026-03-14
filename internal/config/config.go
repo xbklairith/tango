@@ -46,6 +46,15 @@ type Config struct {
 
 	// DisableSignUp prevents new user registration (except first user).
 	DisableSignUp bool
+
+	// MaxRunsPerSquad is the max concurrent agent runs per squad (default 3).
+	MaxRunsPerSquad int
+
+	// StaleCheckoutAge is how long a checkout lock can be held before auto-release (default 2h).
+	StaleCheckoutAge time.Duration
+
+	// AgentDrainTimeout is the graceful shutdown timeout for running agents (default 30s).
+	AgentDrainTimeout time.Duration
 }
 
 // IsProduction returns true when running in production mode.
@@ -77,7 +86,10 @@ func Load() (*Config, error) {
 		DeploymentMode:  envOrDefault("ARI_DEPLOYMENT_MODE", "local_trusted"),
 		JWTSecret:       os.Getenv("ARI_JWT_SECRET"),
 		SessionTTL:      24 * time.Hour,
-		DisableSignUp:   os.Getenv("ARI_DISABLE_SIGNUP") == "true",
+		DisableSignUp:    os.Getenv("ARI_DISABLE_SIGNUP") == "true",
+		MaxRunsPerSquad:  3,
+		StaleCheckoutAge: 2 * time.Hour,
+		AgentDrainTimeout: 30 * time.Second,
 	}
 
 	// Parse port
@@ -144,6 +156,33 @@ func Load() (*Config, error) {
 		// valid
 	default:
 		return nil, fmt.Errorf("invalid ARI_DEPLOYMENT_MODE %q: must be local_trusted or authenticated", cfg.DeploymentMode)
+	}
+
+	// Parse max runs per squad
+	if v := os.Getenv("ARI_MAX_RUNS_PER_SQUAD"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("invalid ARI_MAX_RUNS_PER_SQUAD %q: must be a positive integer", v)
+		}
+		cfg.MaxRunsPerSquad = n
+	}
+
+	// Parse stale checkout age
+	if v := os.Getenv("ARI_STALE_CHECKOUT_AGE"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ARI_STALE_CHECKOUT_AGE %q: %w", v, err)
+		}
+		cfg.StaleCheckoutAge = d
+	}
+
+	// Parse agent drain timeout
+	if v := os.Getenv("ARI_AGENT_DRAIN_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ARI_AGENT_DRAIN_TIMEOUT %q: %w", v, err)
+		}
+		cfg.AgentDrainTimeout = d
 	}
 
 	// M1: In local_trusted mode, force bind to loopback for any non-loopback host

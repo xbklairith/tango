@@ -12,6 +12,8 @@ import (
 )
 
 type Querier interface {
+	CancelStaleHeartbeatRuns(ctx context.Context) error
+	CountActiveRunsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountActivityBySquad(ctx context.Context, arg CountActivityBySquadParams) (int64, error)
 	// NOTE: CheckCycleInHierarchy uses a recursive CTE which sqlc cannot parse.
 	// It is implemented as a raw SQL query in the repository layer. The query is:
@@ -34,6 +36,7 @@ type Querier interface {
 	CountUsers(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error)
 	CreateGoal(ctx context.Context, arg CreateGoalParams) (Goal, error)
+	CreateHeartbeatRun(ctx context.Context, arg CreateHeartbeatRunParams) (HeartbeatRun, error)
 	CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error)
 	CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
@@ -41,6 +44,7 @@ type Querier interface {
 	CreateSquad(ctx context.Context, arg CreateSquadParams) (Squad, error)
 	CreateSquadMembership(ctx context.Context, arg CreateSquadMembershipParams) (SquadMembership, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	CreateWakeupRequest(ctx context.Context, arg CreateWakeupRequestParams) (WakeupRequest, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
 	DeleteIssue(ctx context.Context, id uuid.UUID) error
 	DeleteSession(ctx context.Context, id uuid.UUID) error
@@ -49,13 +53,17 @@ type Querier interface {
 	DeleteSquadMembershipByUserIfNotLastOwner(ctx context.Context, arg DeleteSquadMembershipByUserIfNotLastOwnerParams) (int64, error)
 	DeleteSquadMembershipIfNotLastOwner(ctx context.Context, arg DeleteSquadMembershipIfNotLastOwnerParams) (int64, error)
 	DemoteOwnerIfNotLast(ctx context.Context, arg DemoteOwnerIfNotLastParams) (int64, error)
+	DiscardPendingWakeupsByAgent(ctx context.Context, agentID uuid.UUID) error
+	GetActiveRunByAgent(ctx context.Context, agentID uuid.UUID) (HeartbeatRun, error)
 	GetAgentByID(ctx context.Context, id uuid.UUID) (Agent, error)
 	GetAgentCostBreakdown(ctx context.Context, arg GetAgentCostBreakdownParams) ([]GetAgentCostBreakdownRow, error)
 	GetAgentMonthlySpend(ctx context.Context, arg GetAgentMonthlySpendParams) (int64, error)
 	GetAgentParent(ctx context.Context, id uuid.UUID) (GetAgentParentRow, error)
+	GetConversationSession(ctx context.Context, arg GetConversationSessionParams) (string, error)
 	GetGoalAncestors(ctx context.Context, id uuid.UUID) ([]uuid.UUID, error)
 	GetGoalByID(ctx context.Context, id uuid.UUID) (Goal, error)
 	GetGoalMaxSubtreeDepth(ctx context.Context, goalID uuid.NullUUID) (int64, error)
+	GetHeartbeatRunByID(ctx context.Context, id uuid.UUID) (HeartbeatRun, error)
 	GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
 	GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdentifierParams) (Issue, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
@@ -67,8 +75,10 @@ type Querier interface {
 	GetSquadMembershipByID(ctx context.Context, arg GetSquadMembershipByIDParams) (SquadMembership, error)
 	GetSquadMonthlySpend(ctx context.Context, arg GetSquadMonthlySpendParams) (int64, error)
 	GetSquadSettings(ctx context.Context, id uuid.UUID) (json.RawMessage, error)
+	GetTaskSession(ctx context.Context, arg GetTaskSessionParams) (string, error)
 	GetUserByEmail(ctx context.Context, lower string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
+	GetWakeupRequestByID(ctx context.Context, id uuid.UUID) (WakeupRequest, error)
 	IncrementIssueCounter(ctx context.Context, id uuid.UUID) (IncrementIssueCounterRow, error)
 	IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) (IncrementSquadIssueCounterRow, error)
 	InsertActivityEntry(ctx context.Context, arg InsertActivityEntryParams) (ActivityLog, error)
@@ -78,25 +88,34 @@ type Querier interface {
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)
 	ListGoalsBySquadAndParent(ctx context.Context, arg ListGoalsBySquadAndParentParams) ([]Goal, error)
+	ListHeartbeatRunsByAgent(ctx context.Context, arg ListHeartbeatRunsByAgentParams) ([]HeartbeatRun, error)
+	ListHeartbeatRunsBySquad(ctx context.Context, arg ListHeartbeatRunsBySquadParams) ([]HeartbeatRun, error)
 	ListIssueComments(ctx context.Context, arg ListIssueCommentsParams) ([]IssueComment, error)
 	ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadParams) ([]Issue, error)
+	ListPendingWakeupsBySquad(ctx context.Context, squadID uuid.UUID) ([]WakeupRequest, error)
 	ListProjectsBySquad(ctx context.Context, squadID uuid.UUID) ([]Project, error)
 	ListRunningIdleAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListSquadMembers(ctx context.Context, squadID uuid.UUID) ([]ListSquadMembersRow, error)
 	ListSquadMembershipsByUser(ctx context.Context, userID uuid.UUID) ([]SquadMembership, error)
 	ListSquadsByUser(ctx context.Context, arg ListSquadsByUserParams) ([]ListSquadsByUserRow, error)
 	ListTopLevelGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)
+	MarkWakeupDiscarded(ctx context.Context, id uuid.UUID) (WakeupRequest, error)
+	MarkWakeupDispatched(ctx context.Context, id uuid.UUID) (WakeupRequest, error)
 	Ping(ctx context.Context) error
 	ProjectExistsByName(ctx context.Context, arg ProjectExistsByNameParams) (bool, error)
 	ProjectExistsByNameExcluding(ctx context.Context, arg ProjectExistsByNameExcludingParams) (bool, error)
 	SoftDeleteSquad(ctx context.Context, id uuid.UUID) (Squad, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent, error)
 	UpdateGoal(ctx context.Context, arg UpdateGoalParams) (Goal, error)
+	UpdateHeartbeatRunFinished(ctx context.Context, arg UpdateHeartbeatRunFinishedParams) (HeartbeatRun, error)
+	UpdateHeartbeatRunStarted(ctx context.Context, id uuid.UUID) (HeartbeatRun, error)
 	UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpdateSquad(ctx context.Context, arg UpdateSquadParams) (Squad, error)
 	UpdateSquadMembershipRole(ctx context.Context, arg UpdateSquadMembershipRoleParams) (SquadMembership, error)
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
+	UpsertConversationSession(ctx context.Context, arg UpsertConversationSessionParams) error
+	UpsertTaskSession(ctx context.Context, arg UpsertTaskSessionParams) error
 }
 
 var _ Querier = (*Queries)(nil)
