@@ -232,6 +232,42 @@ func (q *Queries) ListSquadMembers(ctx context.Context, squadID uuid.UUID) ([]Li
 	return items, nil
 }
 
+const listSquadMembershipsByUser = `-- name: ListSquadMembershipsByUser :many
+SELECT id, user_id, squad_id, role, created_at, updated_at FROM squad_memberships
+WHERE user_id = $1
+ORDER BY created_at ASC
+`
+
+func (q *Queries) ListSquadMembershipsByUser(ctx context.Context, userID uuid.UUID) ([]SquadMembership, error) {
+	rows, err := q.db.QueryContext(ctx, listSquadMembershipsByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SquadMembership{}
+	for rows.Next() {
+		var i SquadMembership
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.SquadID,
+			&i.Role,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateSquadMembershipRole = `-- name: UpdateSquadMembershipRole :one
 UPDATE squad_memberships
 SET role = $1, updated_at = now()

@@ -101,7 +101,7 @@ func freePortForMain() int {
 // cleanDB truncates users and sessions tables between tests.
 func cleanDB(t *testing.T) {
 	t.Helper()
-	_, err := testDB.ExecContext(context.Background(), "TRUNCATE agents, squad_memberships, squads, sessions, users CASCADE")
+	_, err := testDB.ExecContext(context.Background(), "TRUNCATE issue_comments, issues, agents, squad_memberships, squads, sessions, users CASCADE")
 	if err != nil {
 		t.Fatalf("failed to clean DB: %v", err)
 	}
@@ -138,12 +138,14 @@ func makeEnv(t *testing.T, mode auth.DeploymentMode, disableSignUp bool) *testEn
 	squadHandler := handlers.NewSquadHandler(queries, testDB)
 	membershipHandler := handlers.NewMembershipHandler(queries)
 	agentHandler := handlers.NewAgentHandler(queries, testDB)
+	issueHandler := handlers.NewIssueHandler(queries, testDB)
 
 	mux := http.NewServeMux()
 	authHandler.RegisterRoutes(mux)
 	squadHandler.RegisterRoutes(mux)
 	membershipHandler.RegisterRoutes(mux)
 	agentHandler.RegisterRoutes(mux)
+	issueHandler.RegisterRoutes(mux)
 
 	var handler http.Handler = mux
 	if mode == auth.ModeAuthenticated {

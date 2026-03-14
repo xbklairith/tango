@@ -151,6 +151,181 @@ func (ns NullAgentStatus) Value() (driver.Value, error) {
 	return string(ns.AgentStatus), nil
 }
 
+type CommentAuthorType string
+
+const (
+	CommentAuthorTypeAgent  CommentAuthorType = "agent"
+	CommentAuthorTypeUser   CommentAuthorType = "user"
+	CommentAuthorTypeSystem CommentAuthorType = "system"
+)
+
+func (e *CommentAuthorType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CommentAuthorType(s)
+	case string:
+		*e = CommentAuthorType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CommentAuthorType: %T", src)
+	}
+	return nil
+}
+
+type NullCommentAuthorType struct {
+	CommentAuthorType CommentAuthorType `json:"comment_author_type"`
+	Valid             bool              `json:"valid"` // Valid is true if CommentAuthorType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCommentAuthorType) Scan(value interface{}) error {
+	if value == nil {
+		ns.CommentAuthorType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CommentAuthorType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCommentAuthorType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CommentAuthorType), nil
+}
+
+type IssuePriority string
+
+const (
+	IssuePriorityCritical IssuePriority = "critical"
+	IssuePriorityHigh     IssuePriority = "high"
+	IssuePriorityMedium   IssuePriority = "medium"
+	IssuePriorityLow      IssuePriority = "low"
+)
+
+func (e *IssuePriority) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IssuePriority(s)
+	case string:
+		*e = IssuePriority(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IssuePriority: %T", src)
+	}
+	return nil
+}
+
+type NullIssuePriority struct {
+	IssuePriority IssuePriority `json:"issue_priority"`
+	Valid         bool          `json:"valid"` // Valid is true if IssuePriority is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIssuePriority) Scan(value interface{}) error {
+	if value == nil {
+		ns.IssuePriority, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IssuePriority.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIssuePriority) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IssuePriority), nil
+}
+
+type IssueStatus string
+
+const (
+	IssueStatusBacklog    IssueStatus = "backlog"
+	IssueStatusTodo       IssueStatus = "todo"
+	IssueStatusInProgress IssueStatus = "in_progress"
+	IssueStatusDone       IssueStatus = "done"
+	IssueStatusBlocked    IssueStatus = "blocked"
+	IssueStatusCancelled  IssueStatus = "cancelled"
+)
+
+func (e *IssueStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IssueStatus(s)
+	case string:
+		*e = IssueStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IssueStatus: %T", src)
+	}
+	return nil
+}
+
+type NullIssueStatus struct {
+	IssueStatus IssueStatus `json:"issue_status"`
+	Valid       bool        `json:"valid"` // Valid is true if IssueStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIssueStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.IssueStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IssueStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIssueStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IssueStatus), nil
+}
+
+type IssueType string
+
+const (
+	IssueTypeTask         IssueType = "task"
+	IssueTypeConversation IssueType = "conversation"
+)
+
+func (e *IssueType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IssueType(s)
+	case string:
+		*e = IssueType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IssueType: %T", src)
+	}
+	return nil
+}
+
+type NullIssueType struct {
+	IssueType IssueType `json:"issue_type"`
+	Valid     bool      `json:"valid"` // Valid is true if IssueType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIssueType) Scan(value interface{}) error {
+	if value == nil {
+		ns.IssueType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IssueType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIssueType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IssueType), nil
+}
+
 type Agent struct {
 	ID                 uuid.UUID             `json:"id"`
 	SquadID            uuid.UUID             `json:"squad_id"`
@@ -166,6 +341,36 @@ type Agent struct {
 	BudgetMonthlyCents sql.NullInt64         `json:"budget_monthly_cents"`
 	CreatedAt          time.Time             `json:"created_at"`
 	UpdatedAt          time.Time             `json:"updated_at"`
+}
+
+type Issue struct {
+	ID              uuid.UUID      `json:"id"`
+	SquadID         uuid.UUID      `json:"squad_id"`
+	Identifier      string         `json:"identifier"`
+	Type            IssueType      `json:"type"`
+	Title           string         `json:"title"`
+	Description     sql.NullString `json:"description"`
+	Status          IssueStatus    `json:"status"`
+	Priority        IssuePriority  `json:"priority"`
+	ParentID        uuid.NullUUID  `json:"parent_id"`
+	ProjectID       uuid.NullUUID  `json:"project_id"`
+	GoalID          uuid.NullUUID  `json:"goal_id"`
+	AssigneeAgentID uuid.NullUUID  `json:"assignee_agent_id"`
+	AssigneeUserID  uuid.NullUUID  `json:"assignee_user_id"`
+	BillingCode     sql.NullString `json:"billing_code"`
+	RequestDepth    int32          `json:"request_depth"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+type IssueComment struct {
+	ID         uuid.UUID         `json:"id"`
+	IssueID    uuid.UUID         `json:"issue_id"`
+	AuthorType CommentAuthorType `json:"author_type"`
+	AuthorID   uuid.UUID         `json:"author_id"`
+	Body       string            `json:"body"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
 type Session struct {

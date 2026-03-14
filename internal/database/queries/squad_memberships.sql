@@ -49,6 +49,11 @@ WHERE sm.id = $2 AND sm.squad_id = $3
     AND (SELECT COUNT(*) FROM squad_memberships sm2 WHERE sm2.squad_id = $3 AND sm2.role = 'owner') = 1
   );
 
+-- name: ListSquadMembershipsByUser :many
+SELECT * FROM squad_memberships
+WHERE user_id = $1
+ORDER BY created_at ASC;
+
 -- name: DeleteSquadMembershipByUserIfNotLastOwner :execrows
 DELETE FROM squad_memberships sm
 WHERE sm.user_id = $1 AND sm.squad_id = $2

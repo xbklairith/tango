@@ -25,14 +25,19 @@ type Querier interface {
 	// )
 	// SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = $2) AS would_cycle;
 	CountAgentsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
+	CountIssueComments(ctx context.Context, issueID uuid.UUID) (int64, error)
 	CountSquadOwners(ctx context.Context, squadID uuid.UUID) (int64, error)
+	CountSubTasks(ctx context.Context, parentID uuid.NullUUID) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error)
+	CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error)
+	CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateSquad(ctx context.Context, arg CreateSquadParams) (Squad, error)
 	CreateSquadMembership(ctx context.Context, arg CreateSquadMembershipParams) (SquadMembership, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
+	DeleteIssue(ctx context.Context, id uuid.UUID) error
 	DeleteSession(ctx context.Context, id uuid.UUID) error
 	DeleteSessionsByUserID(ctx context.Context, userID uuid.UUID) error
 	DeleteSquadMembership(ctx context.Context, arg DeleteSquadMembershipParams) error
@@ -41,6 +46,8 @@ type Querier interface {
 	DemoteOwnerIfNotLast(ctx context.Context, arg DemoteOwnerIfNotLastParams) (int64, error)
 	GetAgentByID(ctx context.Context, id uuid.UUID) (Agent, error)
 	GetAgentParent(ctx context.Context, id uuid.UUID) (GetAgentParentRow, error)
+	GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
+	GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdentifierParams) (Issue, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	GetSquadByID(ctx context.Context, id uuid.UUID) (Squad, error)
 	GetSquadBySlug(ctx context.Context, slug string) (Squad, error)
@@ -51,13 +58,18 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, lower string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
 	IncrementIssueCounter(ctx context.Context, id uuid.UUID) (IncrementIssueCounterRow, error)
+	IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) (IncrementSquadIssueCounterRow, error)
 	ListAgentChildren(ctx context.Context, parentAgentID uuid.NullUUID) ([]Agent, error)
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
+	ListIssueComments(ctx context.Context, arg ListIssueCommentsParams) ([]IssueComment, error)
+	ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadParams) ([]Issue, error)
 	ListSquadMembers(ctx context.Context, squadID uuid.UUID) ([]ListSquadMembersRow, error)
+	ListSquadMembershipsByUser(ctx context.Context, userID uuid.UUID) ([]SquadMembership, error)
 	ListSquadsByUser(ctx context.Context, arg ListSquadsByUserParams) ([]ListSquadsByUserRow, error)
 	Ping(ctx context.Context) error
 	SoftDeleteSquad(ctx context.Context, id uuid.UUID) (Squad, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent, error)
+	UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error)
 	UpdateSquad(ctx context.Context, arg UpdateSquadParams) (Squad, error)
 	UpdateSquadMembershipRole(ctx context.Context, arg UpdateSquadMembershipRoleParams) (SquadMembership, error)
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
