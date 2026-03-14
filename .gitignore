@@ -1,0 +1,18 @@
+# Build artifacts
+bin/
+
+# Runtime data
+data/postgres/
+data/*.db
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Test artifacts
+*.test
+*.out
+coverage.out
