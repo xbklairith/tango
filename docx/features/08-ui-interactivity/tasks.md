@@ -1,7 +1,7 @@
 # Tasks: UI Interactivity
 
 **Created:** 2026-03-15
-**Status:** In Progress
+**Status:** Complete
 
 ## Requirement Traceability
 
@@ -22,8 +22,8 @@ Build in 5 batches following dependency order. Each batch is independently testa
 ## Progress Summary
 
 - Total Tasks: 18
-- Completed: 13/18
-- In Progress: Batch 4
+- Completed: 18/18
+- In Progress: None
 - Test Coverage: 0 / 18 tasks tested
 
 ---
@@ -1206,7 +1206,7 @@ Add to `web/e2e/issue.spec.ts`:
 
 ---
 
-### Task 4.1 — `IssueFilters` component + URL-driven filter state on `IssueListPage`
+### [x] Task 4.1 — `IssueFilters` component + URL-driven filter state on `IssueListPage`
 
 **Requirements:** REQ-021, REQ-022, REQ-023, REQ-024, REQ-038, REQ-054, REQ-062, REQ-069
 
@@ -1302,7 +1302,7 @@ export function buildQueryString(filters: IssueFilters, pagination: { offset: nu
 
 ---
 
-### Task 4.2 — Issue list pagination wired end-to-end
+### [x] Task 4.2 — Issue list pagination wired end-to-end
 
 **Requirements:** REQ-025, REQ-026, REQ-052, REQ-053, REQ-064
 
@@ -1361,7 +1361,7 @@ The default page size is `20` (REQ-064) — this is hardcoded as a named constan
 
 ---
 
-### Task 4.3 — Loading skeletons + status/priority badge colour maps
+### [x] Task 4.3 — Loading skeletons + status/priority badge colour maps
 
 **Requirements:** REQ-031, REQ-032, REQ-069
 
