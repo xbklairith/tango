@@ -30,7 +30,8 @@ func Open(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error) {
 		slog.Info("starting embedded postgresql", "data_dir", cfg.DataDir)
 
 		pgDataDir := filepath.Join(cfg.DataDir, "postgres")
-		pgPort := uint32(5433) // avoid conflicting with system PG on 5432
+		pgRuntimeDir := filepath.Join(cfg.DataDir, "pg-runtime")
+		pgPort := uint32(cfg.EmbeddedPGPort)
 
 		// Pin a specific PG version known to work on both amd64 and arm64 (Apple Silicon).
 		pgVersion := embeddedpostgres.V16
@@ -40,6 +41,7 @@ func Open(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error) {
 			embeddedpostgres.DefaultConfig().
 				Version(pgVersion).
 				DataPath(pgDataDir).
+				RuntimePath(pgRuntimeDir).
 				Port(pgPort).
 				Logger(io.Discard),
 		)

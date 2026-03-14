@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
+
 	"github.com/xb/ari/internal/config"
 )
 
@@ -195,30 +197,42 @@ func TestHandleNotFound_ReturnsJSON404(t *testing.T) {
 // Task 6.1: Health handler tests
 
 func TestHandleHealth_Healthy(t *testing.T) {
-	// Use a mock DB that responds to ping via sqlmock would be ideal,
-	// but for simplicity we test via httptest with the handler directly.
-	// A nil db will panic on PingContext, so we need a real or stub db.
-	// We'll test this in the integration test instead.
-	// Here we test the response format with a stub.
+	// Use a real in-memory DB to test the healthy path
+	db, err := sql.Open("postgres", "postgres://dummy")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+
 	s := &Server{
 		cfg:     &config.Config{Env: "development", Host: "0.0.0.0", Port: 3100},
+		db:      db,
 		version: "test-version",
 	}
 
-	// Test not-found since we can't easily mock sql.DB without a real connection.
-	// Health handler tests with real DB are covered in integration tests.
+	// Test the unhealthy path (dummy DB can't ping)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
-
-	// Call handleHealth directly - it will fail the ping since db is nil,
-	// but we can test the unhealthy path
-	defer func() {
-		if r := recover(); r != nil {
-			// Expected - nil db panics on PingContext
-			// This confirms we need a real DB for health tests (covered in integration)
-		}
-	}()
 	s.handleHealth(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+
+	var got map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if got["status"] != "unhealthy" {
+		t.Errorf("status = %q, want %q", got["status"], "unhealthy")
+	}
+	if got["error"] != "database ping failed" {
+		t.Errorf("error = %q, want %q", got["error"], "database ping failed")
+	}
+
+	ct := rr.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
 }
 
 // Task 6.2: Server constructor and lifecycle tests
@@ -232,8 +246,11 @@ func TestNew_ConfiguresTimeouts(t *testing.T) {
 	}
 
 	// Open a dummy DB - we just need the Server struct, not a real connection
-	dummyDB, _ := sql.Open("postgres", "postgres://dummy")
-	s := New(cfg, dummyDB, "test-version")
+	dummyDB, err := sql.Open("postgres", "postgres://dummy")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+	s := New(cfg, dummyDB, "test-version", "local_trusted", nil, nil)
 
 	if s.http.ReadTimeout != 15*time.Second {
 		t.Errorf("ReadTimeout = %v, want %v", s.http.ReadTimeout, 15*time.Second)
@@ -251,9 +268,9 @@ func TestNew_ConfiguresTimeouts(t *testing.T) {
 
 func waitForServer(t *testing.T, baseURL string) {
 	t.Helper()
-	// Use the not-found endpoint which doesn't need a DB
+	// Poll until the server accepts connections (any route works)
 	for range 50 {
-		resp, err := http.Get(baseURL + "/api/readyz")
+		resp, err := http.Get(baseURL + "/api/health")
 		if err == nil {
 			resp.Body.Close()
 			return
@@ -283,8 +300,11 @@ func TestListenAndServe_StartsAndStops(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	dummyDB, _ := sql.Open("postgres", "postgres://dummy")
-	s := New(cfg, dummyDB, "test")
+	dummyDB, err := sql.Open("postgres", "postgres://dummy")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -320,8 +340,11 @@ func TestGracefulShutdown_OrderedCleanup(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	dummyDB, _ := sql.Open("postgres", "postgres://dummy")
-	s := New(cfg, dummyDB, "test")
+	dummyDB, err := sql.Open("postgres", "postgres://dummy")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -348,7 +371,7 @@ func TestGracefulShutdown_OrderedCleanup(t *testing.T) {
 	}
 
 	// Assert server no longer accepts connections
-	_, err := http.Get(baseURL + "/api/ping")
+	_, err = http.Get(baseURL + "/api/ping")
 	if err == nil {
 		t.Error("server should not accept connections after shutdown")
 	}
@@ -363,8 +386,11 @@ func TestGracefulShutdown_DrainsInFlight(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	dummyDB, _ := sql.Open("postgres", "postgres://dummy")
-	s := New(cfg, dummyDB, "test")
+	dummyDB, err := sql.Open("postgres", "postgres://dummy")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil)
 
 	// Register a slow handler on a custom mux
 	mux := http.NewServeMux()

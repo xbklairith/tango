@@ -10,3 +10,7 @@ sql:
         sql_package: "database/sql"
         emit_json_tags: true
         emit_empty_slices: true
+        emit_interface: true
+        overrides:
+          - column: "users.password_hash"
+            go_struct_tag: 'json:"-"'

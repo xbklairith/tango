@@ -21,6 +21,9 @@ func TestRootCmd_Help(t *testing.T) {
 	if !bytes.Contains([]byte(output), []byte("Ari")) {
 		t.Errorf("help output should contain 'Ari', got: %s", output)
 	}
+	if !bytes.Contains([]byte(output), []byte("Control Plane")) {
+		t.Errorf("help output should contain 'Control Plane', got: %s", output)
+	}
 }
 
 func TestVersionCmd_PrintsVersion(t *testing.T) {
@@ -57,5 +60,16 @@ func TestRunCmd_FailsOnBadConfig(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("Execute() should return error for invalid config")
+	}
+}
+
+func TestRunCmd_PortFlagOverride(t *testing.T) {
+	cmd := newRunCmd("test")
+	flag := cmd.Flags().Lookup("port")
+	if flag == nil {
+		t.Fatal("run command should have --port flag")
+	}
+	if flag.DefValue != "0" {
+		t.Errorf("--port default = %q, want %q", flag.DefValue, "0")
 	}
 }

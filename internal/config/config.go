@@ -31,6 +31,21 @@ type Config struct {
 
 	// ShutdownTimeout is the graceful shutdown deadline.
 	ShutdownTimeout time.Duration
+
+	// EmbeddedPGPort is the port for embedded PostgreSQL (default 5433).
+	EmbeddedPGPort int
+
+	// DeploymentMode determines auth behavior: "local_trusted" or "authenticated".
+	DeploymentMode string
+
+	// JWTSecret is the HS256 signing key. Auto-generated if empty in authenticated mode.
+	JWTSecret string
+
+	// SessionTTL is the JWT and session expiration duration.
+	SessionTTL time.Duration
+
+	// DisableSignUp prevents new user registration (except first user).
+	DisableSignUp bool
 }
 
 // IsProduction returns true when running in production mode.
@@ -58,6 +73,11 @@ func Load() (*Config, error) {
 		DataDir:         envOrDefault("ARI_DATA_DIR", "./data"),
 		LogLevel:        envOrDefault("ARI_LOG_LEVEL", "info"),
 		ShutdownTimeout: 30 * time.Second,
+		EmbeddedPGPort:  5433,
+		DeploymentMode:  envOrDefault("ARI_DEPLOYMENT_MODE", "local_trusted"),
+		JWTSecret:       os.Getenv("ARI_JWT_SECRET"),
+		SessionTTL:      24 * time.Hour,
+		DisableSignUp:   os.Getenv("ARI_DISABLE_SIGNUP") == "true",
 	}
 
 	// Parse port
@@ -70,6 +90,18 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("ARI_PORT %d out of range (1-65535)", port)
 		}
 		cfg.Port = port
+	}
+
+	// Parse embedded PG port
+	if v := os.Getenv("ARI_EMBEDDED_PG_PORT"); v != "" {
+		port, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ARI_EMBEDDED_PG_PORT %q: %w", v, err)
+		}
+		if port < 1 || port > 65535 {
+			return nil, fmt.Errorf("ARI_EMBEDDED_PG_PORT %d out of range (1-65535)", port)
+		}
+		cfg.EmbeddedPGPort = port
 	}
 
 	// Parse shutdown timeout
@@ -95,6 +127,38 @@ func Load() (*Config, error) {
 		// valid
 	default:
 		return nil, fmt.Errorf("invalid ARI_ENV %q: must be development or production", cfg.Env)
+	}
+
+	// Parse session TTL
+	if v := os.Getenv("ARI_SESSION_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ARI_SESSION_TTL %q: %w", v, err)
+		}
+		cfg.SessionTTL = d
+	}
+
+	// Validate deployment mode
+	switch cfg.DeploymentMode {
+	case "local_trusted", "authenticated":
+		// valid
+	default:
+		return nil, fmt.Errorf("invalid ARI_DEPLOYMENT_MODE %q: must be local_trusted or authenticated", cfg.DeploymentMode)
+	}
+
+	// M1: In local_trusted mode, force bind to loopback for any non-loopback host
+	if cfg.DeploymentMode == "local_trusted" && cfg.Host != "127.0.0.1" && cfg.Host != "localhost" && cfg.Host != "::1" {
+		cfg.Host = "127.0.0.1"
+	}
+
+	// M7: Validate SessionTTL is positive
+	if cfg.SessionTTL <= 0 {
+		return nil, fmt.Errorf("ARI_SESSION_TTL must be positive, got %v", cfg.SessionTTL)
+	}
+
+	// Cross-field validation: HTTP port and embedded PG port must not collide
+	if cfg.UseEmbeddedPostgres() && cfg.Port == cfg.EmbeddedPGPort {
+		return nil, fmt.Errorf("ARI_PORT and ARI_EMBEDDED_PG_PORT must not be the same (%d)", cfg.Port)
 	}
 
 	return cfg, nil

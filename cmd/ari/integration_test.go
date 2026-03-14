@@ -28,43 +28,51 @@ func startTestServer(t *testing.T) (baseURL string, cancel context.CancelFunc) {
 	t.Setenv("ARI_PORT", fmt.Sprintf("%d", port))
 	t.Setenv("ARI_HOST", "127.0.0.1")
 	t.Setenv("ARI_DATA_DIR", t.TempDir())
-	t.Setenv("ARI_DATABASE_URL", "") // use embedded PG
+	t.Setenv("ARI_DATABASE_URL", "")                              // use embedded PG
+	t.Setenv("ARI_EMBEDDED_PG_PORT", fmt.Sprintf("%d", freePort(t))) // avoid port conflicts
 
 	ctx, cancelFn := context.WithCancel(context.Background())
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runServer(ctx, "test-version")
+		errCh <- runServer(ctx, "test-version", 0)
 	}()
 
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	// Wait for server to be ready (poll health endpoint)
-	deadline := time.Now().Add(60 * time.Second)
+	// Register cleanup unconditionally to avoid goroutine leaks
+	t.Cleanup(func() {
+		cancelFn()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Errorf("runServer returned error: %v", err)
+			}
+		case <-time.After(30 * time.Second):
+			t.Error("runServer did not return after cancellation")
+		}
+	})
+
+	// Wait for server to be ready.
+	// REQ-NFR-002 requires production startup under 10s (warm PG cache).
+	// Tests use per-instance RuntimePath isolation, so cold binary extraction
+	// can take 30-60s. Use a generous timeout here; production startup time
+	// is validated separately in Task 10.2.
+	start := time.Now()
+	deadline := time.Now().Add(120 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(baseURL + "/api/health")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				t.Cleanup(func() {
-					cancelFn()
-					select {
-					case err := <-errCh:
-						if err != nil {
-							t.Errorf("runServer returned error: %v", err)
-						}
-					case <-time.After(30 * time.Second):
-						t.Error("runServer did not return after cancellation")
-					}
-				})
+				t.Logf("server became healthy in %s", time.Since(start))
 				return baseURL, cancelFn
 			}
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	cancelFn()
-	t.Fatal("server did not become healthy within timeout")
+	t.Fatalf("server did not become healthy within timeout (waited %s)", time.Since(start))
 	return "", nil
 }
 

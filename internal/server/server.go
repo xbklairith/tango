@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/xb/ari/internal/auth"
 	"github.com/xb/ari/internal/config"
 )
 
@@ -20,8 +21,13 @@ type Server struct {
 	http    *http.Server
 }
 
+// RouteRegistrar can register additional routes on the mux.
+type RouteRegistrar interface {
+	RegisterRoutes(mux *http.ServeMux)
+}
+
 // New creates a new Server with routes and middleware configured.
-func New(cfg *config.Config, db *sql.DB, version string) *Server {
+func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMode, jwtSvc *auth.JWTService, sessions auth.SessionStore, extra ...RouteRegistrar) *Server {
 	s := &Server{
 		cfg:     cfg,
 		db:      db,
@@ -31,7 +37,22 @@ func New(cfg *config.Config, db *sql.DB, version string) *Server {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
-	handler := s.middleware(mux)
+	// Register additional route handlers (e.g., auth)
+	for _, r := range extra {
+		if r != nil {
+			r.RegisterRoutes(mux)
+		}
+	}
+
+	// Apply auth middleware before the main middleware chain
+	var handler http.Handler = mux
+	if mode == auth.ModeAuthenticated && jwtSvc != nil && sessions != nil {
+		handler = auth.Middleware(mode, jwtSvc, sessions)(handler)
+	} else if mode == auth.ModeLocalTrusted {
+		handler = auth.Middleware(mode, nil, nil)(handler)
+	}
+
+	handler = s.middleware(handler)
 
 	s.http = &http.Server{
 		Addr:         cfg.Addr(),

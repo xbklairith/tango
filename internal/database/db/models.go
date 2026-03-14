@@ -3,3 +3,54 @@
 //   sqlc v1.30.0
 
 package db
+
+import (
+	"database/sql"
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type Session struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	TokenHash string    `json:"token_hash"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Squad struct {
+	ID                 uuid.UUID       `json:"id"`
+	Name               string          `json:"name"`
+	Slug               string          `json:"slug"`
+	IssuePrefix        string          `json:"issue_prefix"`
+	Description        string          `json:"description"`
+	Status             string          `json:"status"`
+	Settings           json.RawMessage `json:"settings"`
+	IssueCounter       int64           `json:"issue_counter"`
+	BudgetMonthlyCents sql.NullInt64   `json:"budget_monthly_cents"`
+	BrandColor         sql.NullString  `json:"brand_color"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
+type SquadMembership struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	SquadID   uuid.UUID `json:"squad_id"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type User struct {
+	ID           uuid.UUID `json:"id"`
+	Email        string    `json:"email"`
+	DisplayName  string    `json:"display_name"`
+	PasswordHash string    `json:"-"`
+	Status       string    `json:"status"`
+	IsAdmin      bool      `json:"is_admin"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}

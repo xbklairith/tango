@@ -2,10 +2,22 @@ package database
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	"github.com/xb/ari/internal/config"
 )
+
+func freePGPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return port
+}
 
 func TestOpen_EmbeddedPostgres(t *testing.T) {
 	if testing.Short() {
@@ -14,8 +26,9 @@ func TestOpen_EmbeddedPostgres(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := &config.Config{
-		Env:     "development",
-		DataDir: t.TempDir(),
+		Env:            "development",
+		DataDir:        t.TempDir(),
+		EmbeddedPGPort: freePGPort(t),
 	}
 
 	db, cleanup, err := Open(ctx, cfg)
@@ -49,8 +62,9 @@ func TestMigrate_AppliesPendingMigrations(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := &config.Config{
-		Env:     "development",
-		DataDir: t.TempDir(),
+		Env:            "development",
+		DataDir:        t.TempDir(),
+		EmbeddedPGPort: freePGPort(t),
 	}
 
 	db, cleanup, err := Open(ctx, cfg)

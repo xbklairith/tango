@@ -39,12 +39,13 @@ make ui-build       # Build frontend for production
 ```
 
 ## Key Patterns
-- All entities are company-scoped (strict data isolation)
+- All entities are squad-scoped (strict data isolation)
 - Issue identifiers: "{prefix}-{counter}" (e.g., ARI-1)
-- Agent hierarchy is a strict tree (no cycles)
+- Agent hierarchy is a strict tree (captain → lead → member, no cycles)
 - Activity log and cost events are append-only (immutable)
 - Atomic task checkout via CAS pattern
-- Budget enforcement: soft alert at 80%, hard stop at 100%
+- Budget enforcement: soft alert at 80%, hard stop (auto-pause) at 100%
+- Roles: Captain = lead agent, Lead = sub-team manager, Member = standard agent
 
 ## API
 - Base: `http://localhost:3100/api`
@@ -54,7 +55,7 @@ make ui-build       # Build frontend for production
 ## Phase 1 Focus (v0.1)
 - Go scaffold with CLI + HTTP server
 - Database schema + migrations
-- Company/Agent/Issue CRUD
+- Squad/Agent/Issue CRUD
 - Basic React dashboard
 - `ari run` one-command startup
 

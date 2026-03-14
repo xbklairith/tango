@@ -12,6 +12,8 @@ func clearEnv(t *testing.T) {
 	for _, key := range []string{
 		"ARI_ENV", "ARI_HOST", "ARI_PORT", "ARI_DATABASE_URL",
 		"ARI_DATA_DIR", "ARI_LOG_LEVEL", "ARI_SHUTDOWN_TIMEOUT",
+		"ARI_EMBEDDED_PG_PORT", "ARI_DEPLOYMENT_MODE", "ARI_JWT_SECRET",
+		"ARI_SESSION_TTL", "ARI_DISABLE_SIGNUP",
 	} {
 		t.Setenv(key, "")
 		os.Unsetenv(key)
@@ -29,8 +31,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Port != 3100 {
 		t.Errorf("Port = %d, want 3100", cfg.Port)
 	}
-	if cfg.Host != "0.0.0.0" {
-		t.Errorf("Host = %q, want %q", cfg.Host, "0.0.0.0")
+	// In local_trusted mode (default), host is forced to 127.0.0.1
+	if cfg.Host != "127.0.0.1" {
+		t.Errorf("Host = %q, want %q", cfg.Host, "127.0.0.1")
 	}
 	if cfg.Env != "development" {
 		t.Errorf("Env = %q, want %q", cfg.Env, "development")
@@ -53,8 +56,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.IsProduction() != false {
 		t.Error("IsProduction() = true, want false")
 	}
-	if cfg.Addr() != "0.0.0.0:3100" {
-		t.Errorf("Addr() = %q, want %q", cfg.Addr(), "0.0.0.0:3100")
+	if cfg.Addr() != "127.0.0.1:3100" {
+		t.Errorf("Addr() = %q, want %q", cfg.Addr(), "127.0.0.1:3100")
+	}
+	if cfg.EmbeddedPGPort != 5433 {
+		t.Errorf("EmbeddedPGPort = %d, want 5433", cfg.EmbeddedPGPort)
 	}
 }
 
@@ -150,6 +156,105 @@ func TestLoad_InvalidShutdownTimeout(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("Load() should return error for invalid shutdown timeout")
+	}
+}
+
+func TestLoad_EmbeddedPGPort_Override(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ARI_EMBEDDED_PG_PORT", "5555")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.EmbeddedPGPort != 5555 {
+		t.Errorf("EmbeddedPGPort = %d, want 5555", cfg.EmbeddedPGPort)
+	}
+}
+
+func TestLoad_InvalidEmbeddedPGPort(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ARI_EMBEDDED_PG_PORT", "not-a-number")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() should return error for invalid embedded PG port")
+	}
+}
+
+func TestLoad_EmbeddedPGPortOutOfRange(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ARI_EMBEDDED_PG_PORT", "99999")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() should return error for out-of-range embedded PG port")
+	}
+}
+
+func TestLoad_AuthConfigDefaults(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.DeploymentMode != "local_trusted" {
+		t.Errorf("DeploymentMode = %q, want %q", cfg.DeploymentMode, "local_trusted")
+	}
+	if cfg.SessionTTL != 24*time.Hour {
+		t.Errorf("SessionTTL = %v, want %v", cfg.SessionTTL, 24*time.Hour)
+	}
+	if cfg.DisableSignUp != false {
+		t.Error("DisableSignUp = true, want false")
+	}
+	if cfg.JWTSecret != "" {
+		t.Errorf("JWTSecret = %q, want empty", cfg.JWTSecret)
+	}
+}
+
+func TestLoad_AuthConfigOverrides(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ARI_DEPLOYMENT_MODE", "authenticated")
+	t.Setenv("ARI_JWT_SECRET", "mysecret")
+	t.Setenv("ARI_SESSION_TTL", "12h")
+	t.Setenv("ARI_DISABLE_SIGNUP", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.DeploymentMode != "authenticated" {
+		t.Errorf("DeploymentMode = %q, want %q", cfg.DeploymentMode, "authenticated")
+	}
+	if cfg.SessionTTL != 12*time.Hour {
+		t.Errorf("SessionTTL = %v, want %v", cfg.SessionTTL, 12*time.Hour)
+	}
+	if cfg.DisableSignUp != true {
+		t.Error("DisableSignUp = false, want true")
+	}
+}
+
+func TestLoad_InvalidDeploymentMode(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("ARI_DEPLOYMENT_MODE", "invalid")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() should return error for invalid deployment mode")
+	}
+}
+
+func TestLoad_LocalTrustedForcesLoopback(t *testing.T) {
+	clearEnv(t)
+	// Default mode is local_trusted, host should be forced to 127.0.0.1
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.Host != "127.0.0.1" {
+		t.Errorf("Host = %q, want %q in local_trusted mode", cfg.Host, "127.0.0.1")
 	}
 }
 
