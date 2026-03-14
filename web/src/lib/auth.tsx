@@ -30,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function logout() {
     await api.post("/auth/logout");
+    localStorage.removeItem("ari:activeSquadId");
     queryClient.clear();
     window.location.href = "/login";
   }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useBlocker } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
@@ -61,6 +61,7 @@ export default function AgentDetailPage() {
   const [runtimeConfigText, setRuntimeConfigText] = useState("");
   const updateAgent = useUpdateAgent();
   const statusAgent = useUpdateAgent({ successMessage: "Agent status updated" });
+  useBlocker(() => isEditing);
 
   if (isLoading) {
     return <div className="animate-pulse space-y-4"><div className="h-8 w-48 rounded bg-muted" /><div className="h-32 rounded bg-muted" /></div>;

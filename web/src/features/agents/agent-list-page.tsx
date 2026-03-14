@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import { humanize } from "@/lib/utils";
 import type { Agent } from "@/types/agent";
+import type { Squad } from "@/types/squad";
 import { agentStatusColors } from "@/types/agent";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
@@ -18,6 +19,11 @@ export default function AgentListPage() {
     queryFn: () => api.get<Agent[]>(`/agents?squadId=${squadId}`),
     enabled: !!squadId,
   });
+  const { data: squad } = useQuery({
+    queryKey: queryKeys.squads.detail(squadId!),
+    queryFn: () => api.get<Squad>(`/squads/${squadId}`),
+    enabled: !!squadId,
+  });
 
   if (isLoading) {
     return <div className="animate-pulse space-y-4">{Array.from({ length: 3 }, (_, i) => <div key={i} className="h-16 rounded-md bg-muted" />)}</div>;
@@ -29,6 +35,11 @@ export default function AgentListPage() {
         <h2 className="text-xl font-semibold">Agents</h2>
         <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-1" />Create Agent</Button>
       </div>
+      {squad?.requireApprovalForNewAgents && (
+        <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+          New agents require approval before activation
+        </div>
+      )}
       <div className="rounded-md border">
         <table className="w-full">
           <thead>

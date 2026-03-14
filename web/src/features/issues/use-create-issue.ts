@@ -28,7 +28,7 @@ export function useCreateIssue() {
       const message =
         error instanceof ApiClientError
           ? error.message
-          : "Failed to create issue";
+          : "An unexpected error occurred";
       toast({ title: message, variant: "destructive" });
     },
   });

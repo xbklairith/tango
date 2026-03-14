@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router";
+import { useParams, Link, useBlocker } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
@@ -28,6 +28,7 @@ export default function GoalDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState<Partial<UpdateGoalRequest>>({});
   const updateGoal = useUpdateGoal();
+  useBlocker(() => isEditing);
 
   if (isLoading) return <div className="animate-pulse space-y-4"><div className="h-8 w-48 rounded bg-muted" /><div className="h-32 rounded bg-muted" /></div>;
   if (!goal) return <p>Goal not found</p>;

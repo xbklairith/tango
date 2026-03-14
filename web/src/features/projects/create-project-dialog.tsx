@@ -59,6 +59,7 @@ export function CreateProjectDialog({ open, onOpenChange, squadId }: CreateProje
         <Input
           id="project-name"
           autoFocus
+          maxLength={255}
           value={form.name}
           onChange={(e) => { setForm({ ...form, name: e.target.value }); setErrors({ ...errors, name: "" }); }}
         />

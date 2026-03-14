@@ -112,6 +112,7 @@ export function CreateIssueDialog({ open, onOpenChange, squadId }: CreateIssueDi
         <Input
           id="issue-title"
           autoFocus
+          maxLength={500}
           value={form.title}
           onChange={(e) => { setForm({ ...form, title: e.target.value }); setErrors({ ...errors, title: "" }); }}
         />

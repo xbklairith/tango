@@ -28,7 +28,7 @@ export function useCreateGoal() {
       const message =
         error instanceof ApiClientError
           ? error.message
-          : "Failed to create goal";
+          : "An unexpected error occurred";
       toast({ title: message, variant: "destructive" });
     },
   });

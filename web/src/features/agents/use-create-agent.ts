@@ -28,7 +28,7 @@ export function useCreateAgent() {
       const message =
         error instanceof ApiClientError
           ? error.message
-          : "Failed to create agent";
+          : "An unexpected error occurred";
       toast({ title: message, variant: "destructive" });
     },
   });

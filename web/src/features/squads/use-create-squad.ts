@@ -22,7 +22,7 @@ export function useCreateSquad() {
       const message =
         error instanceof ApiClientError
           ? error.message
-          : "Failed to create squad";
+          : "An unexpected error occurred";
       toast({ title: message, variant: "destructive" });
     },
   });

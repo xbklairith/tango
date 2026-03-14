@@ -62,6 +62,7 @@ export function CreateSquadDialog({ open, onOpenChange }: CreateSquadDialogProps
         <Input
           id="squad-name"
           autoFocus
+          maxLength={255}
           value={form.name}
           onChange={(e) => { setForm({ ...form, name: e.target.value }); setErrors({ ...errors, name: "" }); }}
         />
@@ -71,6 +72,7 @@ export function CreateSquadDialog({ open, onOpenChange }: CreateSquadDialogProps
         <Label htmlFor="squad-prefix">Issue Prefix</Label>
         <Input
           id="squad-prefix"
+          maxLength={10}
           value={form.issuePrefix}
           onChange={(e) => { setForm({ ...form, issuePrefix: e.target.value }); setErrors({ ...errors, issuePrefix: "" }); }}
         />
@@ -81,6 +83,7 @@ export function CreateSquadDialog({ open, onOpenChange }: CreateSquadDialogProps
         <Label htmlFor="squad-desc">Description</Label>
         <Textarea
           id="squad-desc"
+          maxLength={2000}
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
         />

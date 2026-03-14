@@ -81,6 +81,7 @@ export function CreateGoalDialog({ open, onOpenChange, squadId }: CreateGoalDial
         <Input
           id="goal-title"
           autoFocus
+          maxLength={500}
           value={form.title}
           onChange={(e) => { setForm({ ...form, title: e.target.value }); setErrors({ ...errors, title: "" }); }}
         />

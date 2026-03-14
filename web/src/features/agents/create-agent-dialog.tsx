@@ -38,7 +38,11 @@ const initialForm = {
 function validate(values: typeof initialForm): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!values.name.trim()) errors.name = "Name is required";
-  if (!values.urlKey.trim()) errors.urlKey = "URL key is required";
+  if (!values.urlKey.trim()) {
+    errors.urlKey = "URL key is required";
+  } else if (!/^[a-z0-9-]+$/.test(values.urlKey.trim())) {
+    errors.urlKey = "Only lowercase letters, numbers, and hyphens allowed";
+  }
   if (!values.role) errors.role = "Role is required";
   return errors;
 }
@@ -102,6 +106,7 @@ export function CreateAgentDialog({ open, onOpenChange, squadId }: CreateAgentDi
         <Input
           id="agent-name"
           autoFocus
+          maxLength={255}
           value={form.name}
           onChange={(e) => { setForm({ ...form, name: e.target.value }); setErrors({ ...errors, name: "" }); }}
         />
@@ -111,6 +116,7 @@ export function CreateAgentDialog({ open, onOpenChange, squadId }: CreateAgentDi
         <Label htmlFor="agent-urlkey">URL Key</Label>
         <Input
           id="agent-urlkey"
+          maxLength={100}
           value={form.urlKey}
           onChange={(e) => { setForm({ ...form, urlKey: e.target.value }); setErrors({ ...errors, urlKey: "" }); }}
         />
