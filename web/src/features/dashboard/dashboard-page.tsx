@@ -1,7 +1,9 @@
 import { useAuth } from "@/lib/auth";
+import { useActiveSquad } from "@/lib/active-squad";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
+import { humanize } from "@/lib/utils";
 import type { Agent } from "@/types/agent";
 import type { Issue } from "@/types/issue";
 import type { Project } from "@/types/project";
@@ -12,24 +14,25 @@ import { Plus } from "lucide-react";
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const activeSquad = user?.squads?.[0];
+  const { activeSquadId } = useActiveSquad();
+  const activeSquad = user?.squads?.find((s) => s.squadId === activeSquadId);
 
   const { data: agents } = useQuery({
-    queryKey: queryKeys.agents.list(activeSquad?.squadId ?? ""),
-    queryFn: () => api.get<Agent[]>(`/agents?squadId=${activeSquad?.squadId}`),
-    enabled: !!activeSquad,
+    queryKey: queryKeys.agents.list(activeSquadId ?? ""),
+    queryFn: () => api.get<Agent[]>(`/agents?squadId=${activeSquadId}`),
+    enabled: !!activeSquadId,
   });
 
   const { data: issuesResponse } = useQuery({
-    queryKey: queryKeys.issues.list(activeSquad?.squadId ?? ""),
-    queryFn: () => api.get<PaginatedResponse<Issue>>(`/squads/${activeSquad?.squadId}/issues`),
-    enabled: !!activeSquad,
+    queryKey: queryKeys.issues.list(activeSquadId ?? ""),
+    queryFn: () => api.get<PaginatedResponse<Issue>>(`/squads/${activeSquadId}/issues`),
+    enabled: !!activeSquadId,
   });
 
   const { data: projects } = useQuery({
-    queryKey: queryKeys.projects.list(activeSquad?.squadId ?? ""),
-    queryFn: () => api.get<Project[]>(`/squads/${activeSquad?.squadId}/projects`),
-    enabled: !!activeSquad,
+    queryKey: queryKeys.projects.list(activeSquadId ?? ""),
+    queryFn: () => api.get<Project[]>(`/squads/${activeSquadId}/projects`),
+    enabled: !!activeSquadId,
   });
 
   if (!activeSquad) {
@@ -117,7 +120,7 @@ export default function DashboardPage() {
           {Object.entries(issuesByStatus).map(([status, count]) => (
             <div key={status} className="rounded-md border p-3 text-center">
               <p className="text-lg font-semibold">{count}</p>
-              <p className="text-xs text-muted-foreground">{status.replace("_", " ")}</p>
+              <p className="text-xs text-muted-foreground">{humanize(status)}</p>
             </div>
           ))}
         </div>

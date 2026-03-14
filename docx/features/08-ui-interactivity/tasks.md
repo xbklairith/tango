@@ -22,8 +22,8 @@ Build in 5 batches following dependency order. Each batch is independently testa
 ## Progress Summary
 
 - Total Tasks: 18
-- Completed: 1/18
-- In Progress: Task 0.2 — Dashboard wired to ActiveSquadProvider
+- Completed: 2/18
+- In Progress: Batch 1
 - Test Coverage: 0 / 18 tasks tested
 
 ---
@@ -163,7 +163,7 @@ export function humanize(value: string): string {
 
 ---
 
-### Task 0.2 — Dashboard wired to `ActiveSquadProvider`
+### [x] Task 0.2 — Dashboard wired to `ActiveSquadProvider`
 
 **Requirements:** REQ-001, REQ-038
 
