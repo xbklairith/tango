@@ -1,13 +1,16 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import type { Squad } from "@/types/squad";
 import { Link } from "react-router";
-import { formatDate } from "@/lib/utils";
+import { formatDate, humanize } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { CreateSquadDialog } from "./create-squad-dialog";
 
 export default function SquadListPage() {
+  const [createOpen, setCreateOpen] = useState(false);
   const { data: squads, isLoading } = useQuery({
     queryKey: queryKeys.squads.all,
     queryFn: () => api.get<Squad[]>("/squads"),
@@ -21,7 +24,7 @@ export default function SquadListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Squads</h2>
-        <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create Squad</Button>
+        <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-1" />Create Squad</Button>
       </div>
       <div className="rounded-md border">
         <table className="w-full">
@@ -43,7 +46,7 @@ export default function SquadListPage() {
                 </td>
                 <td className="px-4 py-3">
                   <span className="inline-flex rounded-full px-2 py-1 text-xs font-medium bg-green-100 text-green-800">
-                    {squad.status}
+                    {humanize(squad.status)}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">{squad.issuePrefix}</td>
@@ -53,6 +56,7 @@ export default function SquadListPage() {
           </tbody>
         </table>
       </div>
+      <CreateSquadDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

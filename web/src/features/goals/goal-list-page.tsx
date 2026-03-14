@@ -1,13 +1,17 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
+import { humanize } from "@/lib/utils";
 import type { Goal } from "@/types/goal";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { CreateGoalDialog } from "./create-goal-dialog";
 
 export default function GoalListPage() {
   const { id: squadId } = useParams<{ id: string }>();
+  const [createOpen, setCreateOpen] = useState(false);
   const { data: goals, isLoading } = useQuery({
     queryKey: queryKeys.goals.list(squadId!),
     queryFn: () => api.get<Goal[]>(`/squads/${squadId}/goals`),
@@ -22,7 +26,7 @@ export default function GoalListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Goals</h2>
-        <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create Goal</Button>
+        <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-1" />Create Goal</Button>
       </div>
       <div className="rounded-md border">
         <table className="w-full">
@@ -43,7 +47,7 @@ export default function GoalListPage() {
                 </td>
                 <td className="px-4 py-3">
                   <span className="inline-flex rounded-full px-2 py-1 text-xs font-medium bg-green-100 text-green-800">
-                    {goal.status}
+                    {humanize(goal.status)}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground truncate max-w-xs">{goal.description}</td>
@@ -52,6 +56,7 @@ export default function GoalListPage() {
           </tbody>
         </table>
       </div>
+      {squadId && <CreateGoalDialog open={createOpen} onOpenChange={setCreateOpen} squadId={squadId} />}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useActiveSquad } from "@/lib/active-squad";
 import { useQuery } from "@tanstack/react-query";
@@ -11,11 +12,18 @@ import type { PaginatedResponse } from "@/types/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { CreateAgentDialog } from "@/features/agents/create-agent-dialog";
+import { CreateIssueDialog } from "@/features/issues/create-issue-dialog";
+import { CreateProjectDialog } from "@/features/projects/create-project-dialog";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { activeSquadId } = useActiveSquad();
   const activeSquad = user?.squads?.find((s) => s.squadId === activeSquadId);
+
+  const [agentCreateOpen, setAgentCreateOpen] = useState(false);
+  const [issueCreateOpen, setIssueCreateOpen] = useState(false);
+  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(activeSquadId ?? ""),
@@ -107,9 +115,9 @@ export default function DashboardPage() {
       <div>
         <h3 className="text-sm font-medium text-muted-foreground mb-3">Quick Actions</h3>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" /> New Agent</Button>
-          <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" /> New Issue</Button>
-          <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" /> New Project</Button>
+          <Button size="sm" variant="outline" onClick={() => setAgentCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> New Agent</Button>
+          <Button size="sm" variant="outline" onClick={() => setIssueCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> New Issue</Button>
+          <Button size="sm" variant="outline" onClick={() => setProjectCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> New Project</Button>
         </div>
       </div>
 
@@ -125,6 +133,14 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {activeSquadId && (
+        <>
+          <CreateAgentDialog open={agentCreateOpen} onOpenChange={setAgentCreateOpen} squadId={activeSquadId} />
+          <CreateIssueDialog open={issueCreateOpen} onOpenChange={setIssueCreateOpen} squadId={activeSquadId} />
+          <CreateProjectDialog open={projectCreateOpen} onOpenChange={setProjectCreateOpen} squadId={activeSquadId} />
+        </>
+      )}
     </div>
   );
 }

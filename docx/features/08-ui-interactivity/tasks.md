@@ -22,8 +22,8 @@ Build in 5 batches following dependency order. Each batch is independently testa
 ## Progress Summary
 
 - Total Tasks: 18
-- Completed: 5/18
-- In Progress: Batch 2
+- Completed: 9/18
+- In Progress: Batch 3
 - Test Coverage: 0 / 18 tasks tested
 
 ---
@@ -480,7 +480,7 @@ export function PaginationControls({ total, offset, limit, onPageChange }: Pagin
 
 ---
 
-### Task 2.1 — Squad create: `useCreateSquad` + `CreateSquadDialog`
+### [x] Task 2.1 — Squad create: `useCreateSquad` + `CreateSquadDialog`
 
 **Requirements:** REQ-003, REQ-008, REQ-035, REQ-036, REQ-037, REQ-039, REQ-070, REQ-072, REQ-073
 
@@ -571,7 +571,7 @@ const [createOpen, setCreateOpen] = useState(false);
 
 ---
 
-### Task 2.2 — Agent create: `useCreateAgent` + `CreateAgentDialog`
+### [x] Task 2.2 — Agent create: `useCreateAgent` + `CreateAgentDialog`
 
 **Requirements:** REQ-004, REQ-009, REQ-035, REQ-036, REQ-037, REQ-039, REQ-072, REQ-073
 
@@ -660,7 +660,7 @@ Add to `web/e2e/agent.spec.ts`:
 
 ---
 
-### Task 2.3 — Issue create: `useCreateIssue` + `CreateIssueDialog`
+### [x] Task 2.3 — Issue create: `useCreateIssue` + `CreateIssueDialog`
 
 **Requirements:** REQ-005, REQ-010, REQ-035, REQ-036, REQ-037, REQ-039, REQ-072, REQ-073
 
@@ -744,7 +744,7 @@ Add to `web/e2e/issue.spec.ts`:
 
 ---
 
-### Task 2.4 — Project + Goal create dialogs
+### [x] Task 2.4 — Project + Goal create dialogs
 
 **Requirements:** REQ-006, REQ-007, REQ-011, REQ-012, REQ-035, REQ-036, REQ-037, REQ-039, REQ-055, REQ-072, REQ-073
 

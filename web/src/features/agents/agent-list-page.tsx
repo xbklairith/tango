@@ -1,14 +1,18 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
+import { humanize } from "@/lib/utils";
 import type { Agent } from "@/types/agent";
 import { agentStatusColors } from "@/types/agent";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { CreateAgentDialog } from "./create-agent-dialog";
 
 export default function AgentListPage() {
   const { id: squadId } = useParams<{ id: string }>();
+  const [createOpen, setCreateOpen] = useState(false);
   const { data: agents, isLoading } = useQuery({
     queryKey: queryKeys.agents.list(squadId!),
     queryFn: () => api.get<Agent[]>(`/agents?squadId=${squadId}`),
@@ -23,7 +27,7 @@ export default function AgentListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Agents</h2>
-        <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create Agent</Button>
+        <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-1" />Create Agent</Button>
       </div>
       <div className="rounded-md border">
         <table className="w-full">
@@ -43,10 +47,10 @@ export default function AgentListPage() {
                     {agent.name}
                   </Link>
                 </td>
-                <td className="px-4 py-3 text-sm">{agent.role}</td>
+                <td className="px-4 py-3 text-sm">{humanize(agent.role)}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${agentStatusColors[agent.status]}`}>
-                    {agent.status.replace("_", " ")}
+                    {humanize(agent.status)}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">{agent.title}</td>
@@ -55,6 +59,7 @@ export default function AgentListPage() {
           </tbody>
         </table>
       </div>
+      {squadId && <CreateAgentDialog open={createOpen} onOpenChange={setCreateOpen} squadId={squadId} />}
     </div>
   );
 }
