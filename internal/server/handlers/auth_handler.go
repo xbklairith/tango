@@ -420,6 +420,10 @@ func (h *AuthHandler) loadSquadMemberships(ctx context.Context, userID uuid.UUID
 			slog.Error("failed to look up squad", "squad_id", m.SquadID, "error", err)
 			continue
 		}
+		// Skip archived squads
+		if squad.Status == "archived" {
+			continue
+		}
 		result = append(result, squadMembershipBrief{
 			SquadID:   m.SquadID,
 			SquadName: squad.Name,
