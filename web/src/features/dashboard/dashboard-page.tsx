@@ -46,11 +46,15 @@ export default function DashboardPage() {
 
   if (!activeSquad) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <h2 className="text-xl font-semibold">Welcome to Ari</h2>
-        <p className="mt-2 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <h2 className="text-2xl font-bold">Welcome to Ari</h2>
+        <p className="text-muted-foreground">
           Create your first squad to get started.
         </p>
+        <Button onClick={() => window.location.href = "/squads"}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create Squad
+        </Button>
       </div>
     );
   }

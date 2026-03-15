@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import {
   LayoutDashboard,
+  Users,
   Bot,
   CircleDot,
   FolderKanban,
@@ -25,7 +26,9 @@ interface SidebarProps {
   onNavigate?: () => void;
 }
 
-const staticNavItems: { to: string; icon: any; label: string; end?: boolean }[] = [];
+const staticNavItems = [
+  { to: "/squads", icon: Users, label: "Squads", end: false },
+];
 
 function SquadSelector() {
   const { user } = useAuth();
