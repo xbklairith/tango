@@ -1,7 +1,7 @@
 # Tasks: Agent Runtime
 
 **Created:** 2026-03-15
-**Status:** Ready for Implementation
+**Status:** Partial — Tasks 01–09 complete, Task 10 (server wiring) not done
 
 ## Requirement Traceability
 
@@ -16,8 +16,9 @@ Work bottom-up through the dependency graph: database schema first, then the ada
 ## Progress Summary
 
 - Total Tasks: 10
-- Completed: 0
+- Completed: 9
 - In Progress: None
+- Remaining: Task 10 (server wiring — runtime handlers not yet registered in cmd/ari/run.go)
 - Test Coverage: TBD
 
 ---
@@ -26,7 +27,7 @@ Work bottom-up through the dependency graph: database schema first, then the ada
 
 ---
 
-### Task 01 — Database Migration: Runtime Tables
+### [x] Task 01 — Database Migration: Runtime Tables
 
 **Requirements:** REQ-006, REQ-013, REQ-026, REQ-027, REQ-057, REQ-058
 **Estimated time:** 45 min
@@ -81,7 +82,7 @@ Tests fail because the migration file does not yet exist.
 
 ---
 
-### Task 02 — Adapter Interface Expansion + Registry
+### [x] Task 02 — Adapter Interface Expansion + Registry
 
 **Requirements:** REQ-035, REQ-039, REQ-042, REQ-049
 **Estimated time:** 45 min
@@ -129,7 +130,7 @@ Tests fail because `Registry` does not exist in the current stub.
 
 ---
 
-### Task 03 — Process Adapter
+### [x] Task 03 — Process Adapter
 
 **Requirements:** REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-028, REQ-037
 **Estimated time:** 60 min
@@ -191,7 +192,7 @@ Tests fail because `internal/adapter/process/` does not exist.
 
 ---
 
-### Task 04 — Run Token JWT (Mint, Validate, Revoke)
+### [x] Task 04 — Run Token JWT (Mint, Validate, Revoke)
 
 **Requirements:** REQ-012, REQ-034, REQ-041, REQ-053, REQ-054
 **Estimated time:** 45 min
@@ -247,7 +248,7 @@ Tests fail because `internal/runtime/token/` does not exist.
 
 ---
 
-### Task 05 — SSE Hub (Fan-out, Keep-alive, Initial Snapshot)
+### [x] Task 05 — SSE Hub (Fan-out, Keep-alive, Initial Snapshot)
 
 **Requirements:** REQ-020 through REQ-025, REQ-030, REQ-031, REQ-040, REQ-045, REQ-046, REQ-050, REQ-055, REQ-059
 **Estimated time:** 60 min
@@ -319,7 +320,7 @@ Tests fail because `internal/server/sse/` does not exist.
 
 ---
 
-### Task 06 — Wakeup Queue (WakeupService + WakeupProcessor)
+### [x] Task 06 — Wakeup Queue (WakeupService + WakeupProcessor)
 
 **Requirements:** REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-032, REQ-043, REQ-044, REQ-051, REQ-058
 **Estimated time:** 60 min
@@ -393,7 +394,7 @@ Tests fail because neither package exists.
 
 ---
 
-### Task 07 — HeartbeatRun Lifecycle + RunService
+### [x] Task 07 — HeartbeatRun Lifecycle + RunService
 
 **Requirements:** REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-028, REQ-029, REQ-038, REQ-047, REQ-057
 **Estimated time:** 60 min
@@ -483,7 +484,7 @@ Tests fail because `internal/runtime/` package does not exist.
 
 ---
 
-### Task 08 — CAS Task Checkout and Release Endpoints
+### [x] Task 08 — CAS Task Checkout and Release Endpoints
 
 **Requirements:** REQ-013, REQ-014, REQ-015, REQ-016, REQ-017, REQ-033, REQ-052, REQ-056
 **Estimated time:** 60 min
@@ -564,7 +565,7 @@ Tests fail because the handlers and SQL queries do not exist.
 
 ---
 
-### Task 09 — Wake / Stop HTTP Endpoints + Auth Middleware Extension
+### [x] Task 09 — Wake / Stop HTTP Endpoints + Auth Middleware Extension
 
 **Requirements:** REQ-001, REQ-011, REQ-012, REQ-034, REQ-036, REQ-042, REQ-044
 **Estimated time:** 45 min
@@ -635,7 +636,9 @@ Tests fail because the `WakeAgent`/`StopAgent` handlers and the Run Token middle
 
 ---
 
-### Task 10 — Server Initialization Wiring
+### [ ] Task 10 — Server Initialization Wiring
+
+> **NOT IMPLEMENTED** — Handler files exist (`wakeup_handler.go`, `run_handler.go`, `task_handler.go`, `runtime_handler.go`) but are not wired into `cmd/ari/run.go`. The SSE hub, run token service, run service, wakeup processor, and runtime config fields are absent from server startup. Routes are not registered.
 
 **Requirements:** REQ-029, REQ-049, REQ-057
 **Estimated time:** 45 min

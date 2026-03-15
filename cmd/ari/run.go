@@ -14,6 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/xb/ari/internal/adapter"
+	"github.com/xb/ari/internal/adapter/process"
 	"github.com/xb/ari/internal/auth"
 	"github.com/xb/ari/internal/config"
 	"github.com/xb/ari/internal/database"
@@ -21,6 +23,7 @@ import (
 	ari "github.com/xb/ari"
 	"github.com/xb/ari/internal/server"
 	"github.com/xb/ari/internal/server/handlers"
+	"github.com/xb/ari/internal/server/sse"
 )
 
 func newRunCmd(version string) *cobra.Command {
@@ -135,8 +138,36 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	squadHandler.SetBudgetService(budgetService)
 	costHandler := handlers.NewCostHandler(queries, db, budgetService)
 
+	// Runtime services
+	sseHub := sse.NewHub()
+	adapterRegistry := adapter.NewRegistry()
+	adapterRegistry.Register(process.New())
+
+	runTokenKey := make([]byte, 32)
+	if _, err := rand.Read(runTokenKey); err != nil {
+		return fmt.Errorf("generate run token key: %w", err)
+	}
+	runTokenSvc, err := auth.NewRunTokenService(runTokenKey)
+	if err != nil {
+		return fmt.Errorf("create run token service: %w", err)
+	}
+
+	apiURL := fmt.Sprintf("http://localhost:%d", cfg.Port)
+	wakeupSvc := handlers.NewWakeupService(queries, db)
+	runSvc := handlers.NewRunService(db, queries, adapterRegistry, runTokenSvc, sseHub, apiURL)
+	taskHandler := handlers.NewTaskHandler(queries, db, sseHub)
+	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc)
+
+	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
+	go wakeupProcessor.Start(ctx)
+
+	// Cancel stale runs from previous crashes
+	if err := runSvc.CancelStaleRuns(ctx); err != nil {
+		slog.Error("failed to cancel stale runs", "error", err)
+	}
+
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

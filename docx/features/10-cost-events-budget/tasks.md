@@ -1,7 +1,7 @@
 # Tasks: Cost Events & Budget Enforcement
 
 **Created:** 2026-03-15
-**Status:** Ready for Implementation
+**Status:** Complete
 
 ## Requirement Traceability
 
@@ -21,9 +21,9 @@
 ## Progress Summary
 
 - Total Tasks: 9
-- Completed: 0
-- In Progress: None
-- Test Coverage: TBD
+- Completed: 8
+- Skipped: 1 (Task 8 — React UI, backend-only focus)
+- Test Coverage: Integration tests in cost_integration_test.go; unit tests in cost_test.go
 
 ---
 
@@ -31,7 +31,7 @@
 
 ---
 
-### Task 1 — Database Migration: `cost_events` Table
+### [x] Task 1 — Database Migration: `cost_events` Table
 
 **Requirements:** REQ-001, REQ-016, REQ-018, REQ-020, REQ-021, REQ-022, REQ-031
 
@@ -114,7 +114,7 @@ Run `make test` → migration tests pass.
 
 ---
 
-### Task 2 — sqlc Queries: Cost Event Persistence + Aggregation
+### [x] Task 2 — sqlc Queries: Cost Event Persistence + Aggregation
 
 **Requirements:** REQ-001, REQ-002, REQ-005, REQ-009, REQ-010, REQ-015, REQ-031, REQ-037
 
@@ -202,7 +202,7 @@ Run `make test` → query tests pass.
 
 ---
 
-### Task 3 — Domain Models: CostEvent, ThresholdStatus, BillingPeriod, Validation
+### [x] Task 3 — Domain Models: CostEvent, ThresholdStatus, BillingPeriod, Validation
 
 **Requirements:** REQ-016, REQ-022, REQ-003, REQ-004, REQ-005, REQ-006, REQ-023, REQ-024, REQ-028
 
@@ -289,7 +289,7 @@ Run `make test` → all domain unit tests pass.
 
 ---
 
-### Task 4 — BudgetEnforcementService: RecordAndEnforce
+### [x] Task 4 — BudgetEnforcementService: RecordAndEnforce
 
 **Requirements:** REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-013,
 REQ-015, REQ-019, REQ-023, REQ-024, REQ-036, REQ-037
@@ -395,7 +395,7 @@ Run `make test` → service tests pass.
 
 ---
 
-### Task 5 — BudgetEnforcementService: ReEvaluateAgent, ReEvaluateSquad, CheckResumeAllowed
+### [x] Task 5 — BudgetEnforcementService: ReEvaluateAgent, ReEvaluateSquad, CheckResumeAllowed
 
 **Requirements:** REQ-007, REQ-008, REQ-014, REQ-023, REQ-024, REQ-025, REQ-026, REQ-027
 
@@ -488,7 +488,7 @@ Run `make test` → all tests pass.
 
 ---
 
-### Task 6 — CostHandler: API Endpoints
+### [x] Task 6 — CostHandler: API Endpoints
 
 **Requirements:** REQ-009, REQ-010, REQ-011, REQ-012, REQ-017, REQ-029, REQ-030,
 REQ-033, REQ-034, REQ-036, REQ-037
@@ -615,7 +615,7 @@ Run `make test` → all cost handler integration tests pass.
 
 ---
 
-### Task 7 — Agent Status Machine Integration: Resume Guard + Budget Re-evaluation on PATCH
+### [x] Task 7 — Agent Status Machine Integration: Resume Guard + Budget Re-evaluation on PATCH
 
 **Requirements:** REQ-007, REQ-008, REQ-014, REQ-025, REQ-027, REQ-035
 
@@ -715,7 +715,9 @@ Run `make test` → all new tests pass.
 
 ---
 
-### Task 8 — React Budget UI Components
+### [SKIPPED] Task 8 — React Budget UI Components
+
+> **Note:** Skipped — backend-only implementation focus. No files exist under `web/src/features/costs/`. React UI components (BudgetBar, CostSummaryCard, AgentCostTable, use-cost-summary hooks) remain unimplemented.
 
 **Requirements:** REQ-009, REQ-010, REQ-012 (UI surface for budget data)
 
@@ -811,7 +813,9 @@ Run `make ui-build` → no TypeScript errors.
 
 ---
 
-### Task 9 — End-to-End: Full Budget Lifecycle Verification
+### [x] Task 9 — End-to-End: Full Budget Lifecycle Verification
+
+> **Note:** Lifecycle tests implemented within `internal/server/handlers/cost_integration_test.go` rather than as a separate `cost_budget_lifecycle_test.go` file. Tests cover agent budget lifecycle (record → warn → pause → block resume → increase → resume), squad enforcement, and budget enforcement at 80%/100% thresholds.
 
 **Requirements:** REQ-001 through REQ-037 (full acceptance criteria pass)
 
