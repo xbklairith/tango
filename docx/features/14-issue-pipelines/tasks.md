@@ -17,8 +17,8 @@ Work bottom-up through the dependency graph: domain model and validation first, 
 ## Progress Summary
 
 - Total Tasks: 13
-- Completed: 6/13
-- In Progress: Task 07 — PipelineHandler CRUD, Task 08 — PipelineHandler Advance/Reject
+- Completed: 10/13
+- In Progress: Task 11a — React UI Pipeline CRUD, Task 11b — React UI Pipeline Builder
 
 ---
 
@@ -275,7 +275,7 @@ All stage transitions run inside `sql.Tx` for atomicity.
 
 ---
 
-### [ ] Task 07 — PipelineHandler: Pipeline and Stage CRUD Endpoints
+### [x] Task 07 — PipelineHandler: Pipeline and Stage CRUD Endpoints
 
 **Requirements:** REQ-PIP-020, REQ-PIP-021, REQ-PIP-022, REQ-PIP-023, REQ-PIP-024, REQ-PIP-025, REQ-PIP-026, REQ-PIP-027, REQ-PIP-028, REQ-PIP-029
 **Estimated time:** 60 min
@@ -330,7 +330,7 @@ Create `internal/server/handlers/pipeline_handler.go`:
 
 ---
 
-### [ ] Task 08 — PipelineHandler: Advance and Reject Endpoints
+### [x] Task 08 — PipelineHandler: Advance and Reject Endpoints
 
 **Requirements:** REQ-PIP-040, REQ-PIP-041, REQ-PIP-042, REQ-PIP-043, REQ-PIP-044, REQ-PIP-045, REQ-PIP-050, REQ-PIP-051, REQ-PIP-052, REQ-PIP-053, REQ-PIP-054, REQ-PIP-028
 **Estimated time:** 45 min
@@ -368,7 +368,7 @@ Add to `internal/server/handlers/pipeline_handler.go`:
 
 ---
 
-### [ ] Task 09 — IssueHandler Integration: Auto-Advance and Pipeline Attachment
+### [x] Task 09 — IssueHandler Integration: Auto-Advance and Pipeline Attachment
 
 **Requirements:** REQ-PIP-030, REQ-PIP-031, REQ-PIP-032, REQ-PIP-033, REQ-PIP-034, REQ-PIP-035, REQ-PIP-036, REQ-PIP-042
 **Estimated time:** 45 min
@@ -429,7 +429,7 @@ Modify `internal/server/handlers/issue_handler.go`:
 
 ---
 
-### [ ] Task 10 — Server Wiring: Register Pipeline Routes and Dependencies
+### [x] Task 10 — Server Wiring: Register Pipeline Routes and Dependencies
 
 **Requirements:** All (integration)
 **Estimated time:** 30 min

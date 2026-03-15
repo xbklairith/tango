@@ -130,7 +130,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	squadHandler := handlers.NewSquadHandler(queries, db)
 	membershipHandler := handlers.NewMembershipHandler(queries, db)
 	agentHandler := handlers.NewAgentHandler(queries, db)
-	issueHandler := handlers.NewIssueHandler(queries, db)
+	issueHandler := handlers.NewIssueHandler(queries, db, nil)
 	projectHandler := handlers.NewProjectHandler(queries, db)
 	goalHandler := handlers.NewGoalHandler(queries, db)
 	activityHandler := handlers.NewActivityHandler(queries)
@@ -166,7 +166,10 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 
 	apiURL := fmt.Sprintf("http://localhost:%d", cfg.Port)
 	wakeupSvc := handlers.NewWakeupService(queries, db)
+	pipelineSvc := handlers.NewPipelineService(queries, db, sseHub, wakeupSvc)
 	issueHandler.SetWakeupService(wakeupSvc)
+	issueHandler.SetPipelineService(pipelineSvc)
+	pipelineHandler := handlers.NewPipelineHandler(queries, pipelineSvc)
 	runSvc := handlers.NewRunService(db, queries, adapterRegistry, runTokenSvc, sseHub, apiURL)
 	taskHandler := handlers.NewTaskHandler(queries, db, sseHub)
 	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc)
@@ -191,7 +194,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	}
 
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler, pipelineHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

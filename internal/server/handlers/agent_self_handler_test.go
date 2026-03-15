@@ -49,7 +49,7 @@ func makeEnvWithRunTokens(t *testing.T) (*testEnv, *auth.RunTokenService) {
 	squadHandler := handlers.NewSquadHandler(queries, testDB)
 	membershipHandler := handlers.NewMembershipHandler(queries, testDB)
 	agentHandler := handlers.NewAgentHandler(queries, testDB)
-	issueHandler := handlers.NewIssueHandler(queries, testDB)
+	issueHandler := handlers.NewIssueHandler(queries, testDB, nil)
 	projectHandler := handlers.NewProjectHandler(queries, testDB)
 	goalHandler := handlers.NewGoalHandler(queries, testDB)
 	activityHandler := handlers.NewActivityHandler(queries)

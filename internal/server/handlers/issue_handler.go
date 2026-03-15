@@ -22,18 +22,24 @@ import (
 var identifierPattern = regexp.MustCompile(`^[A-Z]{2,10}-\d+$`)
 
 type IssueHandler struct {
-	queries   *db.Queries
-	dbConn    *sql.DB
-	wakeupSvc *WakeupService
+	queries     *db.Queries
+	dbConn      *sql.DB
+	wakeupSvc   *WakeupService
+	pipelineSvc *PipelineService
 }
 
-func NewIssueHandler(q *db.Queries, dbConn *sql.DB) *IssueHandler {
-	return &IssueHandler{queries: q, dbConn: dbConn}
+func NewIssueHandler(q *db.Queries, dbConn *sql.DB, pipelineSvc *PipelineService) *IssueHandler {
+	return &IssueHandler{queries: q, dbConn: dbConn, pipelineSvc: pipelineSvc}
 }
 
 // SetWakeupService sets the wakeup service for auto-wake on assignment.
 func (h *IssueHandler) SetWakeupService(ws *WakeupService) {
 	h.wakeupSvc = ws
+}
+
+// SetPipelineService sets the pipeline service for auto-advance on done.
+func (h *IssueHandler) SetPipelineService(ps *PipelineService) {
+	h.pipelineSvc = ps
 }
 
 func (h *IssueHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -64,6 +70,8 @@ type issueResponse struct {
 	AssigneeUserID  *uuid.UUID           `json:"assigneeUserId"`
 	BillingCode     *string              `json:"billingCode"`
 	RequestDepth    int                  `json:"requestDepth"`
+	PipelineID      *uuid.UUID           `json:"pipelineId"`
+	CurrentStageID  *uuid.UUID           `json:"currentStageId"`
 	CreatedAt       string               `json:"createdAt"`
 	UpdatedAt       string               `json:"updatedAt"`
 }
@@ -127,6 +135,12 @@ func dbIssueToResponse(i db.Issue) issueResponse {
 	}
 	if i.BillingCode.Valid {
 		resp.BillingCode = &i.BillingCode.String
+	}
+	if i.PipelineID.Valid {
+		resp.PipelineID = &i.PipelineID.UUID
+	}
+	if i.CurrentStageID.Valid {
+		resp.CurrentStageID = &i.CurrentStageID.UUID
 	}
 	return resp
 }
