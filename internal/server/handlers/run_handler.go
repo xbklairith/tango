@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,7 @@ type RunService struct {
 	sseHub       *sse.Hub
 	apiURL       string
 	inboxService *InboxService
+	secretsSvc   *SecretsService
 
 	// active tracks cancel funcs for running invocations (for graceful stop)
 	mu     sync.Mutex
@@ -41,6 +43,11 @@ type RunService struct {
 // SetInboxService sets the InboxService for error reporting on failed runs.
 func (s *RunService) SetInboxService(is *InboxService) {
 	s.inboxService = is
+}
+
+// SetSecretsService sets the SecretsService for injecting secrets into agent runs.
+func (s *RunService) SetSecretsService(ss *SecretsService) {
+	s.secretsSvc = ss
 }
 
 // NewRunService creates a new RunService.
@@ -548,6 +555,32 @@ Body: {"conversationId": "%s", "body": "<your reply>"}`,
 				gateList += "\nBefore performing any of these actions, create an approval request via POST /api/squads/{squadId}/inbox with category='approval'.\n"
 				gateList += "Use GET /api/agent/me/gates for the full gate configuration.\n"
 				envVars["ARI_PROMPT"] = prompt + gateList
+			}
+		}
+	}
+
+	// Inject squad secrets as ARI_SECRET_* env vars
+	if s.secretsSvc != nil {
+		secretMap, err := s.secretsSvc.GetDecryptedSecrets(ctx, wakeup.SquadID)
+		if err != nil {
+			slog.Warn("failed to load secrets for injection", "squad_id", wakeup.SquadID, "error", err)
+		} else {
+			injectedNames := make([]string, 0, len(secretMap))
+			for name, value := range secretMap {
+				envKey := "ARI_SECRET_" + name
+				// Don't override core ARI_* vars
+				if _, exists := envVars[envKey]; !exists {
+					envVars[envKey] = value
+					injectedNames = append(injectedNames, name)
+				}
+			}
+			if len(injectedNames) > 0 {
+				sort.Strings(injectedNames)
+				slog.Info("injecting secrets into agent run",
+					"squad_id", wakeup.SquadID,
+					"agent_id", wakeup.AgentID,
+					"secret_names", strings.Join(injectedNames, ", "),
+					"count", len(injectedNames))
 			}
 		}
 	}

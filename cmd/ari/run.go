@@ -22,6 +22,7 @@ import (
 	"github.com/xb/ari/internal/database"
 	dbpkg "github.com/xb/ari/internal/database/db"
 	ari "github.com/xb/ari"
+	"github.com/xb/ari/internal/secrets"
 	"github.com/xb/ari/internal/server"
 	"github.com/xb/ari/internal/server/handlers"
 	"github.com/xb/ari/internal/server/sse"
@@ -183,6 +184,15 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	budgetService.SetInboxService(inboxSvc)
 	runSvc.SetInboxService(inboxSvc)
 
+	// Initialize secrets management
+	keyMgr, err := secrets.NewMasterKeyManager(os.Getenv("ARI_MASTER_KEY"), cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("initializing master key manager: %w", err)
+	}
+	secretsSvc := handlers.NewSecretsService(queries, db, keyMgr)
+	secretHandler := handlers.NewSecretHandler(queries, secretsSvc)
+	runSvc.SetSecretsService(secretsSvc)
+
 	agentSelfHandler := handlers.NewAgentSelfHandler(queries, db, sseHub, budgetService, inboxSvc)
 	permissionHandler := handlers.NewPermissionHandler()
 
@@ -199,7 +209,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	}
 
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler, pipelineHandler, permissionHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler, pipelineHandler, permissionHandler, secretHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

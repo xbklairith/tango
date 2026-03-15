@@ -890,6 +890,18 @@ type SquadMembership struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type SquadSecret struct {
+	ID             uuid.UUID    `json:"id"`
+	SquadID        uuid.UUID    `json:"squad_id"`
+	Name           string       `json:"name"`
+	EncryptedValue []byte       `json:"encrypted_value"`
+	Nonce          []byte       `json:"nonce"`
+	MaskedHint     string       `json:"masked_hint"`
+	CreatedAt      time.Time    `json:"created_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+	LastRotatedAt  sql.NullTime `json:"last_rotated_at"`
+}
+
 type User struct {
 	ID           uuid.UUID `json:"id"`
 	Email        string    `json:"email"`

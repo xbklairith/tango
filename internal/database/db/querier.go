@@ -45,6 +45,7 @@ type Querier interface {
 	CountIssuesInPipeline(ctx context.Context, pipelineID uuid.NullUUID) (int64, error)
 	CountPipelinesBySquad(ctx context.Context, arg CountPipelinesBySquadParams) (int64, error)
 	CountSquadOwners(ctx context.Context, squadID uuid.UUID) (int64, error)
+	CountSquadSecrets(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountStagesByPipeline(ctx context.Context, pipelineID uuid.UUID) (int64, error)
 	CountSubTasks(ctx context.Context, parentID uuid.NullUUID) (int64, error)
 	CountUnresolvedBySquad(ctx context.Context, squadID uuid.UUID) (CountUnresolvedBySquadRow, error)
@@ -63,6 +64,7 @@ type Querier interface {
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateSquad(ctx context.Context, arg CreateSquadParams) (Squad, error)
 	CreateSquadMembership(ctx context.Context, arg CreateSquadMembershipParams) (SquadMembership, error)
+	CreateSquadSecret(ctx context.Context, arg CreateSquadSecretParams) (SquadSecret, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
 	CreateWakeupRequest(ctx context.Context, arg CreateWakeupRequestParams) (WakeupRequest, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
@@ -74,6 +76,7 @@ type Querier interface {
 	DeleteSquadMembership(ctx context.Context, arg DeleteSquadMembershipParams) error
 	DeleteSquadMembershipByUserIfNotLastOwner(ctx context.Context, arg DeleteSquadMembershipByUserIfNotLastOwnerParams) (int64, error)
 	DeleteSquadMembershipIfNotLastOwner(ctx context.Context, arg DeleteSquadMembershipIfNotLastOwnerParams) (int64, error)
+	DeleteSquadSecret(ctx context.Context, arg DeleteSquadSecretParams) error
 	DemoteOwnerIfNotLast(ctx context.Context, arg DemoteOwnerIfNotLastParams) (int64, error)
 	DiscardPendingWakeupsByAgent(ctx context.Context, agentID uuid.UUID) error
 	DismissInboxItem(ctx context.Context, arg DismissInboxItemParams) (InboxItem, error)
@@ -106,6 +109,7 @@ type Querier interface {
 	GetSquadMembership(ctx context.Context, arg GetSquadMembershipParams) (SquadMembership, error)
 	GetSquadMembershipByID(ctx context.Context, arg GetSquadMembershipByIDParams) (SquadMembership, error)
 	GetSquadMonthlySpend(ctx context.Context, arg GetSquadMonthlySpendParams) (int64, error)
+	GetSquadSecretByName(ctx context.Context, arg GetSquadSecretByNameParams) (SquadSecret, error)
 	GetSquadSettings(ctx context.Context, id uuid.UUID) (json.RawMessage, error)
 	GetTaskSession(ctx context.Context, arg GetTaskSessionParams) (string, error)
 	GetUserByEmail(ctx context.Context, lower string) (User, error)
@@ -119,6 +123,7 @@ type Querier interface {
 	ListAgentChildren(ctx context.Context, parentAgentID uuid.NullUUID) ([]Agent, error)
 	ListAgentChildrenBySquad(ctx context.Context, arg ListAgentChildrenBySquadParams) ([]Agent, error)
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
+	ListAllSecrets(ctx context.Context) ([]SquadSecret, error)
 	ListAssignmentsByAgent(ctx context.Context, arg ListAssignmentsByAgentParams) ([]Issue, error)
 	ListAssignmentsByAgentIDs(ctx context.Context, arg ListAssignmentsByAgentIDsParams) ([]Issue, error)
 	ListConversationsByAgent(ctx context.Context, arg ListConversationsByAgentParams) ([]Issue, error)
@@ -140,6 +145,7 @@ type Querier interface {
 	ListRunningIdleAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListSquadMembers(ctx context.Context, squadID uuid.UUID) ([]ListSquadMembersRow, error)
 	ListSquadMembershipsByUser(ctx context.Context, userID uuid.UUID) ([]SquadMembership, error)
+	ListSquadSecrets(ctx context.Context, squadID uuid.UUID) ([]ListSquadSecretsRow, error)
 	ListSquadsByUser(ctx context.Context, arg ListSquadsByUserParams) ([]ListSquadsByUserRow, error)
 	ListStagesByPipeline(ctx context.Context, pipelineID uuid.UUID) ([]PipelineStage, error)
 	ListTopLevelGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)
@@ -162,6 +168,8 @@ type Querier interface {
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpdateSquad(ctx context.Context, arg UpdateSquadParams) (Squad, error)
 	UpdateSquadMembershipRole(ctx context.Context, arg UpdateSquadMembershipRoleParams) (SquadMembership, error)
+	UpdateSquadSecretEncryption(ctx context.Context, arg UpdateSquadSecretEncryptionParams) error
+	UpdateSquadSecretValue(ctx context.Context, arg UpdateSquadSecretValueParams) (SquadSecret, error)
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
 	UpsertConversationSession(ctx context.Context, arg UpsertConversationSessionParams) error
 	UpsertTaskSession(ctx context.Context, arg UpsertTaskSessionParams) error
