@@ -2,7 +2,7 @@
 
 **Feature:** 14-issue-pipelines
 **Created:** 2026-03-15
-**Status:** In Progress
+**Status:** Complete
 
 ## Requirement Traceability
 
@@ -17,8 +17,8 @@ Work bottom-up through the dependency graph: domain model and validation first, 
 ## Progress Summary
 
 - Total Tasks: 13
-- Completed: 12/13
-- In Progress: Task 12 — Integration Tests
+- Completed: 13/13
+- In Progress: None
 
 ---
 
@@ -542,7 +542,7 @@ Create React components:
 
 ---
 
-### [ ] Task 12 — Integration Tests: Full Pipeline Flow
+### [x] Task 12 — Integration Tests: Full Pipeline Flow
 
 **Requirements:** All requirements (end-to-end coverage)
 **Estimated time:** 60 min
