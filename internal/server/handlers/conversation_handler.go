@@ -36,7 +36,7 @@ func (h *ConversationHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/squads/{squadId}/conversations", h.ListConversations)
 	mux.HandleFunc("POST /api/conversations/{id}/messages", h.SendMessage)
 	mux.HandleFunc("GET /api/conversations/{id}/messages", h.ListMessages)
-	mux.HandleFunc("POST /api/conversations/{id}/close", h.CloseConversation)
+	mux.HandleFunc("PATCH /api/conversations/{id}/close", h.CloseConversation)
 }
 
 // --- Request/Response Types ---
@@ -207,13 +207,28 @@ func (h *ConversationHandler) StartConversation(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// If a message was created, enqueue wakeup
+	// Emit SSE event for initial message
+	if firstComment != nil && h.sseHub != nil {
+		h.sseHub.Publish(squadID, "conversation.message", map[string]any{
+			"conversationId": issue.ID.String(),
+			"commentId":      firstComment.ID,
+			"authorType":     "user",
+			"authorId":       userID.String(),
+			"body":           req.Message,
+		})
+	}
+
+	// If a message was created, enqueue wakeup (skip if agent is paused/error/terminated)
 	if firstComment != nil && h.wakeupSvc != nil {
-		ctxMap := map[string]any{
-			"ARI_CONVERSATION_ID": issue.ID.String(),
-		}
-		if _, err := h.wakeupSvc.Enqueue(r.Context(), req.AgentID, squadID, "conversation_message", ctxMap); err != nil {
-			slog.Warn("wakeup enqueue failed for conversation", "agent_id", req.AgentID, "error", err)
+		if agent.Status == db.AgentStatusPaused || agent.Status == db.AgentStatusError || agent.Status == db.AgentStatusTerminated {
+			slog.Warn("skipping wakeup enqueue: agent not in wakeable status", "agent_id", req.AgentID, "status", agent.Status)
+		} else {
+			ctxMap := map[string]any{
+				"ARI_CONVERSATION_ID": issue.ID.String(),
+			}
+			if _, err := h.wakeupSvc.Enqueue(r.Context(), req.AgentID, squadID, "conversation_message", ctxMap); err != nil {
+				slog.Warn("wakeup enqueue failed for conversation", "agent_id", req.AgentID, "error", err)
+			}
 		}
 	}
 
@@ -280,6 +295,11 @@ func (h *ConversationHandler) SendMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if len(req.Body) > 50000 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "message body exceeds maximum length", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	// Begin transaction
 	tx, err := h.dbConn.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -328,7 +348,7 @@ func (h *ConversationHandler) SendMessage(w http.ResponseWriter, r *http.Request
 
 	// Emit SSE event
 	if h.sseHub != nil {
-		h.sseHub.Publish(issue.SquadID, "conversation.message.sent", map[string]any{
+		h.sseHub.Publish(issue.SquadID, "conversation.message", map[string]any{
 			"conversationId": convID.String(),
 			"commentId":      comment.ID.String(),
 			"authorType":     "user",
@@ -337,13 +357,20 @@ func (h *ConversationHandler) SendMessage(w http.ResponseWriter, r *http.Request
 		})
 	}
 
-	// Enqueue wakeup for assigned agent
+	// Enqueue wakeup for assigned agent (skip if agent is paused/error/terminated)
 	if h.wakeupSvc != nil {
-		ctxMap := map[string]any{
-			"ARI_CONVERSATION_ID": convID.String(),
-		}
-		if _, err := h.wakeupSvc.Enqueue(r.Context(), issue.AssigneeAgentID.UUID, issue.SquadID, "conversation_message", ctxMap); err != nil {
-			slog.Warn("wakeup enqueue failed for conversation message", "agent_id", issue.AssigneeAgentID.UUID, "error", err)
+		agentForWakeup, err := h.queries.GetAgentByID(r.Context(), issue.AssigneeAgentID.UUID)
+		if err != nil {
+			slog.Warn("failed to load agent for wakeup check", "agent_id", issue.AssigneeAgentID.UUID, "error", err)
+		} else if agentForWakeup.Status == db.AgentStatusPaused || agentForWakeup.Status == db.AgentStatusError || agentForWakeup.Status == db.AgentStatusTerminated {
+			slog.Warn("skipping wakeup enqueue: agent not in wakeable status", "agent_id", issue.AssigneeAgentID.UUID, "status", agentForWakeup.Status)
+		} else {
+			ctxMap := map[string]any{
+				"ARI_CONVERSATION_ID": convID.String(),
+			}
+			if _, err := h.wakeupSvc.Enqueue(r.Context(), issue.AssigneeAgentID.UUID, issue.SquadID, "conversation_message", ctxMap); err != nil {
+				slog.Warn("wakeup enqueue failed for conversation message", "agent_id", issue.AssigneeAgentID.UUID, "error", err)
+			}
 		}
 	}
 
@@ -449,6 +476,12 @@ func (h *ConversationHandler) ListMessages(w http.ResponseWriter, r *http.Reques
 		}
 		slog.Error("failed to get issue", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Verify type=conversation
+	if issue.Type != db.IssueTypeConversation {
+		writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "Issue is not a conversation", Code: "NOT_A_CONVERSATION"})
 		return
 	}
 

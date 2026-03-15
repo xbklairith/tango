@@ -13,7 +13,8 @@ import (
 
 type Querier interface {
 	AcknowledgeInboxItem(ctx context.Context, arg AcknowledgeInboxItemParams) (InboxItem, error)
-	CancelStaleHeartbeatRuns(ctx context.Context) error
+	CancelAllStaleHeartbeatRuns(ctx context.Context) error
+	CancelStaleHeartbeatRuns(ctx context.Context, squadID uuid.UUID) error
 	CountActiveRunsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountActivityBySquad(ctx context.Context, arg CountActivityBySquadParams) (int64, error)
 	// NOTE: CheckCycleInHierarchy uses a recursive CTE which sqlc cannot parse.

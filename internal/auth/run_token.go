@@ -12,7 +12,7 @@ import (
 )
 
 // RunTokenTTL is the default time-to-live for run tokens.
-const RunTokenTTL = 48 * time.Hour
+const RunTokenTTL = 2 * time.Hour
 
 // RunTokenType is the typ claim value that distinguishes run tokens from user session JWTs.
 const RunTokenType = "run_token"

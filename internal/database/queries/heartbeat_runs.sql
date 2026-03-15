@@ -55,4 +55,12 @@ LIMIT 1;
 -- name: CancelStaleHeartbeatRuns :exec
 UPDATE heartbeat_runs
 SET status = 'cancelled', finished_at = now()
-WHERE status IN ('queued', 'running');
+WHERE status IN ('queued', 'running')
+  AND squad_id = @squad_id
+  AND created_at < now() - interval '2 hours';
+
+-- name: CancelAllStaleHeartbeatRuns :exec
+UPDATE heartbeat_runs
+SET status = 'cancelled', finished_at = now()
+WHERE status IN ('queued', 'running')
+  AND created_at < now() - interval '2 hours';

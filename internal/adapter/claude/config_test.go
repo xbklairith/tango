@@ -174,10 +174,30 @@ func TestValidateWorkingDir_Relative(t *testing.T) {
 	}
 }
 
-func TestValidateWorkingDir_DotDot(t *testing.T) {
+func TestValidateWorkingDir_DotDot_Cleaned(t *testing.T) {
+	// /opt/agents/../escape cleans to /opt/escape — no traversal segments after cleaning.
+	// The new segment-based check (via filepath.Clean) accepts this, unlike the old
+	// strings.Contains approach which would have rejected it.
 	err := validateWorkingDir("/opt/agents/../escape")
+	if err != nil {
+		t.Errorf("unexpected error for path that cleans to valid absolute path: %v", err)
+	}
+}
+
+func TestValidateWorkingDir_DotDotSubstring(t *testing.T) {
+	// A path containing ".." as a substring but not as an actual segment (e.g., "foo..bar")
+	// should be accepted. The old strings.Contains check was too aggressive.
+	err := validateWorkingDir("/opt/foo..bar/workspace")
+	if err != nil {
+		t.Errorf("unexpected error for path with '..' substring (not a segment): %v", err)
+	}
+}
+
+func TestValidateWorkingDir_RelativeDotDot(t *testing.T) {
+	// Relative paths with ".." are rejected because they are not absolute.
+	err := validateWorkingDir("../escape")
 	if err == nil {
-		t.Error("expected error for path with '..', got nil")
+		t.Error("expected error for relative path with '..', got nil")
 	}
 }
 

@@ -58,8 +58,9 @@ export function StartConversationDialog({
 
   const createConversation = useMutation({
     mutationFn: ({ agentId, title, message }: { agentId: string; title: string; message?: string }) =>
-      api.post<StartConversationResponse>(`/agents/${agentId}/conversations`, {
+      api.post<StartConversationResponse>(`/squads/${squadId}/conversations`, {
         title,
+        agentId,
         message: message || undefined,
       }),
     onSuccess: (data) => {

@@ -13,14 +13,28 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+const cancelAllStaleHeartbeatRuns = `-- name: CancelAllStaleHeartbeatRuns :exec
+UPDATE heartbeat_runs
+SET status = 'cancelled', finished_at = now()
+WHERE status IN ('queued', 'running')
+  AND created_at < now() - interval '2 hours'
+`
+
+func (q *Queries) CancelAllStaleHeartbeatRuns(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, cancelAllStaleHeartbeatRuns)
+	return err
+}
+
 const cancelStaleHeartbeatRuns = `-- name: CancelStaleHeartbeatRuns :exec
 UPDATE heartbeat_runs
 SET status = 'cancelled', finished_at = now()
 WHERE status IN ('queued', 'running')
+  AND squad_id = $1
+  AND created_at < now() - interval '2 hours'
 `
 
-func (q *Queries) CancelStaleHeartbeatRuns(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, cancelStaleHeartbeatRuns)
+func (q *Queries) CancelStaleHeartbeatRuns(ctx context.Context, squadID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, cancelStaleHeartbeatRuns, squadID)
 	return err
 }
 

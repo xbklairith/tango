@@ -68,9 +68,21 @@ func Middleware(
 			tokenString := ExtractToken(r)
 			if tokenString != "" && runTokenSvc != nil {
 				if rtClaims, rtErr := runTokenSvc.Validate(tokenString); rtErr == nil {
-					agentID, _ := uuid.Parse(rtClaims.Subject)
-					squadID, _ := uuid.Parse(rtClaims.SquadID)
-					runID, _ := uuid.Parse(rtClaims.RunID)
+					agentID, err := uuid.Parse(rtClaims.Subject)
+					if err != nil {
+						writeAuthError(w, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
+						return
+					}
+					squadID, err := uuid.Parse(rtClaims.SquadID)
+					if err != nil {
+						writeAuthError(w, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
+						return
+					}
+					runID, err := uuid.Parse(rtClaims.RunID)
+					if err != nil {
+						writeAuthError(w, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
+						return
+					}
 					var convID uuid.UUID
 					if rtClaims.ConversationID != "" {
 						convID, _ = uuid.Parse(rtClaims.ConversationID)

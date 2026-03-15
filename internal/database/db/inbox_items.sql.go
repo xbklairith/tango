@@ -177,7 +177,8 @@ INSERT INTO inbox_items (
     squad_id, category, type, urgency, title, body, payload,
     related_agent_id, related_run_id
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT DO NOTHING
+ON CONFLICT (squad_id, related_agent_id, type) WHERE category = 'alert' AND status IN ('pending', 'acknowledged')
+DO UPDATE SET updated_at = now()
 RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at
 `
 

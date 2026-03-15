@@ -104,9 +104,10 @@ type InvokeResult struct {
 	Status       RunStatus  `json:"status"`
 	ExitCode     int        `json:"exitCode"`
 	Usage        TokenUsage `json:"usage"`
-	SessionState string     `json:"sessionState"` // sessionIdAfter — opaque state blob
-	Stdout       string     `json:"stdout"`       // excerpt (up to MaxExcerptBytes)
-	Stderr       string     `json:"stderr"`       // excerpt (up to MaxExcerptBytes)
+	CostUSD      float64    `json:"costUSD,omitempty"` // total cost from the adapter (e.g., Claude CLI total_cost_usd)
+	SessionState string     `json:"sessionState"`      // sessionIdAfter — opaque state blob
+	Stdout       string     `json:"stdout"`            // excerpt (up to MaxExcerptBytes)
+	Stderr       string     `json:"stderr"`            // excerpt (up to MaxExcerptBytes)
 }
 
 // LogLine represents a single structured log line from an adapter.

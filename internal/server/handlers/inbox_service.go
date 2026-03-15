@@ -94,24 +94,39 @@ func (s *InboxService) Create(ctx context.Context, params db.CreateInboxItemPara
 
 // Resolve resolves an inbox item, emits SSE, optionally enqueues a wakeup, and logs activity.
 func (s *InboxService) Resolve(ctx context.Context, itemID, userID uuid.UUID, resolution domain.InboxResolution, responseNote string, responsePayload json.RawMessage) (*db.InboxItem, error) {
+	// Use a transaction for read-then-write atomicity.
+	tx, err := s.dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("inbox resolve: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := s.queries.WithTx(tx)
+
 	// Fetch the current item first to validate resolution against category.
-	existing, err := s.queries.GetInboxItemByID(ctx, itemID)
+	existing, err := qtx.GetInboxItemByID(ctx, itemID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("inbox item not found")
+			return nil, domain.ErrInboxNotFound
 		}
 		return nil, fmt.Errorf("inbox resolve: get item: %w", err)
 	}
 
 	// Check if already resolved.
 	if existing.Status == db.InboxStatusResolved {
-		return nil, fmt.Errorf("inbox item is already resolved")
+		return nil, domain.ErrInboxAlreadyResolved
+	}
+
+	// Validate status transition.
+	currentStatus := domain.InboxStatus(existing.Status)
+	if err := domain.ValidateInboxStatusTransition(currentStatus, domain.InboxStatusResolved); err != nil {
+		return nil, err
 	}
 
 	// Validate resolution against category.
 	domainCategory := domain.InboxCategory(existing.Category)
 	if !domain.IsValidResolutionForCategory(domainCategory, resolution) {
-		return nil, fmt.Errorf("resolution %q is not valid for category %q", resolution, existing.Category)
+		return nil, fmt.Errorf("%w: resolution %q is not valid for category %q", domain.ErrInboxInvalidResolution, resolution, existing.Category)
 	}
 
 	// Build resolve params.
@@ -132,16 +147,16 @@ func (s *InboxService) Resolve(ctx context.Context, itemID, userID uuid.UUID, re
 		resolveParams.ResponsePayload = pqtype.NullRawMessage{RawMessage: responsePayload, Valid: true}
 	}
 
-	item, err := s.queries.ResolveInboxItem(ctx, resolveParams)
+	item, err := qtx.ResolveInboxItem(ctx, resolveParams)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("inbox item is already resolved")
+			return nil, domain.ErrInboxAlreadyResolved
 		}
 		return nil, fmt.Errorf("inbox resolve: update: %w", err)
 	}
 
-	// Log activity (best-effort, non-transactional).
-	if err := logActivity(ctx, s.queries, ActivityParams{
+	// Log activity within the transaction.
+	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    item.SquadID,
 		ActorType:  domain.ActivityActorUser,
 		ActorID:    userID,
@@ -153,10 +168,14 @@ func (s *InboxService) Resolve(ctx context.Context, itemID, userID uuid.UUID, re
 			"responseNote": responseNote,
 		},
 	}); err != nil {
-		slog.Error("inbox resolve: failed to log activity", "error", err)
+		return nil, fmt.Errorf("inbox resolve: log activity: %w", err)
 	}
 
-	// Emit SSE event.
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("inbox resolve: commit: %w", err)
+	}
+
+	// Emit SSE event (best-effort, after commit).
 	if s.sseHub != nil {
 		s.sseHub.Publish(item.SquadID, "inbox.item.resolved", map[string]any{
 			"itemId":           item.ID,
@@ -187,15 +206,46 @@ func (s *InboxService) Resolve(ctx context.Context, itemID, userID uuid.UUID, re
 
 // Acknowledge transitions an inbox item from pending to acknowledged.
 func (s *InboxService) Acknowledge(ctx context.Context, itemID, userID uuid.UUID) (*db.InboxItem, error) {
+	// Fetch the current item to validate the status transition.
+	existing, err := s.queries.GetInboxItemByID(ctx, itemID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, domain.ErrInboxNotFound
+		}
+		return nil, fmt.Errorf("inbox acknowledge: get item: %w", err)
+	}
+
+	// Validate status transition.
+	currentStatus := domain.InboxStatus(existing.Status)
+	if err := domain.ValidateInboxStatusTransition(currentStatus, domain.InboxStatusAcknowledged); err != nil {
+		return nil, err
+	}
+
 	item, err := s.queries.AcknowledgeInboxItem(ctx, db.AcknowledgeInboxItemParams{
 		ID:                   itemID,
 		AcknowledgedByUserID: uuid.NullUUID{UUID: userID, Valid: true},
 	})
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("inbox item not found or not in pending status")
+			return nil, domain.ErrInboxNotFound
 		}
 		return nil, fmt.Errorf("inbox acknowledge: update: %w", err)
+	}
+
+	// Log activity.
+	if err := logActivity(ctx, s.queries, ActivityParams{
+		SquadID:    item.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    userID,
+		Action:     "inbox.acknowledged",
+		EntityType: "inbox_item",
+		EntityID:   item.ID,
+		Metadata: map[string]any{
+			"category": string(item.Category),
+			"title":    item.Title,
+		},
+	}); err != nil {
+		slog.Error("inbox acknowledge: failed to log activity", "error", err)
 	}
 
 	// Emit SSE event.
@@ -219,9 +269,9 @@ type CreateBudgetWarningParams struct {
 	BudgetCents int64
 }
 
-// CreateBudgetWarning auto-creates a budget alert inbox item with ON CONFLICT DO NOTHING.
+// CreateBudgetWarning auto-creates a budget alert inbox item with ON CONFLICT DO UPDATE.
 // Accepts a transactional qtx for atomic creation within the budget enforcement transaction.
-// Returns nil item if deduplicated (no SSE event emitted).
+// On conflict the existing row is touched (updated_at = now()) and returned.
 func (s *InboxService) CreateBudgetWarning(ctx context.Context, qtx *db.Queries, params CreateBudgetWarningParams) (*db.InboxItem, error) {
 	title := fmt.Sprintf("Agent budget alert: %s", params.Type)
 
@@ -242,13 +292,6 @@ func (s *InboxService) CreateBudgetWarning(ctx context.Context, qtx *db.Queries,
 		RelatedRunID:   uuid.NullUUID{},
 	})
 	if err != nil {
-		// ON CONFLICT DO NOTHING returns sql.ErrNoRows when deduplicated.
-		if err == sql.ErrNoRows {
-			slog.Info("inbox budget warning deduplicated",
-				"agent_id", params.AgentID,
-				"type", params.Type)
-			return nil, nil
-		}
 		return nil, fmt.Errorf("inbox create budget warning: %w", err)
 	}
 
@@ -276,10 +319,10 @@ type CreateAgentErrorParams struct {
 	StderrExcerpt string
 }
 
-// CreateAgentError auto-creates an agent error alert inbox item with ON CONFLICT DO NOTHING.
+// CreateAgentError auto-creates an agent error alert inbox item with ON CONFLICT DO UPDATE.
 // This is best-effort: errors are logged but not propagated.
 // Accepts qtx (typically non-transactional) since finalize() is non-transactional.
-// Returns nil item if deduplicated.
+// On conflict the existing row is touched (updated_at = now()) and returned.
 func (s *InboxService) CreateAgentError(ctx context.Context, qtx *db.Queries, params CreateAgentErrorParams) (*db.InboxItem, error) {
 	title := fmt.Sprintf("Agent error: %s", params.Type)
 
@@ -300,13 +343,6 @@ func (s *InboxService) CreateAgentError(ctx context.Context, qtx *db.Queries, pa
 		RelatedRunID:   uuid.NullUUID{UUID: params.RunID, Valid: true},
 	})
 	if err != nil {
-		// ON CONFLICT DO NOTHING returns sql.ErrNoRows when deduplicated.
-		if err == sql.ErrNoRows {
-			slog.Info("inbox agent error deduplicated",
-				"agent_id", params.AgentID,
-				"type", params.Type)
-			return nil, nil
-		}
 		// Best-effort: log the error but don't propagate.
 		slog.Error("inbox create agent error: failed",
 			"error", err,

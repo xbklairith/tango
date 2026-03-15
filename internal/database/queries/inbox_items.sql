@@ -10,7 +10,8 @@ INSERT INTO inbox_items (
     squad_id, category, type, urgency, title, body, payload,
     related_agent_id, related_run_id
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT DO NOTHING
+ON CONFLICT (squad_id, related_agent_id, type) WHERE category = 'alert' AND status IN ('pending', 'acknowledged')
+DO UPDATE SET updated_at = now()
 RETURNING *;
 
 -- name: GetInboxItemByID :one

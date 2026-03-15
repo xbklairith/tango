@@ -78,9 +78,10 @@ type eventCollector struct {
 	resultEvent *claudeEvent
 }
 
-// extract returns token usage and session state from collected events.
-func (ec *eventCollector) extract() (adapter.TokenUsage, string) {
+// extract returns token usage, session state, and total cost from collected events.
+func (ec *eventCollector) extract() (adapter.TokenUsage, string, float64) {
 	usage := adapter.TokenUsage{Provider: "anthropic"}
+	var costUSD float64
 
 	if ec.resultEvent != nil {
 		if ec.resultEvent.Usage != nil {
@@ -88,13 +89,14 @@ func (ec *eventCollector) extract() (adapter.TokenUsage, string) {
 			usage.OutputTokens = ec.resultEvent.Usage.OutputTokens
 		}
 		usage.Model = ec.resultEvent.Model
+		costUSD = ec.resultEvent.TotalCostUSD
 		// Session ID from result event takes precedence (final confirmation)
 		if ec.resultEvent.SessionID != "" {
 			ec.sessionID = ec.resultEvent.SessionID
 		}
 	}
 
-	return usage, ec.sessionID
+	return usage, ec.sessionID, costUSD
 }
 
 // streamAndParseEvents reads stdout line by line, parsing each as a stream-json event,
@@ -256,6 +258,16 @@ func streamAndParseEvents(r io.Reader, buf *bytes.Buffer, maxBytes int, hooks ad
 			}
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		if hooks.OnLogLine != nil {
+			hooks.OnLogLine(adapter.LogLine{
+				Level:     "warn",
+				Message:   fmt.Sprintf("stdout scanner error: %v", err),
+				Timestamp: time.Now(),
+			})
+		}
+	}
 }
 
 // streamStderr reads stderr, accumulates into buffer, and detects rate-limit errors.
@@ -294,6 +306,16 @@ func streamStderr(r io.Reader, buf *bytes.Buffer, maxBytes int, hooks adapter.Ho
 					Timestamp: time.Now(),
 				})
 			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if hooks.OnLogLine != nil {
+			hooks.OnLogLine(adapter.LogLine{
+				Level:     "warn",
+				Message:   fmt.Sprintf("stderr scanner error: %v", err),
+				Timestamp: time.Now(),
+			})
 		}
 	}
 }

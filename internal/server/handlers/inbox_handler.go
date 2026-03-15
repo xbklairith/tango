@@ -580,11 +580,30 @@ func (h *InboxHandler) ResolveInboxItem(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate responsePayload is valid JSON if provided.
+	if len(req.ResponsePayload) > 0 {
+		if !json.Valid(req.ResponsePayload) {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON in responsePayload", Code: "VALIDATION_ERROR"})
+			return
+		}
+	}
+
 	item, err := h.inboxService.Resolve(r.Context(), itemID, identity.UserID, resolution, req.ResponseNote, req.ResponsePayload)
 	if err != nil {
-		errMsg := err.Error()
-		if errMsg == "inbox item is already resolved" {
+		if errors.Is(err, domain.ErrInboxAlreadyResolved) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "Inbox item is already resolved", Code: "ALREADY_RESOLVED"})
+			return
+		}
+		if errors.Is(err, domain.ErrInboxInvalidTransition) {
+			writeJSON(w, http.StatusConflict, errorResponse{Error: err.Error(), Code: "INVALID_TRANSITION"})
+			return
+		}
+		if errors.Is(err, domain.ErrInboxInvalidResolution) {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "INVALID_RESOLUTION"})
+			return
+		}
+		if errors.Is(err, domain.ErrInboxNotFound) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Inbox item not found", Code: "NOT_FOUND"})
 			return
 		}
 		slog.Error("inbox resolve: service error", "error", err)
@@ -640,8 +659,11 @@ func (h *InboxHandler) AcknowledgeInboxItem(w http.ResponseWriter, r *http.Reque
 
 	item, err := h.inboxService.Acknowledge(r.Context(), itemID, identity.UserID)
 	if err != nil {
-		errMsg := err.Error()
-		if errMsg == "inbox item not found or not in pending status" {
+		if errors.Is(err, domain.ErrInboxNotFound) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Inbox item not found", Code: "NOT_FOUND"})
+			return
+		}
+		if errors.Is(err, domain.ErrInboxInvalidTransition) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "Inbox item is not in pending status", Code: "ALREADY_ACKNOWLEDGED"})
 			return
 		}
@@ -715,9 +737,16 @@ func (h *InboxHandler) DismissInboxItem(w http.ResponseWriter, r *http.Request) 
 	// Delegate to Resolve with dismissed resolution.
 	item, err := h.inboxService.Resolve(r.Context(), itemID, identity.UserID, domain.InboxResolutionDismissed, req.ResponseNote, nil)
 	if err != nil {
-		errMsg := err.Error()
-		if errMsg == "inbox item is already resolved" {
+		if errors.Is(err, domain.ErrInboxAlreadyResolved) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "Inbox item is already resolved", Code: "ALREADY_RESOLVED"})
+			return
+		}
+		if errors.Is(err, domain.ErrInboxInvalidTransition) {
+			writeJSON(w, http.StatusConflict, errorResponse{Error: err.Error(), Code: "INVALID_TRANSITION"})
+			return
+		}
+		if errors.Is(err, domain.ErrInboxNotFound) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Inbox item not found", Code: "NOT_FOUND"})
 			return
 		}
 		slog.Error("inbox dismiss: service error", "error", err)

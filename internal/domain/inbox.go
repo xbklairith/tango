@@ -2,9 +2,18 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+)
+
+// Sentinel errors for inbox operations.
+var (
+	ErrInboxAlreadyResolved   = errors.New("inbox item is already resolved")
+	ErrInboxInvalidTransition = errors.New("invalid status transition")
+	ErrInboxInvalidResolution = errors.New("invalid resolution for category")
+	ErrInboxNotFound          = errors.New("inbox item not found")
 )
 
 // -------- Inbox Enums --------
@@ -103,7 +112,7 @@ func ValidateInboxStatusTransition(from, to InboxStatus) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("cannot transition inbox item from %q to %q", from, to)
+	return fmt.Errorf("%w: cannot transition from %q to %q", ErrInboxInvalidTransition, from, to)
 }
 
 // -------- Resolution Rules --------
@@ -177,6 +186,9 @@ func ValidateCreateInboxItemRequest(req CreateInboxItemRequest) error {
 	}
 	if req.Urgency != nil && !req.Urgency.Valid() {
 		return fmt.Errorf("urgency must be one of: critical, normal, low")
+	}
+	if req.Body != nil && len(*req.Body) > 50000 {
+		return fmt.Errorf("body exceeds maximum length of 50000 characters")
 	}
 	if req.Payload != nil && len(req.Payload) > 0 && !json.Valid(req.Payload) {
 		return fmt.Errorf("payload must be valid JSON")

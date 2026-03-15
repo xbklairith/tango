@@ -4,6 +4,7 @@ package claude
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 )
@@ -35,12 +36,24 @@ type Config struct {
 }
 
 // parseConfig extracts Config from adapterConfig JSON, applying defaults for missing fields.
-// Malformed JSON is silently ignored and defaults are applied.
+// If JSON is malformed, a warning is logged and defaults are applied.
 func parseConfig(raw json.RawMessage) Config {
 	var cfg Config
 	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &cfg)
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			slog.Warn("claude adapter: failed to parse adapterConfig, using defaults", "error", err)
+		}
 	}
+
+	// Security: reject claudePath values whose base name does not start with "claude".
+	// This prevents adapterConfig from executing arbitrary binaries (e.g., /bin/sh).
+	// If the value is rejected we fall through to the default ("claude").
+	if cfg.ClaudePath != "" && !strings.HasPrefix(filepath.Base(cfg.ClaudePath), "claude") {
+		slog.Warn("claude adapter: claudePath does not resolve to a claude binary, using default",
+			"claudePath", cfg.ClaudePath)
+		cfg.ClaudePath = ""
+	}
+
 	if cfg.ClaudePath == "" {
 		cfg.ClaudePath = DefaultClaudePath
 	}
@@ -61,7 +74,7 @@ func parseConfig(raw json.RawMessage) Config {
 	return cfg
 }
 
-// validateWorkingDir checks that dir is an absolute path with no ".." segments.
+// validateWorkingDir checks that dir is an absolute path with no ".." path segments.
 // An empty string is valid (the adapter will use the default working directory).
 func validateWorkingDir(dir string) error {
 	if dir == "" {
@@ -70,8 +83,13 @@ func validateWorkingDir(dir string) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("workingDir must be an absolute path: %s", dir)
 	}
-	if strings.Contains(dir, "..") {
-		return fmt.Errorf("workingDir must not contain '..' segments: %s", dir)
+	// Use filepath.Clean then check individual segments so that patterns like
+	// "foo..bar" (no path separator) are not falsely rejected.
+	cleaned := filepath.Clean(dir)
+	for _, seg := range strings.Split(cleaned, string(filepath.Separator)) {
+		if seg == ".." {
+			return fmt.Errorf("workingDir must not contain path traversal segments: %s", dir)
+		}
 	}
 	return nil
 }

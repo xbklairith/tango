@@ -286,7 +286,7 @@ func TestEventCollector_ExtractUsage(t *testing.T) {
 		},
 	}
 
-	usage, sessionState := collector.extract()
+	usage, sessionState, costUSD := collector.extract()
 
 	if usage.InputTokens != 5000 {
 		t.Errorf("expected InputTokens 5000, got %d", usage.InputTokens)
@@ -303,6 +303,9 @@ func TestEventCollector_ExtractUsage(t *testing.T) {
 	if sessionState != "sess-abc" {
 		t.Errorf("expected sessionState 'sess-abc', got %q", sessionState)
 	}
+	if costUSD != 0.086 {
+		t.Errorf("expected costUSD 0.086, got %f", costUSD)
+	}
 }
 
 func TestEventCollector_NoResultEvent(t *testing.T) {
@@ -310,7 +313,7 @@ func TestEventCollector_NoResultEvent(t *testing.T) {
 		sessionID: "sess-xyz",
 	}
 
-	usage, sessionState := collector.extract()
+	usage, sessionState, costUSD := collector.extract()
 
 	if usage.InputTokens != 0 {
 		t.Errorf("expected InputTokens 0, got %d", usage.InputTokens)
@@ -321,12 +324,15 @@ func TestEventCollector_NoResultEvent(t *testing.T) {
 	if sessionState != "sess-xyz" {
 		t.Errorf("expected sessionState 'sess-xyz', got %q", sessionState)
 	}
+	if costUSD != 0 {
+		t.Errorf("expected costUSD 0, got %f", costUSD)
+	}
 }
 
 func TestEventCollector_EmptyCollector(t *testing.T) {
 	collector := &eventCollector{}
 
-	usage, sessionState := collector.extract()
+	usage, sessionState, costUSD := collector.extract()
 
 	if usage.InputTokens != 0 {
 		t.Errorf("expected InputTokens 0, got %d", usage.InputTokens)
@@ -339,6 +345,9 @@ func TestEventCollector_EmptyCollector(t *testing.T) {
 	}
 	if sessionState != "" {
 		t.Errorf("expected empty sessionState, got %q", sessionState)
+	}
+	if costUSD != 0 {
+		t.Errorf("expected costUSD 0, got %f", costUSD)
 	}
 }
 
@@ -382,12 +391,15 @@ func TestStreamAndParseEvents_FullStream(t *testing.T) {
 	}
 
 	// Verify extract
-	usage, session := collector.extract()
+	usage, session, costUSD := collector.extract()
 	if usage.InputTokens != 5000 {
 		t.Errorf("expected InputTokens 5000, got %d", usage.InputTokens)
 	}
 	if session != "sess-full" {
 		t.Errorf("expected session 'sess-full', got %q", session)
+	}
+	if costUSD != 0.086 {
+		t.Errorf("expected costUSD 0.086, got %f", costUSD)
 	}
 }
 

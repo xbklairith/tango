@@ -174,7 +174,7 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 	}
 
 	// 7. Build InvokeInput
-	input := s.buildInvokeInput(agent, wakeup, run, token, sessionBefore)
+	input := s.buildInvokeInput(ctx, agent, wakeup, run, token, sessionBefore)
 
 	// 8. Register cancel func
 	runCtx, cancelRun := context.WithCancel(ctx)
@@ -254,10 +254,10 @@ func (s *RunService) Stop(ctx context.Context, agentID uuid.UUID) error {
 	return nil
 }
 
-// CancelStaleRuns marks any queued/running heartbeat runs as cancelled.
+// CancelStaleRuns marks any queued/running heartbeat runs older than 2 hours as cancelled.
 // Called at startup to clean up after unclean shutdown (REQ-057).
 func (s *RunService) CancelStaleRuns(ctx context.Context) error {
-	return s.queries.CancelStaleHeartbeatRuns(ctx)
+	return s.queries.CancelAllStaleHeartbeatRuns(ctx)
 }
 
 // finalize writes the run result, persists session state, emits SSE events,
@@ -390,6 +390,7 @@ func (s *RunService) finalize(
 
 // buildInvokeInput constructs the adapter input from the agent, wakeup, and run.
 func (s *RunService) buildInvokeInput(
+	ctx context.Context,
 	agent db.Agent,
 	wakeup db.WakeupRequest,
 	run db.HeartbeatRun,
@@ -430,7 +431,7 @@ func (s *RunService) buildInvokeInput(
 
 	// Enrich with issue details when a task is assigned (but NOT for conversation wakeups)
 	if taskID != nil && convID == nil {
-		issue, err := s.queries.GetIssueByID(context.Background(), *taskID)
+		issue, err := s.queries.GetIssueByID(ctx, *taskID)
 		if err == nil {
 			envVars["ARI_ISSUE_TITLE"] = issue.Title
 			if issue.Description.Valid {
@@ -440,7 +441,7 @@ func (s *RunService) buildInvokeInput(
 
 			// Load squad name for prompt assembly
 			squadName := wakeup.SquadID.String()
-			if squad, err := s.queries.GetSquadByID(context.Background(), wakeup.SquadID); err == nil {
+			if squad, err := s.queries.GetSquadByID(ctx, wakeup.SquadID); err == nil {
 				squadName = squad.Name
 			}
 
@@ -453,7 +454,7 @@ Your current task: %s (%s)
 Description: %s
 
 API: %s
-Auth: Bearer %s
+Auth: Use the ARI_API_KEY environment variable (already set)
 
 When done, mark the task complete:
 PATCH %s/api/agent/me/task
@@ -462,7 +463,7 @@ Body: {"issueId": "%s", "status": "done"}`,
 				systemPrompt,
 				issue.Title, issue.Identifier,
 				envVars["ARI_ISSUE_DESCRIPTION"],
-				s.apiURL, token,
+				s.apiURL,
 				s.apiURL, taskID.String(),
 			)
 			envVars["ARI_PROMPT"] = prompt
@@ -474,9 +475,9 @@ Body: {"issueId": "%s", "status": "done"}`,
 	// Build conversation context when ARI_CONVERSATION_ID is present
 	var conversation *adapter.ConversationContext
 	if convID != nil {
-		convIssue, err := s.queries.GetIssueByID(context.Background(), *convID)
+		convIssue, err := s.queries.GetIssueByID(ctx, *convID)
 		if err == nil {
-			comments, err := s.queries.ListIssueComments(context.Background(), db.ListIssueCommentsParams{
+			comments, err := s.queries.ListIssueComments(ctx, db.ListIssueCommentsParams{
 				IssueID:    *convID,
 				PageLimit:  100,
 				PageOffset: 0,
@@ -493,25 +494,15 @@ Body: {"issueId": "%s", "status": "done"}`,
 					})
 				}
 
-				// Load conversation session state
-				var conversationSessionState string
-				ss, ssErr := s.queries.GetConversationSession(context.Background(), db.GetConversationSessionParams{
-					AgentID: agent.ID,
-					IssueID: *convID,
-				})
-				if ssErr == nil {
-					conversationSessionState = ss
-				}
-
 				conversation = &adapter.ConversationContext{
 					IssueID:      *convID,
 					Messages:     messages,
-					SessionState: conversationSessionState,
+					SessionState: sessionBefore,
 				}
 
 				// Build conversation-specific prompt
 				squadName := wakeup.SquadID.String()
-				if squad, sqErr := s.queries.GetSquadByID(context.Background(), wakeup.SquadID); sqErr == nil {
+				if squad, sqErr := s.queries.GetSquadByID(ctx, wakeup.SquadID); sqErr == nil {
 					squadName = squad.Name
 				}
 

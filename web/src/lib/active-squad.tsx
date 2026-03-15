@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from "react";
@@ -32,6 +33,22 @@ export function ActiveSquadProvider({ children }: { children: ReactNode }) {
     }
     return fallback;
   });
+
+  // Auto-select first squad when user squads arrive asynchronously (e.g. after login)
+  useEffect(() => {
+    const squads = user?.squads ?? [];
+    if (squads.length === 0) return;
+
+    // If current selection is still valid, keep it
+    if (activeSquadId && squads.some((s) => s.squadId === activeSquadId)) return;
+
+    // Select the first available squad
+    const fallback = squads[0]?.squadId ?? null;
+    if (fallback) {
+      setActiveSquadIdState(fallback);
+      localStorage.setItem(ACTIVE_SQUAD_KEY, fallback);
+    }
+  }, [user?.squads, activeSquadId]);
 
   function setActiveSquadId(id: string) {
     setActiveSquadIdState(id);

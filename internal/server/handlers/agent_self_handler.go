@@ -216,6 +216,11 @@ func (h *AgentSelfHandler) Reply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Body) > 50000 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "message body exceeds maximum length", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	convID, err := uuid.Parse(req.ConversationID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid conversation ID", Code: "VALIDATION_ERROR"})
@@ -320,9 +325,9 @@ func (h *AgentSelfHandler) Reply(w http.ResponseWriter, r *http.Request) {
 	// Emit SSE event
 	if h.sseHub != nil {
 		h.sseHub.Publish(issue.SquadID, "conversation.agent.replied", map[string]any{
-			"conversationId": convID,
-			"agentId":        identity.AgentID,
-			"commentId":      comment.ID,
+			"conversationId": convID.String(),
+			"agentId":        identity.AgentID.String(),
+			"commentId":      comment.ID.String(),
 			"body":           req.Body,
 		})
 	}
@@ -361,6 +366,10 @@ func (h *AgentSelfHandler) ListMyConversations(w http.ResponseWriter, r *http.Re
 
 	items := make([]conversationItem, 0, len(conversations))
 	for _, c := range conversations {
+		// Defensive squad scoping: skip conversations that don't belong to the agent's squad
+		if c.SquadID != identity.SquadID {
+			continue
+		}
 		items = append(items, conversationItem{
 			ID:         c.ID,
 			Identifier: c.Identifier,

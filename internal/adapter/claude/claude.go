@@ -9,9 +9,25 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/xb/ari/internal/adapter"
 )
+
+// blockedEnvKeys are system-critical environment variable names that adapterConfig.env
+// must not override. input.EnvVars (from Ari runtime) is exempt from this restriction.
+var blockedEnvKeys = map[string]bool{
+	"PATH":            true,
+	"HOME":            true,
+	"SHELL":           true,
+	"USER":            true,
+	"LD_PRELOAD":      true,
+	"LD_LIBRARY_PATH": true,
+}
+
+// blockedEnvPrefixes are prefixes that adapterConfig.env must not set.
+// input.EnvVars (from Ari runtime) is exempt from this restriction.
+var blockedEnvPrefixes = []string{"ARI_", "DYLD_"}
 
 // Compile-time interface check.
 var _ adapter.Adapter = (*ClaudeAdapter)(nil)
@@ -122,22 +138,53 @@ func buildArgs(cfg Config, input adapter.InvokeInput, useResume bool) []string {
 	return args
 }
 
-// buildEnv merges environment variables with proper precedence:
-// base OS env < adapterConfig.env < input.EnvVars (ARI_* vars)
+// buildEnv merges environment variables with proper precedence using a map for dedup.
+// Precedence (later overrides earlier): base OS env < adapterConfig.env < input.EnvVars.
+// adapterConfig.env is blocked from setting ARI_*, DYLD_*, and system-critical keys
+// (PATH, HOME, SHELL, USER, LD_PRELOAD, LD_LIBRARY_PATH) to prevent privilege escalation.
+// input.EnvVars (from Ari runtime) is trusted and may override anything.
 func buildEnv(input adapter.InvokeInput, cfg Config) []string {
-	env := os.Environ()
+	envMap := make(map[string]string)
 
-	// Adapter-config env vars (lower precedence)
+	// 1. Base OS environment (lowest precedence)
+	for _, entry := range os.Environ() {
+		if k, v, ok := strings.Cut(entry, "="); ok {
+			envMap[k] = v
+		}
+	}
+
+	// 2. Adapter-config env vars (medium precedence, with blocklist)
 	for k, v := range cfg.Env {
-		env = append(env, k+"="+v)
+		if isBlockedEnvKey(k) {
+			continue
+		}
+		envMap[k] = v
 	}
 
-	// ARI_* / input env vars (highest precedence)
+	// 3. Input env vars from Ari runtime (highest precedence, no restrictions)
 	for k, v := range input.EnvVars {
-		env = append(env, k+"="+v)
+		envMap[k] = v
 	}
 
+	// Convert map to slice
+	env := make([]string, 0, len(envMap))
+	for k, v := range envMap {
+		env = append(env, k+"="+v)
+	}
 	return env
+}
+
+// isBlockedEnvKey returns true if the given key must not be set by adapterConfig.env.
+func isBlockedEnvKey(key string) bool {
+	if blockedEnvKeys[key] {
+		return true
+	}
+	for _, prefix := range blockedEnvPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // executeOnce runs a single invocation of the Claude CLI and returns the result.
@@ -156,15 +203,16 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	// Inject environment: inherit + adapter-config env + ARI_* overrides
 	cmd.Env = buildEnv(input, cfg)
 
-	// Process group for clean kill
+	// Process group so we can signal the entire tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// Override the default cancel behavior to kill the entire process group
-	// instead of just the direct process. This ensures child processes (e.g.,
-	// shell-spawned subprocesses) are also killed on timeout/cancellation.
+	// Graceful two-phase shutdown: on context cancellation Go sends SIGTERM to
+	// the process group first (via cmd.Cancel). If the process hasn't exited
+	// after WaitDelay, Go automatically sends SIGKILL.
 	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 	}
+	cmd.WaitDelay = 5 * time.Second
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -205,9 +253,8 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	case runCtx.Err() == context.DeadlineExceeded:
 		status = adapter.RunStatusTimedOut
 	case ctx.Err() != nil:
-		// External cancellation — the cmd.Cancel already sent SIGKILL to process group.
-		// For graceful stop, we would prefer SIGTERM first, but since exec.CommandContext
-		// already triggered Cancel, the process group is killed.
+		// External cancellation — cmd.Cancel sent SIGTERM to the process group.
+		// If still running after WaitDelay (5s), Go escalates to SIGKILL.
 		status = adapter.RunStatusCancelled
 	case waitErr != nil:
 		if exitErr, ok := waitErr.(*exec.ExitError); ok {
@@ -221,13 +268,14 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	stdout := truncate(stdoutBuf.String(), cfg.MaxExcerptBytes)
 	stderr := truncate(stderrBuf.String(), cfg.MaxExcerptBytes)
 
-	// Extract usage and session state from collected events
-	usage, sessionState := collector.extract()
+	// Extract usage, session state, and cost from collected events
+	usage, sessionState, costUSD := collector.extract()
 
 	return adapter.InvokeResult{
 		Status:       status,
 		ExitCode:     exitCode,
 		Usage:        usage,
+		CostUSD:      costUSD,
 		SessionState: sessionState,
 		Stdout:       stdout,
 		Stderr:       stderr,
@@ -269,10 +317,15 @@ func (c *ClaudeAdapter) Execute(ctx context.Context, input adapter.InvokeInput, 
 	return result, err
 }
 
-// truncate returns s truncated to maxBytes.
+// truncate returns s truncated to at most maxBytes without splitting multi-byte
+// UTF-8 sequences. The result is always valid UTF-8.
 func truncate(s string, maxBytes int) string {
 	if len(s) <= maxBytes {
 		return s
 	}
-	return s[:maxBytes]
+	s = s[:maxBytes]
+	for len(s) > 0 && !utf8.Valid([]byte(s)) {
+		s = s[:len(s)-1]
+	}
+	return s
 }

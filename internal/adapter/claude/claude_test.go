@@ -153,7 +153,7 @@ func TestRegistry_ClaudeAndProcessCoexist(t *testing.T) {
 func writeTempScript(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mock-claude.sh")
+	path := filepath.Join(dir, "claude-mock.sh")
 	err := os.WriteFile(path, []byte("#!/bin/sh\n"+content), 0o755)
 	if err != nil {
 		t.Fatalf("write temp script: %v", err)

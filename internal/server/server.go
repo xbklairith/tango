@@ -60,6 +60,9 @@ func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMod
 		handler = auth.Middleware(mode, nil, nil, runTokenSvc)(handler)
 	}
 
+	// Limit request body size to 1MB before auth to prevent abuse
+	handler = maxBodySize(1 << 20)(handler)
+
 	handler = s.middleware(handler)
 
 	s.http = &http.Server{
@@ -71,6 +74,18 @@ func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMod
 	}
 
 	return s
+}
+
+// maxBodySize returns middleware that limits the size of incoming request bodies.
+func maxBodySize(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // ListenAndServe starts the HTTP server and blocks until the context is cancelled.
