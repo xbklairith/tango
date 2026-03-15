@@ -29,6 +29,7 @@ type Querier interface {
 	// )
 	// SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = $2) AS would_cycle;
 	CountAgentsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
+	CountConversationsByAgent(ctx context.Context, arg CountConversationsByAgentParams) (int64, error)
 	CountGoalChildren(ctx context.Context, parentID uuid.NullUUID) (int64, error)
 	CountInboxItemsBySquad(ctx context.Context, arg CountInboxItemsBySquadParams) (int64, error)
 	CountIssueComments(ctx context.Context, issueID uuid.UUID) (int64, error)
@@ -74,6 +75,7 @@ type Querier interface {
 	GetInboxItemByID(ctx context.Context, id uuid.UUID) (InboxItem, error)
 	GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
 	GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdentifierParams) (Issue, error)
+	GetLatestComment(ctx context.Context, issueID uuid.UUID) (IssueComment, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	GetSquadByID(ctx context.Context, id uuid.UUID) (Squad, error)
@@ -94,6 +96,7 @@ type Querier interface {
 	ListActivityBySquad(ctx context.Context, arg ListActivityBySquadParams) ([]ActivityLog, error)
 	ListAgentChildren(ctx context.Context, parentAgentID uuid.NullUUID) ([]Agent, error)
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
+	ListConversationsByAgent(ctx context.Context, arg ListConversationsByAgentParams) ([]Issue, error)
 	ListGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)
 	ListGoalsBySquadAndParent(ctx context.Context, arg ListGoalsBySquadAndParentParams) ([]Goal, error)
 	ListHeartbeatRunsByAgent(ctx context.Context, arg ListHeartbeatRunsByAgentParams) ([]HeartbeatRun, error)

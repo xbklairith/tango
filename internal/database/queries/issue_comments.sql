@@ -12,3 +12,9 @@ OFFSET @page_offset;
 
 -- name: CountIssueComments :one
 SELECT count(*) FROM issue_comments WHERE issue_id = @issue_id;
+
+-- name: GetLatestComment :one
+SELECT * FROM issue_comments
+WHERE issue_id = @issue_id
+ORDER BY created_at DESC
+LIMIT 1;

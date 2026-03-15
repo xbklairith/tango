@@ -55,6 +55,28 @@ func (q *Queries) CreateIssueComment(ctx context.Context, arg CreateIssueComment
 	return i, err
 }
 
+const getLatestComment = `-- name: GetLatestComment :one
+SELECT id, issue_id, author_type, author_id, body, created_at, updated_at FROM issue_comments
+WHERE issue_id = $1
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestComment(ctx context.Context, issueID uuid.UUID) (IssueComment, error) {
+	row := q.db.QueryRowContext(ctx, getLatestComment, issueID)
+	var i IssueComment
+	err := row.Scan(
+		&i.ID,
+		&i.IssueID,
+		&i.AuthorType,
+		&i.AuthorID,
+		&i.Body,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listIssueComments = `-- name: ListIssueComments :many
 SELECT id, issue_id, author_type, author_id, body, created_at, updated_at FROM issue_comments
 WHERE issue_id = $1

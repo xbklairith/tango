@@ -12,6 +12,25 @@ import (
 	"github.com/google/uuid"
 )
 
+const countConversationsByAgent = `-- name: CountConversationsByAgent :one
+SELECT count(*) FROM issues
+WHERE type = 'conversation'
+  AND assignee_agent_id = $1
+  AND ($2::issue_status IS NULL OR status = $2)
+`
+
+type CountConversationsByAgentParams struct {
+	AgentID      uuid.NullUUID   `json:"agent_id"`
+	FilterStatus NullIssueStatus `json:"filter_status"`
+}
+
+func (q *Queries) CountConversationsByAgent(ctx context.Context, arg CountConversationsByAgentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countConversationsByAgent, arg.AgentID, arg.FilterStatus)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countIssuesBySquad = `-- name: CountIssuesBySquad :one
 SELECT count(*) FROM issues
 WHERE squad_id = $1
@@ -233,9 +252,74 @@ func (q *Queries) IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) 
 	return i, err
 }
 
+const listConversationsByAgent = `-- name: ListConversationsByAgent :many
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
+WHERE type = 'conversation'
+  AND assignee_agent_id = $1
+  AND ($2::issue_status IS NULL OR status = $2)
+ORDER BY updated_at DESC
+LIMIT $4 OFFSET $3
+`
+
+type ListConversationsByAgentParams struct {
+	AgentID      uuid.NullUUID   `json:"agent_id"`
+	FilterStatus NullIssueStatus `json:"filter_status"`
+	PageOffset   int32           `json:"page_offset"`
+	PageLimit    int32           `json:"page_limit"`
+}
+
+func (q *Queries) ListConversationsByAgent(ctx context.Context, arg ListConversationsByAgentParams) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listConversationsByAgent,
+		arg.AgentID,
+		arg.FilterStatus,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Identifier,
+			&i.Type,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ParentID,
+			&i.ProjectID,
+			&i.GoalID,
+			&i.AssigneeAgentID,
+			&i.AssigneeUserID,
+			&i.BillingCode,
+			&i.RequestDepth,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CheckoutRunID,
+			&i.ExecutionLockedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssuesByAssigneeAgent = `-- name: ListIssuesByAssigneeAgent :many
 SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
 WHERE assignee_agent_id = $1
+  AND type != 'conversation'
   AND status NOT IN ('done', 'cancelled')
 ORDER BY created_at DESC
 `

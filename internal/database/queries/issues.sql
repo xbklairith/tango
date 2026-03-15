@@ -74,8 +74,23 @@ WHERE squad_id = @squad_id
 -- name: ListIssuesByAssigneeAgent :many
 SELECT * FROM issues
 WHERE assignee_agent_id = @agent_id
+  AND type != 'conversation'
   AND status NOT IN ('done', 'cancelled')
 ORDER BY created_at DESC;
+
+-- name: ListConversationsByAgent :many
+SELECT * FROM issues
+WHERE type = 'conversation'
+  AND assignee_agent_id = @agent_id
+  AND (sqlc.narg('filter_status')::issue_status IS NULL OR status = sqlc.narg('filter_status'))
+ORDER BY updated_at DESC
+LIMIT @page_limit OFFSET @page_offset;
+
+-- name: CountConversationsByAgent :one
+SELECT count(*) FROM issues
+WHERE type = 'conversation'
+  AND assignee_agent_id = @agent_id
+  AND (sqlc.narg('filter_status')::issue_status IS NULL OR status = sqlc.narg('filter_status'));
 
 -- name: IncrementSquadIssueCounter :one
 UPDATE squads
