@@ -149,7 +149,7 @@ Spec ready:
 
 ---
 
-#### Feature 17: Permission Grants (RBAC)
+#### Feature 17: Permission Grants (RBAC) — **Status: Spec'd**
 **Priority: MEDIUM** | Complexity: M | Depends on: 12
 
 Fine-grained role-based access control beyond owner/admin/viewer.
@@ -163,7 +163,7 @@ Fine-grained role-based access control beyond owner/admin/viewer.
 
 ---
 
-#### Feature 18: Dashboard Observability
+#### Feature 18: Dashboard Observability — **Status: Spec'd**
 **Priority: MEDIUM** | Complexity: M | Depends on: 09, 10, 11, 12
 
 Single-pane-of-glass metrics dashboard.
@@ -183,7 +183,7 @@ Single-pane-of-glass metrics dashboard.
 
 > Make it deployable. Security hardening, secrets, backups, Docker.
 
-#### Feature 19: Secrets Management
+#### Feature 19: Secrets Management — **Status: Spec'd**
 **Priority: HIGH** | Complexity: M | Depends on: 11
 
 Agents need API keys, tokens, credentials. Store them securely.
@@ -216,7 +216,7 @@ First-class Claude Code integration. The flagship adapter.
 
 ---
 
-#### Feature 21: Production Hardening
+#### Feature 21: Production Hardening — **Status: Spec'd**
 **Priority: MEDIUM** | Complexity: L
 
 | Task | Description |
