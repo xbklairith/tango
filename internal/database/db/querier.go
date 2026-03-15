@@ -16,6 +16,7 @@ type Querier interface {
 	// CAS guard: only advances if current_stage_id matches expected value.
 	// Prevents concurrent double-advancement.
 	AdvanceIssuePipelineStage(ctx context.Context, arg AdvanceIssuePipelineStageParams) (Issue, error)
+	AutoResolveInboxItem(ctx context.Context, arg AutoResolveInboxItemParams) (InboxItem, error)
 	CancelAllStaleHeartbeatRuns(ctx context.Context) error
 	CancelStaleHeartbeatRuns(ctx context.Context, squadID uuid.UUID) error
 	CountActiveRunsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
@@ -53,6 +54,7 @@ type Querier interface {
 	CreateHeartbeatRun(ctx context.Context, arg CreateHeartbeatRunParams) (HeartbeatRun, error)
 	CreateInboxItem(ctx context.Context, arg CreateInboxItemParams) (InboxItem, error)
 	CreateInboxItemOnConflictDoNothing(ctx context.Context, arg CreateInboxItemOnConflictDoNothingParams) (InboxItem, error)
+	CreateInboxItemWithExpiry(ctx context.Context, arg CreateInboxItemWithExpiryParams) (InboxItem, error)
 	CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error)
 	CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error)
 	CreatePipeline(ctx context.Context, arg CreatePipelineParams) (Pipeline, error)
@@ -120,6 +122,7 @@ type Querier interface {
 	ListAssignmentsByAgent(ctx context.Context, arg ListAssignmentsByAgentParams) ([]Issue, error)
 	ListAssignmentsByAgentIDs(ctx context.Context, arg ListAssignmentsByAgentIDsParams) ([]Issue, error)
 	ListConversationsByAgent(ctx context.Context, arg ListConversationsByAgentParams) ([]Issue, error)
+	ListExpiredApprovalItems(ctx context.Context, limit int32) ([]InboxItem, error)
 	ListGoalLinkedIssuesByAgent(ctx context.Context, arg ListGoalLinkedIssuesByAgentParams) ([]ListGoalLinkedIssuesByAgentRow, error)
 	ListGoalLinkedIssuesByAgentIDs(ctx context.Context, arg ListGoalLinkedIssuesByAgentIDsParams) ([]ListGoalLinkedIssuesByAgentIDsRow, error)
 	ListGoalLinkedIssuesBySquad(ctx context.Context, squadID uuid.UUID) ([]ListGoalLinkedIssuesBySquadRow, error)

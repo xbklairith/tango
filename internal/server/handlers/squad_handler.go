@@ -202,6 +202,10 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
 			return
 		}
+		if err := validateApprovalGates(req.Settings); err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
+			return
+		}
 	}
 
 	slug := domain.GenerateSlug(req.Name)
@@ -444,6 +448,14 @@ func (h *SquadHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Validate approval gates in settings if present
+	if req.Settings != nil {
+		if err := validateApprovalGates(req.Settings); err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
+			return
+		}
+	}
+
 	// Validate name if provided
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
@@ -554,6 +566,26 @@ func (h *SquadHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("squad updated", "squad_id", squad.ID)
 	writeJSON(w, http.StatusOK, dbSquadToResponse(squad))
+}
+
+// validateApprovalGates normalises and validates the approval gates in a SquadSettings.
+func validateApprovalGates(settings *domain.SquadSettings) error {
+	if len(settings.ApprovalGates) > domain.MaxGatesPerSquad {
+		return fmt.Errorf("maximum %d approval gates allowed per squad", domain.MaxGatesPerSquad)
+	}
+	seen := make(map[string]bool)
+	for i := range settings.ApprovalGates {
+		gate := &settings.ApprovalGates[i]
+		domain.NormalizeApprovalGate(gate)
+		if err := domain.ValidateApprovalGate(gate); err != nil {
+			return fmt.Errorf("gate[%d] (%s): %w", i, gate.Name, err)
+		}
+		if seen[gate.ActionPattern] {
+			return fmt.Errorf("duplicate actionPattern: %s", gate.ActionPattern)
+		}
+		seen[gate.ActionPattern] = true
+	}
+	return nil
 }
 
 func (h *SquadHandler) mergeSettings(ctx context.Context, squadID uuid.UUID, patch domain.SquadSettings) (domain.SquadSettings, error) {

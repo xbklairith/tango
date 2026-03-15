@@ -84,3 +84,34 @@ UPDATE inbox_items SET
     updated_at = now()
 WHERE id = $1 AND status IN ('pending', 'acknowledged')
 RETURNING *;
+
+-- name: CreateInboxItemWithExpiry :one
+INSERT INTO inbox_items (
+    squad_id, category, type, urgency, title, body, payload,
+    requested_by_agent_id, related_agent_id, related_issue_id, related_run_id,
+    expires_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+    now() + make_interval(hours => @timeout_hours::int)
+)
+RETURNING *;
+
+-- name: ListExpiredApprovalItems :many
+SELECT * FROM inbox_items
+WHERE category = 'approval'
+  AND status IN ('pending', 'acknowledged')
+  AND expires_at IS NOT NULL
+  AND expires_at <= now()
+ORDER BY created_at ASC
+LIMIT $1;
+
+-- name: AutoResolveInboxItem :one
+UPDATE inbox_items SET
+    status = 'resolved',
+    resolution = @resolution,
+    response_note = @response_note,
+    resolved_by_user_id = NULL,
+    resolved_at = now(),
+    updated_at = now()
+WHERE id = @id AND status IN ('pending', 'acknowledged')
+RETURNING *;

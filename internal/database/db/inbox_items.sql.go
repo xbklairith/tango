@@ -21,7 +21,7 @@ UPDATE inbox_items SET
     acknowledged_at = now(),
     updated_at = now()
 WHERE id = $1 AND status = 'pending'
-RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
 `
 
 type AcknowledgeInboxItemParams struct {
@@ -55,6 +55,56 @@ func (q *Queries) AcknowledgeInboxItem(ctx context.Context, arg AcknowledgeInbox
 		&i.AcknowledgedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const autoResolveInboxItem = `-- name: AutoResolveInboxItem :one
+UPDATE inbox_items SET
+    status = 'resolved',
+    resolution = $1,
+    response_note = $2,
+    resolved_by_user_id = NULL,
+    resolved_at = now(),
+    updated_at = now()
+WHERE id = $3 AND status IN ('pending', 'acknowledged')
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
+`
+
+type AutoResolveInboxItemParams struct {
+	Resolution   NullInboxResolution `json:"resolution"`
+	ResponseNote sql.NullString      `json:"response_note"`
+	ID           uuid.UUID           `json:"id"`
+}
+
+func (q *Queries) AutoResolveInboxItem(ctx context.Context, arg AutoResolveInboxItemParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, autoResolveInboxItem, arg.Resolution, arg.ResponseNote, arg.ID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.SquadID,
+		&i.Category,
+		&i.Type,
+		&i.Status,
+		&i.Urgency,
+		&i.Title,
+		&i.Body,
+		&i.Payload,
+		&i.RequestedByAgentID,
+		&i.RelatedAgentID,
+		&i.RelatedIssueID,
+		&i.RelatedRunID,
+		&i.Resolution,
+		&i.ResponseNote,
+		&i.ResponsePayload,
+		&i.ResolvedByUserID,
+		&i.ResolvedAt,
+		&i.AcknowledgedByUserID,
+		&i.AcknowledgedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
@@ -113,7 +163,7 @@ INSERT INTO inbox_items (
     squad_id, category, type, urgency, title, body, payload,
     requested_by_agent_id, related_agent_id, related_issue_id, related_run_id
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
 `
 
 type CreateInboxItemParams struct {
@@ -168,6 +218,7 @@ func (q *Queries) CreateInboxItem(ctx context.Context, arg CreateInboxItemParams
 		&i.AcknowledgedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
@@ -179,7 +230,7 @@ INSERT INTO inbox_items (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (squad_id, related_agent_id, type) WHERE category = 'alert' AND status IN ('pending', 'acknowledged')
 DO UPDATE SET updated_at = now()
-RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
 `
 
 type CreateInboxItemOnConflictDoNothingParams struct {
@@ -230,6 +281,78 @@ func (q *Queries) CreateInboxItemOnConflictDoNothing(ctx context.Context, arg Cr
 		&i.AcknowledgedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const createInboxItemWithExpiry = `-- name: CreateInboxItemWithExpiry :one
+INSERT INTO inbox_items (
+    squad_id, category, type, urgency, title, body, payload,
+    requested_by_agent_id, related_agent_id, related_issue_id, related_run_id,
+    expires_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+    now() + make_interval(hours => $12::int)
+)
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
+`
+
+type CreateInboxItemWithExpiryParams struct {
+	SquadID            uuid.UUID       `json:"squad_id"`
+	Category           InboxCategory   `json:"category"`
+	Type               string          `json:"type"`
+	Urgency            InboxUrgency    `json:"urgency"`
+	Title              string          `json:"title"`
+	Body               sql.NullString  `json:"body"`
+	Payload            json.RawMessage `json:"payload"`
+	RequestedByAgentID uuid.NullUUID   `json:"requested_by_agent_id"`
+	RelatedAgentID     uuid.NullUUID   `json:"related_agent_id"`
+	RelatedIssueID     uuid.NullUUID   `json:"related_issue_id"`
+	RelatedRunID       uuid.NullUUID   `json:"related_run_id"`
+	TimeoutHours       int32           `json:"timeout_hours"`
+}
+
+func (q *Queries) CreateInboxItemWithExpiry(ctx context.Context, arg CreateInboxItemWithExpiryParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, createInboxItemWithExpiry,
+		arg.SquadID,
+		arg.Category,
+		arg.Type,
+		arg.Urgency,
+		arg.Title,
+		arg.Body,
+		arg.Payload,
+		arg.RequestedByAgentID,
+		arg.RelatedAgentID,
+		arg.RelatedIssueID,
+		arg.RelatedRunID,
+		arg.TimeoutHours,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.SquadID,
+		&i.Category,
+		&i.Type,
+		&i.Status,
+		&i.Urgency,
+		&i.Title,
+		&i.Body,
+		&i.Payload,
+		&i.RequestedByAgentID,
+		&i.RelatedAgentID,
+		&i.RelatedIssueID,
+		&i.RelatedRunID,
+		&i.Resolution,
+		&i.ResponseNote,
+		&i.ResponsePayload,
+		&i.ResolvedByUserID,
+		&i.ResolvedAt,
+		&i.AcknowledgedByUserID,
+		&i.AcknowledgedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
@@ -242,7 +365,7 @@ UPDATE inbox_items SET
     resolved_at = now(),
     updated_at = now()
 WHERE id = $1 AND category = 'alert' AND status IN ('pending', 'acknowledged')
-RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
 `
 
 type DismissInboxItemParams struct {
@@ -276,6 +399,7 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 		&i.AcknowledgedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
@@ -285,7 +409,7 @@ UPDATE inbox_items SET
     status = 'expired',
     updated_at = now()
 WHERE id = $1 AND status IN ('pending', 'acknowledged')
-RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
 `
 
 func (q *Queries) ExpireInboxItem(ctx context.Context, id uuid.UUID) (InboxItem, error) {
@@ -314,12 +438,13 @@ func (q *Queries) ExpireInboxItem(ctx context.Context, id uuid.UUID) (InboxItem,
 		&i.AcknowledgedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
 
 const getInboxItemByID = `-- name: GetInboxItemByID :one
-SELECT id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at FROM inbox_items WHERE id = $1
+SELECT id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at FROM inbox_items WHERE id = $1
 `
 
 func (q *Queries) GetInboxItemByID(ctx context.Context, id uuid.UUID) (InboxItem, error) {
@@ -348,12 +473,70 @@ func (q *Queries) GetInboxItemByID(ctx context.Context, id uuid.UUID) (InboxItem
 		&i.AcknowledgedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
 
+const listExpiredApprovalItems = `-- name: ListExpiredApprovalItems :many
+SELECT id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at FROM inbox_items
+WHERE category = 'approval'
+  AND status IN ('pending', 'acknowledged')
+  AND expires_at IS NOT NULL
+  AND expires_at <= now()
+ORDER BY created_at ASC
+LIMIT $1
+`
+
+func (q *Queries) ListExpiredApprovalItems(ctx context.Context, limit int32) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listExpiredApprovalItems, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InboxItem{}
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Category,
+			&i.Type,
+			&i.Status,
+			&i.Urgency,
+			&i.Title,
+			&i.Body,
+			&i.Payload,
+			&i.RequestedByAgentID,
+			&i.RelatedAgentID,
+			&i.RelatedIssueID,
+			&i.RelatedRunID,
+			&i.Resolution,
+			&i.ResponseNote,
+			&i.ResponsePayload,
+			&i.ResolvedByUserID,
+			&i.ResolvedAt,
+			&i.AcknowledgedByUserID,
+			&i.AcknowledgedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInboxItemsBySquad = `-- name: ListInboxItemsBySquad :many
-SELECT id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at FROM inbox_items
+SELECT id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at FROM inbox_items
 WHERE squad_id = $1
   AND ($2::inbox_category IS NULL OR category = $2)
   AND ($3::inbox_urgency IS NULL   OR urgency = $3)
@@ -416,6 +599,7 @@ func (q *Queries) ListInboxItemsBySquad(ctx context.Context, arg ListInboxItemsB
 			&i.AcknowledgedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExpiresAt,
 		); err != nil {
 			return nil, err
 		}
@@ -440,7 +624,7 @@ UPDATE inbox_items SET
     resolved_at = now(),
     updated_at = now()
 WHERE id = $1 AND status IN ('pending', 'acknowledged')
-RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at
+RETURNING id, squad_id, category, type, status, urgency, title, body, payload, requested_by_agent_id, related_agent_id, related_issue_id, related_run_id, resolution, response_note, response_payload, resolved_by_user_id, resolved_at, acknowledged_by_user_id, acknowledged_at, created_at, updated_at, expires_at
 `
 
 type ResolveInboxItemParams struct {
@@ -483,6 +667,7 @@ func (q *Queries) ResolveInboxItem(ctx context.Context, arg ResolveInboxItemPara
 		&i.AcknowledgedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }

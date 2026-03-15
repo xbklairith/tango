@@ -33,8 +33,82 @@ func NewInboxService(q *db.Queries, dbConn *sql.DB, sseHub *sse.Hub, wakeupSvc *
 	}
 }
 
+// enrichApprovalResult holds the enrichment output: the updated payload
+// and the timeoutHours to use for the expires_at column computation.
+type enrichApprovalResult struct {
+	Payload      map[string]any
+	TimeoutHours int
+}
+
+// enrichApprovalPayload enriches an approval inbox item with gate metadata.
+// Called from InboxService.Create() when category=approval.
+// Does NOT compute expiresAt -- that is done in the SQL INSERT using DB time.
+// Returns the enriched payload map and the timeoutHours for the DB column.
+func (s *InboxService) enrichApprovalPayload(
+	ctx context.Context,
+	squadID uuid.UUID,
+	rawPayload json.RawMessage,
+) (*enrichApprovalResult, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(rawPayload, &payload); err != nil {
+		payload = make(map[string]any)
+	}
+
+	// Extract gateId from payload
+	gateIDStr, _ := payload["gateId"].(string)
+	gateID, err := uuid.Parse(gateIDStr)
+	if err != nil {
+		// No valid gateId -- use defaults
+		payload["autoResolution"] = domain.DefaultAutoResolution
+		payload["timeoutHours"] = domain.DefaultTimeoutHours
+		return &enrichApprovalResult{Payload: payload, TimeoutHours: domain.DefaultTimeoutHours}, nil
+	}
+
+	// Load squad settings
+	squad, err := s.queries.GetSquadByID(ctx, squadID)
+	if err != nil {
+		return nil, fmt.Errorf("load squad: %w", err)
+	}
+
+	var settings domain.SquadSettings
+	_ = json.Unmarshal(squad.Settings, &settings)
+
+	// Find matching gate
+	gate := domain.FindGateByID(settings.ApprovalGates, gateID)
+	if gate == nil {
+		slog.Warn("approval gate not found in squad settings, using defaults",
+			"gateId", gateID, "squadId", squadID)
+		payload["autoResolution"] = domain.DefaultAutoResolution
+		payload["timeoutHours"] = domain.DefaultTimeoutHours
+		return &enrichApprovalResult{Payload: payload, TimeoutHours: domain.DefaultTimeoutHours}, nil
+	}
+
+	// Enrich payload with gate snapshot (no expiresAt -- that goes in the column)
+	payload["gateName"] = gate.Name
+	payload["actionPattern"] = gate.ActionPattern
+	payload["autoResolution"] = gate.AutoResolution
+	payload["timeoutHours"] = gate.TimeoutHours
+
+	return &enrichApprovalResult{Payload: payload, TimeoutHours: gate.TimeoutHours}, nil
+}
+
 // Create inserts a new inbox item, emits an SSE event, and logs activity.
 func (s *InboxService) Create(ctx context.Context, params db.CreateInboxItemParams) (*db.InboxItem, error) {
+	// Enrich approval payloads with gate metadata
+	var approvalTimeoutHours int
+	if params.Category == db.InboxCategoryApproval {
+		result, err := s.enrichApprovalPayload(ctx, params.SquadID, params.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("enrich approval payload: %w", err)
+		}
+		enrichedJSON, err := json.Marshal(result.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("marshal enriched payload: %w", err)
+		}
+		params.Payload = enrichedJSON
+		approvalTimeoutHours = result.TimeoutHours
+	}
+
 	// Use a transaction so the insert + activity log are atomic.
 	tx, err := s.dbConn.BeginTx(ctx, nil)
 	if err != nil {
@@ -44,7 +118,26 @@ func (s *InboxService) Create(ctx context.Context, params db.CreateInboxItemPara
 
 	qtx := s.queries.WithTx(tx)
 
-	item, err := qtx.CreateInboxItem(ctx, params)
+	var item db.InboxItem
+	if approvalTimeoutHours > 0 {
+		// Use the expiry-aware INSERT for approval items
+		item, err = qtx.CreateInboxItemWithExpiry(ctx, db.CreateInboxItemWithExpiryParams{
+			SquadID:            params.SquadID,
+			Category:           params.Category,
+			Type:               params.Type,
+			Urgency:            params.Urgency,
+			Title:              params.Title,
+			Body:               params.Body,
+			Payload:            params.Payload,
+			RequestedByAgentID: params.RequestedByAgentID,
+			RelatedAgentID:     params.RelatedAgentID,
+			RelatedIssueID:     params.RelatedIssueID,
+			RelatedRunID:       params.RelatedRunID,
+			TimeoutHours:       int32(approvalTimeoutHours),
+		})
+	} else {
+		item, err = qtx.CreateInboxItem(ctx, params)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("inbox create: insert: %w", err)
 	}

@@ -81,7 +81,8 @@ func (r MemberRole) CanGrantRole(target MemberRole) bool {
 // --- Squad Settings ---
 
 type SquadSettings struct {
-	RequireApprovalForNewAgents *bool `json:"requireApprovalForNewAgents,omitempty"`
+	RequireApprovalForNewAgents *bool          `json:"requireApprovalForNewAgents,omitempty"`
+	ApprovalGates              []ApprovalGate `json:"approvalGates,omitempty"`
 }
 
 func DefaultSquadSettings() SquadSettings {
@@ -95,6 +96,9 @@ func DefaultSquadSettings() SquadSettings {
 func (s *SquadSettings) Merge(patch SquadSettings) {
 	if patch.RequireApprovalForNewAgents != nil {
 		s.RequireApprovalForNewAgents = patch.RequireApprovalForNewAgents
+	}
+	if patch.ApprovalGates != nil {
+		s.ApprovalGates = patch.ApprovalGates
 	}
 }
 
@@ -218,6 +222,7 @@ func GenerateSlug(name string) string {
 
 var knownSettingsKeys = map[string]bool{
 	"requireApprovalForNewAgents": true,
+	"approvalGates":              true,
 }
 
 // ValidateSettingsKeys checks that a raw JSON map contains only known keys.
@@ -236,6 +241,14 @@ func ValidateSettingsKeys(raw map[string]any) error {
 			return ValidationError{
 				Field:   "settings.requireApprovalForNewAgents",
 				Message: "must be a boolean",
+			}
+		}
+	}
+	if v, ok := raw["approvalGates"]; ok {
+		if _, isSlice := v.([]any); !isSlice {
+			return ValidationError{
+				Field:   "settings.approvalGates",
+				Message: "must be an array",
 			}
 		}
 	}

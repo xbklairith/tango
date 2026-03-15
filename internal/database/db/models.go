@@ -789,6 +789,7 @@ type InboxItem struct {
 	AcknowledgedAt       sql.NullTime          `json:"acknowledged_at"`
 	CreatedAt            time.Time             `json:"created_at"`
 	UpdatedAt            time.Time             `json:"updated_at"`
+	ExpiresAt            sql.NullTime          `json:"expires_at"`
 }
 
 type Issue struct {

@@ -533,6 +533,25 @@ Body: {"conversationId": "%s", "body": "<your reply>"}`,
 		envVars["ARI_SYSTEM_PROMPT"] = systemPrompt
 	}
 
+	// Inject approval gate info into the system prompt (M-4: both task and conversation paths)
+	if prompt, ok := envVars["ARI_PROMPT"]; ok {
+		squad, err := s.queries.GetSquadByID(ctx, wakeup.SquadID)
+		if err == nil {
+			var settings domain.SquadSettings
+			_ = json.Unmarshal(squad.Settings, &settings)
+			if len(settings.ApprovalGates) > 0 {
+				gateList := "\nActions requiring approval:\n"
+				for _, g := range settings.ApprovalGates {
+					gateList += fmt.Sprintf("- %s (pattern: %s, timeout: %dh)\n",
+						g.Name, g.ActionPattern, g.TimeoutHours)
+				}
+				gateList += "\nBefore performing any of these actions, create an approval request via POST /api/squads/{squadId}/inbox with category='approval'.\n"
+				gateList += "Use GET /api/agent/me/gates for the full gate configuration.\n"
+				envVars["ARI_PROMPT"] = prompt + gateList
+			}
+		}
+	}
+
 	return adapter.InvokeInput{
 		Agent: adapter.AgentContext{
 			ID:            agent.ID,

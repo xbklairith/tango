@@ -53,6 +53,7 @@ func (h *AgentSelfHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/agent/me/goals", h.GetGoals)
 	mux.HandleFunc("POST /api/agent/me/inbox", h.CreateInboxItem)
 	mux.HandleFunc("POST /api/agent/me/cost", h.ReportCost)
+	mux.HandleFunc("GET /api/agent/me/gates", h.GetGates)
 }
 
 // --- Response Types ---
@@ -1323,4 +1324,41 @@ func (h *AgentSelfHandler) ReportCost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, costResp)
+}
+
+// GetGates returns the approval gate configuration for the agent's squad.
+func (h *AgentSelfHandler) GetGates(w http.ResponseWriter, r *http.Request) {
+	identity, ok := auth.AgentFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{
+			Error: "Agent authentication required",
+			Code:  "UNAUTHENTICATED",
+		})
+		return
+	}
+
+	squad, err := h.queries.GetSquadByID(r.Context(), identity.SquadID)
+	if err != nil {
+		slog.Error("agent/me/gates: failed to get squad", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{
+			Error: "Failed to load squad",
+			Code:  "INTERNAL_ERROR",
+		})
+		return
+	}
+
+	var settings domain.SquadSettings
+	if err := json.Unmarshal(squad.Settings, &settings); err != nil {
+		slog.Error("agent/me/gates: failed to parse settings", "error", err)
+		settings.ApprovalGates = nil
+	}
+
+	gates := settings.ApprovalGates
+	if gates == nil {
+		gates = []domain.ApprovalGate{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"gates": gates,
+	})
 }

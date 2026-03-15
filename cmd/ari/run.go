@@ -188,6 +188,10 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
 	go wakeupProcessor.Start(ctx)
 
+	// Approval gate timeout checker
+	approvalChecker := handlers.NewApprovalTimeoutChecker(queries, db, wakeupSvc, sseHub)
+	go approvalChecker.Start(ctx)
+
 	// Cancel stale runs from previous crashes
 	if err := runSvc.CancelStaleRuns(ctx); err != nil {
 		slog.Error("failed to cancel stale runs", "error", err)
