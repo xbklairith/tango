@@ -12,6 +12,66 @@ import (
 	"github.com/google/uuid"
 )
 
+const advanceIssuePipelineStage = `-- name: AdvanceIssuePipelineStage :one
+UPDATE issues
+SET
+    current_stage_id  = $1,
+    assignee_agent_id = CASE WHEN $2::boolean THEN $3 ELSE assignee_agent_id END,
+    status            = CASE WHEN $4::boolean THEN $5::issue_status ELSE status END
+WHERE id = $6
+  AND current_stage_id = $7
+RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id
+`
+
+type AdvanceIssuePipelineStageParams struct {
+	NextStageID     uuid.NullUUID   `json:"next_stage_id"`
+	SetAssignee     bool            `json:"set_assignee"`
+	AssigneeAgentID uuid.NullUUID   `json:"assignee_agent_id"`
+	SetStatus       bool            `json:"set_status"`
+	Status          NullIssueStatus `json:"status"`
+	ID              uuid.UUID       `json:"id"`
+	ExpectedStageID uuid.NullUUID   `json:"expected_stage_id"`
+}
+
+// CAS guard: only advances if current_stage_id matches expected value.
+// Prevents concurrent double-advancement.
+func (q *Queries) AdvanceIssuePipelineStage(ctx context.Context, arg AdvanceIssuePipelineStageParams) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, advanceIssuePipelineStage,
+		arg.NextStageID,
+		arg.SetAssignee,
+		arg.AssigneeAgentID,
+		arg.SetStatus,
+		arg.Status,
+		arg.ID,
+		arg.ExpectedStageID,
+	)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.SquadID,
+		&i.Identifier,
+		&i.Type,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.ParentID,
+		&i.ProjectID,
+		&i.GoalID,
+		&i.AssigneeAgentID,
+		&i.AssigneeUserID,
+		&i.BillingCode,
+		&i.RequestDepth,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CheckoutRunID,
+		&i.ExecutionLockedAt,
+		&i.PipelineID,
+		&i.CurrentStageID,
+	)
+	return i, err
+}
+
 const countConversationsByAgent = `-- name: CountConversationsByAgent :one
 SELECT count(*) FROM issues
 WHERE type = 'conversation'
@@ -42,6 +102,7 @@ WHERE squad_id = $1
   AND ($7::UUID IS NULL               OR project_id = $7)
   AND ($8::UUID IS NULL                  OR goal_id = $8)
   AND ($9::UUID IS NULL                OR parent_id = $9)
+  AND ($10::UUID IS NULL              OR pipeline_id = $10)
 `
 
 type CountIssuesBySquadParams struct {
@@ -54,6 +115,7 @@ type CountIssuesBySquadParams struct {
 	FilterProjectID       uuid.NullUUID     `json:"filter_project_id"`
 	FilterGoalID          uuid.NullUUID     `json:"filter_goal_id"`
 	FilterParentID        uuid.NullUUID     `json:"filter_parent_id"`
+	FilterPipelineID      uuid.NullUUID     `json:"filter_pipeline_id"`
 }
 
 func (q *Queries) CountIssuesBySquad(ctx context.Context, arg CountIssuesBySquadParams) (int64, error) {
@@ -67,6 +129,7 @@ func (q *Queries) CountIssuesBySquad(ctx context.Context, arg CountIssuesBySquad
 		arg.FilterProjectID,
 		arg.FilterGoalID,
 		arg.FilterParentID,
+		arg.FilterPipelineID,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -94,7 +157,7 @@ INSERT INTO issues (
     $8, $9, $10, $11, $12,
     $13, $14
 )
-RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at
+RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id
 `
 
 type CreateIssueParams struct {
@@ -152,6 +215,8 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.UpdatedAt,
 		&i.CheckoutRunID,
 		&i.ExecutionLockedAt,
+		&i.PipelineID,
+		&i.CurrentStageID,
 	)
 	return i, err
 }
@@ -166,7 +231,7 @@ func (q *Queries) DeleteIssue(ctx context.Context, id uuid.UUID) error {
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues WHERE id = $1
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id FROM issues WHERE id = $1
 `
 
 func (q *Queries) GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error) {
@@ -192,12 +257,14 @@ func (q *Queries) GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
 		&i.UpdatedAt,
 		&i.CheckoutRunID,
 		&i.ExecutionLockedAt,
+		&i.PipelineID,
+		&i.CurrentStageID,
 	)
 	return i, err
 }
 
 const getIssueByIdentifier = `-- name: GetIssueByIdentifier :one
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues WHERE squad_id = $1 AND identifier = $2
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id FROM issues WHERE squad_id = $1 AND identifier = $2
 `
 
 type GetIssueByIdentifierParams struct {
@@ -228,6 +295,8 @@ func (q *Queries) GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdenti
 		&i.UpdatedAt,
 		&i.CheckoutRunID,
 		&i.ExecutionLockedAt,
+		&i.PipelineID,
+		&i.CurrentStageID,
 	)
 	return i, err
 }
@@ -253,7 +322,7 @@ func (q *Queries) IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) 
 }
 
 const listConversationsByAgent = `-- name: ListConversationsByAgent :many
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id FROM issues
 WHERE type = 'conversation'
   AND assignee_agent_id = $1
   AND ($2::issue_status IS NULL OR status = $2)
@@ -302,6 +371,8 @@ func (q *Queries) ListConversationsByAgent(ctx context.Context, arg ListConversa
 			&i.UpdatedAt,
 			&i.CheckoutRunID,
 			&i.ExecutionLockedAt,
+			&i.PipelineID,
+			&i.CurrentStageID,
 		); err != nil {
 			return nil, err
 		}
@@ -317,7 +388,7 @@ func (q *Queries) ListConversationsByAgent(ctx context.Context, arg ListConversa
 }
 
 const listIssuesByAssigneeAgent = `-- name: ListIssuesByAssigneeAgent :many
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id FROM issues
 WHERE assignee_agent_id = $1
   AND type != 'conversation'
   AND status NOT IN ('done', 'cancelled')
@@ -353,6 +424,8 @@ func (q *Queries) ListIssuesByAssigneeAgent(ctx context.Context, agentID uuid.Nu
 			&i.UpdatedAt,
 			&i.CheckoutRunID,
 			&i.ExecutionLockedAt,
+			&i.PipelineID,
+			&i.CurrentStageID,
 		); err != nil {
 			return nil, err
 		}
@@ -368,7 +441,7 @@ func (q *Queries) ListIssuesByAssigneeAgent(ctx context.Context, agentID uuid.Nu
 }
 
 const listIssuesBySquad = `-- name: ListIssuesBySquad :many
-SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id FROM issues
 WHERE squad_id = $1
   AND ($2::issue_status IS NULL           OR status = $2)
   AND ($3::issue_priority IS NULL       OR priority = $3)
@@ -378,14 +451,15 @@ WHERE squad_id = $1
   AND ($7::UUID IS NULL               OR project_id = $7)
   AND ($8::UUID IS NULL                  OR goal_id = $8)
   AND ($9::UUID IS NULL                OR parent_id = $9)
+  AND ($10::UUID IS NULL              OR pipeline_id = $10)
 ORDER BY
-    CASE WHEN $10::TEXT = 'created_at'  THEN created_at END DESC,
-    CASE WHEN $10::TEXT = 'updated_at'  THEN updated_at END DESC,
-    CASE WHEN $10::TEXT = 'priority'    THEN priority   END ASC,
-    CASE WHEN $10::TEXT = 'status'      THEN status     END ASC,
+    CASE WHEN $11::TEXT = 'created_at'  THEN created_at END DESC,
+    CASE WHEN $11::TEXT = 'updated_at'  THEN updated_at END DESC,
+    CASE WHEN $11::TEXT = 'priority'    THEN priority   END ASC,
+    CASE WHEN $11::TEXT = 'status'      THEN status     END ASC,
     created_at DESC
-LIMIT  $12
-OFFSET $11
+LIMIT  $13
+OFFSET $12
 `
 
 type ListIssuesBySquadParams struct {
@@ -398,6 +472,7 @@ type ListIssuesBySquadParams struct {
 	FilterProjectID       uuid.NullUUID     `json:"filter_project_id"`
 	FilterGoalID          uuid.NullUUID     `json:"filter_goal_id"`
 	FilterParentID        uuid.NullUUID     `json:"filter_parent_id"`
+	FilterPipelineID      uuid.NullUUID     `json:"filter_pipeline_id"`
 	SortField             string            `json:"sort_field"`
 	PageOffset            int32             `json:"page_offset"`
 	PageLimit             int32             `json:"page_limit"`
@@ -414,6 +489,7 @@ func (q *Queries) ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadPa
 		arg.FilterProjectID,
 		arg.FilterGoalID,
 		arg.FilterParentID,
+		arg.FilterPipelineID,
 		arg.SortField,
 		arg.PageOffset,
 		arg.PageLimit,
@@ -445,6 +521,8 @@ func (q *Queries) ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadPa
 			&i.UpdatedAt,
 			&i.CheckoutRunID,
 			&i.ExecutionLockedAt,
+			&i.PipelineID,
+			&i.CurrentStageID,
 		); err != nil {
 			return nil, err
 		}
@@ -474,7 +552,7 @@ SET
     assignee_user_id  = CASE WHEN $15::boolean THEN $16 ELSE assignee_user_id END,
     billing_code      = CASE WHEN $17::boolean THEN $18 ELSE billing_code END
 WHERE id = $19
-RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at
+RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id
 `
 
 type UpdateIssueParams struct {
@@ -542,6 +620,66 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.UpdatedAt,
 		&i.CheckoutRunID,
 		&i.ExecutionLockedAt,
+		&i.PipelineID,
+		&i.CurrentStageID,
+	)
+	return i, err
+}
+
+const updateIssuePipeline = `-- name: UpdateIssuePipeline :one
+UPDATE issues
+SET
+    pipeline_id       = $1,
+    current_stage_id  = $2,
+    assignee_agent_id = CASE WHEN $3::boolean THEN $4 ELSE assignee_agent_id END,
+    status            = CASE WHEN $5::boolean THEN $6::issue_status ELSE status END
+WHERE id = $7
+RETURNING id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id
+`
+
+type UpdateIssuePipelineParams struct {
+	PipelineID      uuid.NullUUID   `json:"pipeline_id"`
+	CurrentStageID  uuid.NullUUID   `json:"current_stage_id"`
+	SetAssignee     bool            `json:"set_assignee"`
+	AssigneeAgentID uuid.NullUUID   `json:"assignee_agent_id"`
+	SetStatus       bool            `json:"set_status"`
+	Status          NullIssueStatus `json:"status"`
+	ID              uuid.UUID       `json:"id"`
+}
+
+func (q *Queries) UpdateIssuePipeline(ctx context.Context, arg UpdateIssuePipelineParams) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, updateIssuePipeline,
+		arg.PipelineID,
+		arg.CurrentStageID,
+		arg.SetAssignee,
+		arg.AssigneeAgentID,
+		arg.SetStatus,
+		arg.Status,
+		arg.ID,
+	)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.SquadID,
+		&i.Identifier,
+		&i.Type,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.ParentID,
+		&i.ProjectID,
+		&i.GoalID,
+		&i.AssigneeAgentID,
+		&i.AssigneeUserID,
+		&i.BillingCode,
+		&i.RequestDepth,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CheckoutRunID,
+		&i.ExecutionLockedAt,
+		&i.PipelineID,
+		&i.CurrentStageID,
 	)
 	return i, err
 }

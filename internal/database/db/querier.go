@@ -13,6 +13,9 @@ import (
 
 type Querier interface {
 	AcknowledgeInboxItem(ctx context.Context, arg AcknowledgeInboxItemParams) (InboxItem, error)
+	// CAS guard: only advances if current_stage_id matches expected value.
+	// Prevents concurrent double-advancement.
+	AdvanceIssuePipelineStage(ctx context.Context, arg AdvanceIssuePipelineStageParams) (Issue, error)
 	CancelAllStaleHeartbeatRuns(ctx context.Context) error
 	CancelStaleHeartbeatRuns(ctx context.Context, squadID uuid.UUID) error
 	CountActiveRunsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
@@ -34,8 +37,12 @@ type Querier interface {
 	CountGoalChildren(ctx context.Context, parentID uuid.NullUUID) (int64, error)
 	CountInboxItemsBySquad(ctx context.Context, arg CountInboxItemsBySquadParams) (int64, error)
 	CountIssueComments(ctx context.Context, issueID uuid.UUID) (int64, error)
+	CountIssuesAtStage(ctx context.Context, stageID uuid.NullUUID) (int64, error)
 	CountIssuesBySquad(ctx context.Context, arg CountIssuesBySquadParams) (int64, error)
+	CountIssuesInPipeline(ctx context.Context, pipelineID uuid.NullUUID) (int64, error)
+	CountPipelinesBySquad(ctx context.Context, arg CountPipelinesBySquadParams) (int64, error)
 	CountSquadOwners(ctx context.Context, squadID uuid.UUID) (int64, error)
+	CountStagesByPipeline(ctx context.Context, pipelineID uuid.UUID) (int64, error)
 	CountSubTasks(ctx context.Context, parentID uuid.NullUUID) (int64, error)
 	CountUnresolvedBySquad(ctx context.Context, squadID uuid.UUID) (CountUnresolvedBySquadRow, error)
 	CountUsers(ctx context.Context) (int64, error)
@@ -46,6 +53,8 @@ type Querier interface {
 	CreateInboxItemOnConflictDoNothing(ctx context.Context, arg CreateInboxItemOnConflictDoNothingParams) (InboxItem, error)
 	CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error)
 	CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error)
+	CreatePipeline(ctx context.Context, arg CreatePipelineParams) (Pipeline, error)
+	CreatePipelineStage(ctx context.Context, arg CreatePipelineStageParams) (PipelineStage, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateSquad(ctx context.Context, arg CreateSquadParams) (Squad, error)
@@ -54,6 +63,8 @@ type Querier interface {
 	CreateWakeupRequest(ctx context.Context, arg CreateWakeupRequestParams) (WakeupRequest, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
 	DeleteIssue(ctx context.Context, id uuid.UUID) error
+	DeletePipeline(ctx context.Context, id uuid.UUID) error
+	DeletePipelineStage(ctx context.Context, id uuid.UUID) error
 	DeleteSession(ctx context.Context, id uuid.UUID) error
 	DeleteSessionsByUserID(ctx context.Context, userID uuid.UUID) error
 	DeleteSquadMembership(ctx context.Context, arg DeleteSquadMembershipParams) error
@@ -69,6 +80,7 @@ type Querier interface {
 	GetAgentMonthlySpend(ctx context.Context, arg GetAgentMonthlySpendParams) (int64, error)
 	GetAgentParent(ctx context.Context, id uuid.UUID) (GetAgentParentRow, error)
 	GetConversationSession(ctx context.Context, arg GetConversationSessionParams) (string, error)
+	GetFirstStage(ctx context.Context, pipelineID uuid.UUID) (PipelineStage, error)
 	GetGoalAncestors(ctx context.Context, id uuid.UUID) ([]uuid.UUID, error)
 	GetGoalByID(ctx context.Context, id uuid.UUID) (Goal, error)
 	GetGoalMaxSubtreeDepth(ctx context.Context, goalID uuid.NullUUID) (int64, error)
@@ -77,6 +89,10 @@ type Querier interface {
 	GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
 	GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdentifierParams) (Issue, error)
 	GetLatestComment(ctx context.Context, issueID uuid.UUID) (IssueComment, error)
+	GetNextStage(ctx context.Context, arg GetNextStageParams) (PipelineStage, error)
+	GetPipelineByID(ctx context.Context, id uuid.UUID) (Pipeline, error)
+	GetPipelineStageByID(ctx context.Context, id uuid.UUID) (PipelineStage, error)
+	GetPreviousStage(ctx context.Context, arg GetPreviousStageParams) (PipelineStage, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	GetSquadByID(ctx context.Context, id uuid.UUID) (Squad, error)
@@ -107,17 +123,20 @@ type Querier interface {
 	ListIssuesByAssigneeAgent(ctx context.Context, agentID uuid.NullUUID) ([]Issue, error)
 	ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadParams) ([]Issue, error)
 	ListPendingWakeupsBySquad(ctx context.Context, squadID uuid.UUID) ([]WakeupRequest, error)
+	ListPipelinesBySquad(ctx context.Context, arg ListPipelinesBySquadParams) ([]Pipeline, error)
 	ListProjectsBySquad(ctx context.Context, squadID uuid.UUID) ([]Project, error)
 	ListRunningIdleAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListSquadMembers(ctx context.Context, squadID uuid.UUID) ([]ListSquadMembersRow, error)
 	ListSquadMembershipsByUser(ctx context.Context, userID uuid.UUID) ([]SquadMembership, error)
 	ListSquadsByUser(ctx context.Context, arg ListSquadsByUserParams) ([]ListSquadsByUserRow, error)
+	ListStagesByPipeline(ctx context.Context, pipelineID uuid.UUID) ([]PipelineStage, error)
 	ListTopLevelGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)
 	MarkWakeupDiscarded(ctx context.Context, id uuid.UUID) (WakeupRequest, error)
 	MarkWakeupDispatched(ctx context.Context, id uuid.UUID) (WakeupRequest, error)
 	Ping(ctx context.Context) error
 	ProjectExistsByName(ctx context.Context, arg ProjectExistsByNameParams) (bool, error)
 	ProjectExistsByNameExcluding(ctx context.Context, arg ProjectExistsByNameExcludingParams) (bool, error)
+	ReorderPipelineStages(ctx context.Context, arg ReorderPipelineStagesParams) error
 	ResolveInboxItem(ctx context.Context, arg ResolveInboxItemParams) (InboxItem, error)
 	SoftDeleteSquad(ctx context.Context, id uuid.UUID) (Squad, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent, error)
@@ -125,6 +144,9 @@ type Querier interface {
 	UpdateHeartbeatRunFinished(ctx context.Context, arg UpdateHeartbeatRunFinishedParams) (HeartbeatRun, error)
 	UpdateHeartbeatRunStarted(ctx context.Context, id uuid.UUID) (HeartbeatRun, error)
 	UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error)
+	UpdateIssuePipeline(ctx context.Context, arg UpdateIssuePipelineParams) (Issue, error)
+	UpdatePipeline(ctx context.Context, arg UpdatePipelineParams) (Pipeline, error)
+	UpdatePipelineStage(ctx context.Context, arg UpdatePipelineStageParams) (PipelineStage, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)
 	UpdateSquad(ctx context.Context, arg UpdateSquadParams) (Squad, error)
 	UpdateSquadMembershipRole(ctx context.Context, arg UpdateSquadMembershipRoleParams) (SquadMembership, error)

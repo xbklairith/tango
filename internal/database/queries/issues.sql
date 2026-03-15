@@ -50,6 +50,7 @@ WHERE squad_id = @squad_id
   AND (sqlc.narg('filter_project_id')::UUID IS NULL               OR project_id = sqlc.narg('filter_project_id'))
   AND (sqlc.narg('filter_goal_id')::UUID IS NULL                  OR goal_id = sqlc.narg('filter_goal_id'))
   AND (sqlc.narg('filter_parent_id')::UUID IS NULL                OR parent_id = sqlc.narg('filter_parent_id'))
+  AND (sqlc.narg('filter_pipeline_id')::UUID IS NULL              OR pipeline_id = sqlc.narg('filter_pipeline_id'))
 ORDER BY
     CASE WHEN @sort_field::TEXT = 'created_at'  THEN created_at END DESC,
     CASE WHEN @sort_field::TEXT = 'updated_at'  THEN updated_at END DESC,
@@ -69,7 +70,8 @@ WHERE squad_id = @squad_id
   AND (sqlc.narg('filter_assignee_user_id')::UUID IS NULL         OR assignee_user_id = sqlc.narg('filter_assignee_user_id'))
   AND (sqlc.narg('filter_project_id')::UUID IS NULL               OR project_id = sqlc.narg('filter_project_id'))
   AND (sqlc.narg('filter_goal_id')::UUID IS NULL                  OR goal_id = sqlc.narg('filter_goal_id'))
-  AND (sqlc.narg('filter_parent_id')::UUID IS NULL                OR parent_id = sqlc.narg('filter_parent_id'));
+  AND (sqlc.narg('filter_parent_id')::UUID IS NULL                OR parent_id = sqlc.narg('filter_parent_id'))
+  AND (sqlc.narg('filter_pipeline_id')::UUID IS NULL              OR pipeline_id = sqlc.narg('filter_pipeline_id'));
 
 -- name: ListIssuesByAssigneeAgent :many
 SELECT * FROM issues
@@ -91,6 +93,28 @@ SELECT count(*) FROM issues
 WHERE type = 'conversation'
   AND assignee_agent_id = @agent_id
   AND (sqlc.narg('filter_status')::issue_status IS NULL OR status = sqlc.narg('filter_status'));
+
+-- name: UpdateIssuePipeline :one
+UPDATE issues
+SET
+    pipeline_id       = sqlc.narg('pipeline_id'),
+    current_stage_id  = sqlc.narg('current_stage_id'),
+    assignee_agent_id = CASE WHEN sqlc.arg('set_assignee')::boolean THEN sqlc.narg('assignee_agent_id') ELSE assignee_agent_id END,
+    status            = CASE WHEN sqlc.arg('set_status')::boolean THEN sqlc.narg('status')::issue_status ELSE status END
+WHERE id = @id
+RETURNING *;
+
+-- name: AdvanceIssuePipelineStage :one
+-- CAS guard: only advances if current_stage_id matches expected value.
+-- Prevents concurrent double-advancement.
+UPDATE issues
+SET
+    current_stage_id  = sqlc.narg('next_stage_id'),
+    assignee_agent_id = CASE WHEN sqlc.arg('set_assignee')::boolean THEN sqlc.narg('assignee_agent_id') ELSE assignee_agent_id END,
+    status            = CASE WHEN sqlc.arg('set_status')::boolean THEN sqlc.narg('status')::issue_status ELSE status END
+WHERE id = @id
+  AND current_stage_id = @expected_stage_id
+RETURNING *;
 
 -- name: IncrementSquadIssueCounter :one
 UPDATE squads

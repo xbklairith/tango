@@ -17,8 +17,8 @@ Work bottom-up through the dependency graph: domain model and validation first, 
 ## Progress Summary
 
 - Total Tasks: 13
-- Completed: 2/13
-- In Progress: Task 03 — Pipeline sqlc, Task 04 — Stage sqlc
+- Completed: 4/13
+- In Progress: Task 05 — PipelineService CRUD, Task 06 — PipelineService Workflow
 
 ---
 
@@ -103,7 +103,7 @@ Create `internal/database/migrations/20260316000016_create_pipelines.sql` with t
 
 ---
 
-### [ ] Task 03 — SQL Queries and sqlc Generation: Pipeline CRUD
+### [x] Task 03 — SQL Queries and sqlc Generation: Pipeline CRUD
 
 **Requirements:** REQ-PIP-020, REQ-PIP-021, REQ-PIP-022, REQ-PIP-023, REQ-PIP-024, REQ-PIP-090 (deletion guard)
 **Estimated time:** 45 min
@@ -136,7 +136,7 @@ Create `internal/database/queries/pipelines.sql` with queries from design.md sec
 
 ---
 
-### [ ] Task 04 — SQL Queries and sqlc Generation: Stage CRUD and Navigation
+### [x] Task 04 — SQL Queries and sqlc Generation: Stage CRUD and Navigation
 
 **Requirements:** REQ-PIP-025, REQ-PIP-026, REQ-PIP-027, REQ-PIP-091 (deletion guard), REQ-PIP-016, REQ-PIP-012
 **Estimated time:** 45 min

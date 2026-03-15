@@ -811,6 +811,8 @@ type Issue struct {
 	UpdatedAt         time.Time      `json:"updated_at"`
 	CheckoutRunID     uuid.NullUUID  `json:"checkout_run_id"`
 	ExecutionLockedAt sql.NullTime   `json:"execution_locked_at"`
+	PipelineID        uuid.NullUUID  `json:"pipeline_id"`
+	CurrentStageID    uuid.NullUUID  `json:"current_stage_id"`
 }
 
 type IssueComment struct {
@@ -821,6 +823,28 @@ type IssueComment struct {
 	Body       string            `json:"body"`
 	CreatedAt  time.Time         `json:"created_at"`
 	UpdatedAt  time.Time         `json:"updated_at"`
+}
+
+type Pipeline struct {
+	ID          uuid.UUID      `json:"id"`
+	SquadID     uuid.UUID      `json:"squad_id"`
+	Name        string         `json:"name"`
+	Description sql.NullString `json:"description"`
+	IsActive    bool           `json:"is_active"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
+type PipelineStage struct {
+	ID              uuid.UUID      `json:"id"`
+	PipelineID      uuid.UUID      `json:"pipeline_id"`
+	Name            string         `json:"name"`
+	Description     sql.NullString `json:"description"`
+	Position        int32          `json:"position"`
+	AssignedAgentID uuid.NullUUID  `json:"assigned_agent_id"`
+	GateID          uuid.NullUUID  `json:"gate_id"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
 type Project struct {
