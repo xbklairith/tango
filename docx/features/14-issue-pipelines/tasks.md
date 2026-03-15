@@ -17,8 +17,8 @@ Work bottom-up through the dependency graph: domain model and validation first, 
 ## Progress Summary
 
 - Total Tasks: 13
-- Completed: 4/13
-- In Progress: Task 05 — PipelineService CRUD, Task 06 — PipelineService Workflow
+- Completed: 6/13
+- In Progress: Task 07 — PipelineHandler CRUD, Task 08 — PipelineHandler Advance/Reject
 
 ---
 
@@ -178,7 +178,7 @@ Modify `internal/database/queries/issues.sql` to add UpdateIssuePipeline and Adv
 
 ---
 
-### [ ] Task 05 — PipelineService: Pipeline and Stage CRUD Logic
+### [x] Task 05 — PipelineService: Pipeline and Stage CRUD Logic
 
 **Requirements:** REQ-PIP-003, REQ-PIP-005, REQ-PIP-014, REQ-PIP-028, REQ-PIP-029, REQ-PIP-090 (deletion guard), REQ-PIP-091 (deletion guard), REQ-PIP-070, REQ-PIP-080
 **Estimated time:** 60 min
@@ -222,7 +222,7 @@ Create `internal/server/handlers/pipeline_service.go`:
 
 ---
 
-### [ ] Task 06 — PipelineService: Attach, Advance, and Reject Logic
+### [x] Task 06 — PipelineService: Attach, Advance, and Reject Logic
 
 **Requirements:** REQ-PIP-030, REQ-PIP-031, REQ-PIP-032, REQ-PIP-033, REQ-PIP-034, REQ-PIP-035, REQ-PIP-036, REQ-PIP-040, REQ-PIP-041, REQ-PIP-042, REQ-PIP-043, REQ-PIP-044, REQ-PIP-045, REQ-PIP-050, REQ-PIP-051, REQ-PIP-052, REQ-PIP-053, REQ-PIP-054, REQ-PIP-060, REQ-PIP-061, REQ-PIP-062, REQ-PIP-071, REQ-PIP-072, REQ-PIP-073, REQ-PIP-074, REQ-PIP-081, REQ-PIP-NF-002, REQ-PIP-NF-004
 **Estimated time:** 60 min
