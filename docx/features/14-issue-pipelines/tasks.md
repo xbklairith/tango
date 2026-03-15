@@ -17,8 +17,8 @@ Work bottom-up through the dependency graph: domain model and validation first, 
 ## Progress Summary
 
 - Total Tasks: 13
-- Completed: 10/13
-- In Progress: Task 11a — React UI Pipeline CRUD, Task 11b — React UI Pipeline Builder
+- Completed: 12/13
+- In Progress: Task 12 — Integration Tests
 
 ---
 
@@ -466,7 +466,7 @@ Modify server initialization (likely `cmd/ari/run.go` or `internal/server/server
 
 ---
 
-### [ ] Task 11a — React UI: Pipeline CRUD Pages
+### [x] Task 11a — React UI: Pipeline CRUD Pages
 
 **Requirements:** REQ-PIP-020, REQ-PIP-021, REQ-PIP-022, REQ-PIP-080
 **Estimated time:** 60 min
@@ -505,7 +505,7 @@ Add routes to the React router and navigation sidebar.
 
 ---
 
-### [ ] Task 11b — React UI: Pipeline Builder and Stage Indicator
+### [x] Task 11b — React UI: Pipeline Builder and Stage Indicator
 
 **Requirements:** REQ-PIP-025, REQ-PIP-026, REQ-PIP-027, REQ-PIP-081
 **Estimated time:** 60 min

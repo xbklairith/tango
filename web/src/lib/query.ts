@@ -54,6 +54,11 @@ export const queryKeys = {
     detail: (id: string) => ["inbox", id] as const,
     count: (squadId: string) => ["inbox", "count", { squadId }] as const,
   },
+  pipelines: {
+    list: (squadId: string, filters?: { isActive?: boolean }) =>
+      ["pipelines", { squadId, ...filters }] as const,
+    detail: (id: string) => ["pipelines", id] as const,
+  },
   auth: {
     me: ["auth", "me"] as const,
   },

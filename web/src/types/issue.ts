@@ -25,6 +25,8 @@ export interface Issue {
   goalId: string | null;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;
+  pipelineId: string | null;
+  currentStageId: string | null;
   createdAt: string;
   updatedAt: string;
 }

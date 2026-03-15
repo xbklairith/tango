@@ -17,6 +17,7 @@ import {
   Target,
   MessageSquare,
   Inbox,
+  Workflow,
   LogOut,
 } from "lucide-react";
 import { InboxBadge } from "@/features/inbox/inbox-badge";
@@ -75,6 +76,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         { to: `/squads/${activeSquadId}/inbox`, icon: Inbox, label: "Inbox", hasBadge: true },
         { to: `/squads/${activeSquadId}/projects`, icon: FolderKanban, label: "Projects" },
         { to: `/squads/${activeSquadId}/goals`, icon: Target, label: "Goals" },
+        { to: "/pipelines", icon: Workflow, label: "Pipelines" },
       ]
     : [];
 
