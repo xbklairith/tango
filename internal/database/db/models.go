@@ -283,6 +283,182 @@ func (ns NullHeartbeatRunStatus) Value() (driver.Value, error) {
 	return string(ns.HeartbeatRunStatus), nil
 }
 
+type InboxCategory string
+
+const (
+	InboxCategoryApproval InboxCategory = "approval"
+	InboxCategoryQuestion InboxCategory = "question"
+	InboxCategoryDecision InboxCategory = "decision"
+	InboxCategoryAlert    InboxCategory = "alert"
+)
+
+func (e *InboxCategory) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InboxCategory(s)
+	case string:
+		*e = InboxCategory(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InboxCategory: %T", src)
+	}
+	return nil
+}
+
+type NullInboxCategory struct {
+	InboxCategory InboxCategory `json:"inbox_category"`
+	Valid         bool          `json:"valid"` // Valid is true if InboxCategory is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInboxCategory) Scan(value interface{}) error {
+	if value == nil {
+		ns.InboxCategory, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InboxCategory.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInboxCategory) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InboxCategory), nil
+}
+
+type InboxResolution string
+
+const (
+	InboxResolutionApproved        InboxResolution = "approved"
+	InboxResolutionRejected        InboxResolution = "rejected"
+	InboxResolutionRequestRevision InboxResolution = "request_revision"
+	InboxResolutionAnswered        InboxResolution = "answered"
+	InboxResolutionDismissed       InboxResolution = "dismissed"
+)
+
+func (e *InboxResolution) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InboxResolution(s)
+	case string:
+		*e = InboxResolution(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InboxResolution: %T", src)
+	}
+	return nil
+}
+
+type NullInboxResolution struct {
+	InboxResolution InboxResolution `json:"inbox_resolution"`
+	Valid           bool            `json:"valid"` // Valid is true if InboxResolution is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInboxResolution) Scan(value interface{}) error {
+	if value == nil {
+		ns.InboxResolution, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InboxResolution.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInboxResolution) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InboxResolution), nil
+}
+
+type InboxStatus string
+
+const (
+	InboxStatusPending      InboxStatus = "pending"
+	InboxStatusAcknowledged InboxStatus = "acknowledged"
+	InboxStatusResolved     InboxStatus = "resolved"
+	InboxStatusExpired      InboxStatus = "expired"
+)
+
+func (e *InboxStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InboxStatus(s)
+	case string:
+		*e = InboxStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InboxStatus: %T", src)
+	}
+	return nil
+}
+
+type NullInboxStatus struct {
+	InboxStatus InboxStatus `json:"inbox_status"`
+	Valid       bool        `json:"valid"` // Valid is true if InboxStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInboxStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.InboxStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InboxStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInboxStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InboxStatus), nil
+}
+
+type InboxUrgency string
+
+const (
+	InboxUrgencyCritical InboxUrgency = "critical"
+	InboxUrgencyNormal   InboxUrgency = "normal"
+	InboxUrgencyLow      InboxUrgency = "low"
+)
+
+func (e *InboxUrgency) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InboxUrgency(s)
+	case string:
+		*e = InboxUrgency(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InboxUrgency: %T", src)
+	}
+	return nil
+}
+
+type NullInboxUrgency struct {
+	InboxUrgency InboxUrgency `json:"inbox_urgency"`
+	Valid        bool         `json:"valid"` // Valid is true if InboxUrgency is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInboxUrgency) Scan(value interface{}) error {
+	if value == nil {
+		ns.InboxUrgency, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InboxUrgency.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInboxUrgency) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InboxUrgency), nil
+}
+
 type IssuePriority string
 
 const (
@@ -588,6 +764,31 @@ type HeartbeatRun struct {
 	StartedAt        sql.NullTime           `json:"started_at"`
 	FinishedAt       sql.NullTime           `json:"finished_at"`
 	CreatedAt        time.Time              `json:"created_at"`
+}
+
+type InboxItem struct {
+	ID                   uuid.UUID             `json:"id"`
+	SquadID              uuid.UUID             `json:"squad_id"`
+	Category             InboxCategory         `json:"category"`
+	Type                 string                `json:"type"`
+	Status               InboxStatus           `json:"status"`
+	Urgency              InboxUrgency          `json:"urgency"`
+	Title                string                `json:"title"`
+	Body                 sql.NullString        `json:"body"`
+	Payload              json.RawMessage       `json:"payload"`
+	RequestedByAgentID   uuid.NullUUID         `json:"requested_by_agent_id"`
+	RelatedAgentID       uuid.NullUUID         `json:"related_agent_id"`
+	RelatedIssueID       uuid.NullUUID         `json:"related_issue_id"`
+	RelatedRunID         uuid.NullUUID         `json:"related_run_id"`
+	Resolution           NullInboxResolution   `json:"resolution"`
+	ResponseNote         sql.NullString        `json:"response_note"`
+	ResponsePayload      pqtype.NullRawMessage `json:"response_payload"`
+	ResolvedByUserID     uuid.NullUUID         `json:"resolved_by_user_id"`
+	ResolvedAt           sql.NullTime          `json:"resolved_at"`
+	AcknowledgedByUserID uuid.NullUUID         `json:"acknowledged_by_user_id"`
+	AcknowledgedAt       sql.NullTime          `json:"acknowledged_at"`
+	CreatedAt            time.Time             `json:"created_at"`
+	UpdatedAt            time.Time             `json:"updated_at"`
 }
 
 type Issue struct {

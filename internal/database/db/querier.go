@@ -12,6 +12,7 @@ import (
 )
 
 type Querier interface {
+	AcknowledgeInboxItem(ctx context.Context, arg AcknowledgeInboxItemParams) (InboxItem, error)
 	CancelStaleHeartbeatRuns(ctx context.Context) error
 	CountActiveRunsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountActivityBySquad(ctx context.Context, arg CountActivityBySquadParams) (int64, error)
@@ -29,14 +30,18 @@ type Querier interface {
 	// SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = $2) AS would_cycle;
 	CountAgentsBySquad(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountGoalChildren(ctx context.Context, parentID uuid.NullUUID) (int64, error)
+	CountInboxItemsBySquad(ctx context.Context, arg CountInboxItemsBySquadParams) (int64, error)
 	CountIssueComments(ctx context.Context, issueID uuid.UUID) (int64, error)
 	CountIssuesBySquad(ctx context.Context, arg CountIssuesBySquadParams) (int64, error)
 	CountSquadOwners(ctx context.Context, squadID uuid.UUID) (int64, error)
 	CountSubTasks(ctx context.Context, parentID uuid.NullUUID) (int64, error)
+	CountUnresolvedBySquad(ctx context.Context, squadID uuid.UUID) (CountUnresolvedBySquadRow, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error)
 	CreateGoal(ctx context.Context, arg CreateGoalParams) (Goal, error)
 	CreateHeartbeatRun(ctx context.Context, arg CreateHeartbeatRunParams) (HeartbeatRun, error)
+	CreateInboxItem(ctx context.Context, arg CreateInboxItemParams) (InboxItem, error)
+	CreateInboxItemOnConflictDoNothing(ctx context.Context, arg CreateInboxItemOnConflictDoNothingParams) (InboxItem, error)
 	CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error)
 	CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
@@ -54,6 +59,8 @@ type Querier interface {
 	DeleteSquadMembershipIfNotLastOwner(ctx context.Context, arg DeleteSquadMembershipIfNotLastOwnerParams) (int64, error)
 	DemoteOwnerIfNotLast(ctx context.Context, arg DemoteOwnerIfNotLastParams) (int64, error)
 	DiscardPendingWakeupsByAgent(ctx context.Context, agentID uuid.UUID) error
+	DismissInboxItem(ctx context.Context, arg DismissInboxItemParams) (InboxItem, error)
+	ExpireInboxItem(ctx context.Context, id uuid.UUID) (InboxItem, error)
 	GetActiveRunByAgent(ctx context.Context, agentID uuid.UUID) (HeartbeatRun, error)
 	GetAgentByID(ctx context.Context, id uuid.UUID) (Agent, error)
 	GetAgentCostBreakdown(ctx context.Context, arg GetAgentCostBreakdownParams) ([]GetAgentCostBreakdownRow, error)
@@ -64,6 +71,7 @@ type Querier interface {
 	GetGoalByID(ctx context.Context, id uuid.UUID) (Goal, error)
 	GetGoalMaxSubtreeDepth(ctx context.Context, goalID uuid.NullUUID) (int64, error)
 	GetHeartbeatRunByID(ctx context.Context, id uuid.UUID) (HeartbeatRun, error)
+	GetInboxItemByID(ctx context.Context, id uuid.UUID) (InboxItem, error)
 	GetIssueByID(ctx context.Context, id uuid.UUID) (Issue, error)
 	GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdentifierParams) (Issue, error)
 	GetProjectByID(ctx context.Context, id uuid.UUID) (Project, error)
@@ -90,6 +98,7 @@ type Querier interface {
 	ListGoalsBySquadAndParent(ctx context.Context, arg ListGoalsBySquadAndParentParams) ([]Goal, error)
 	ListHeartbeatRunsByAgent(ctx context.Context, arg ListHeartbeatRunsByAgentParams) ([]HeartbeatRun, error)
 	ListHeartbeatRunsBySquad(ctx context.Context, arg ListHeartbeatRunsBySquadParams) ([]HeartbeatRun, error)
+	ListInboxItemsBySquad(ctx context.Context, arg ListInboxItemsBySquadParams) ([]InboxItem, error)
 	ListIssueComments(ctx context.Context, arg ListIssueCommentsParams) ([]IssueComment, error)
 	ListIssuesByAssigneeAgent(ctx context.Context, agentID uuid.NullUUID) ([]Issue, error)
 	ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadParams) ([]Issue, error)
@@ -105,6 +114,7 @@ type Querier interface {
 	Ping(ctx context.Context) error
 	ProjectExistsByName(ctx context.Context, arg ProjectExistsByNameParams) (bool, error)
 	ProjectExistsByNameExcluding(ctx context.Context, arg ProjectExistsByNameExcludingParams) (bool, error)
+	ResolveInboxItem(ctx context.Context, arg ResolveInboxItemParams) (InboxItem, error)
 	SoftDeleteSquad(ctx context.Context, id uuid.UUID) (Squad, error)
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent, error)
 	UpdateGoal(ctx context.Context, arg UpdateGoalParams) (Goal, error)
