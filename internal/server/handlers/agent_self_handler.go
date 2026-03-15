@@ -1158,7 +1158,6 @@ func (h *AgentSelfHandler) CreateInboxItem(w http.ResponseWriter, r *http.Reques
 		Title:              title,
 		RequestedByAgentID: uuid.NullUUID{UUID: identity.AgentID, Valid: true},
 		RelatedAgentID:     uuid.NullUUID{UUID: identity.AgentID, Valid: true},
-		RelatedRunID:       uuid.NullUUID{UUID: identity.RunID, Valid: true},
 	}
 
 	if req.Body != "" {

@@ -22,7 +22,7 @@ func TestSelfService_Assignments_MemberOwnIssues(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "assign@test.com")
 
-	// Create captain + member
+	// Create captain → lead → member hierarchy
 	captain, code := createAgent(t, env, cookie, map[string]any{
 		"name": "captain-bot", "shortName": "cb", "role": "captain", "squadId": squadID,
 	})
@@ -30,9 +30,18 @@ func TestSelfService_Assignments_MemberOwnIssues(t *testing.T) {
 		t.Fatalf("create captain: expected 201, got %d", code)
 	}
 
+	lead, code := createAgent(t, env, cookie, map[string]any{
+		"name": "lead-bot", "shortName": "lb", "role": "lead", "squadId": squadID,
+		"parentAgentId": captain.ID,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create lead: expected 201, got %d", code)
+	}
+	_ = lead
+
 	member, code := createAgent(t, env, cookie, map[string]any{
 		"name": "member-bot", "shortName": "mb", "role": "member", "squadId": squadID,
-		"parentAgentId": captain.ID,
+		"parentAgentId": lead.ID,
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("create member: expected 201, got %d", code)
