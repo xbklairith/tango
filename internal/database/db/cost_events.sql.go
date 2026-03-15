@@ -94,6 +94,138 @@ func (q *Queries) GetAgentMonthlySpend(ctx context.Context, arg GetAgentMonthlyS
 	return total_cents, err
 }
 
+const getCostTrendsDaily = `-- name: GetCostTrendsDaily :many
+SELECT date_trunc('day', created_at)::timestamptz AS bucket,
+       COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+       COUNT(*)::bigint AS event_count
+FROM cost_events
+WHERE squad_id = $1 AND created_at >= $2 AND created_at < $3
+GROUP BY bucket ORDER BY bucket ASC
+`
+
+type GetCostTrendsDailyParams struct {
+	SquadID     uuid.UUID `json:"squad_id"`
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+}
+
+type GetCostTrendsDailyRow struct {
+	Bucket     time.Time `json:"bucket"`
+	TotalCents int64     `json:"total_cents"`
+	EventCount int64     `json:"event_count"`
+}
+
+func (q *Queries) GetCostTrendsDaily(ctx context.Context, arg GetCostTrendsDailyParams) ([]GetCostTrendsDailyRow, error) {
+	rows, err := q.db.QueryContext(ctx, getCostTrendsDaily, arg.SquadID, arg.PeriodStart, arg.PeriodEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetCostTrendsDailyRow{}
+	for rows.Next() {
+		var i GetCostTrendsDailyRow
+		if err := rows.Scan(&i.Bucket, &i.TotalCents, &i.EventCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCostTrendsMonthly = `-- name: GetCostTrendsMonthly :many
+SELECT date_trunc('month', created_at)::timestamptz AS bucket,
+       COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+       COUNT(*)::bigint AS event_count
+FROM cost_events
+WHERE squad_id = $1 AND created_at >= $2 AND created_at < $3
+GROUP BY bucket ORDER BY bucket ASC
+`
+
+type GetCostTrendsMonthlyParams struct {
+	SquadID     uuid.UUID `json:"squad_id"`
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+}
+
+type GetCostTrendsMonthlyRow struct {
+	Bucket     time.Time `json:"bucket"`
+	TotalCents int64     `json:"total_cents"`
+	EventCount int64     `json:"event_count"`
+}
+
+func (q *Queries) GetCostTrendsMonthly(ctx context.Context, arg GetCostTrendsMonthlyParams) ([]GetCostTrendsMonthlyRow, error) {
+	rows, err := q.db.QueryContext(ctx, getCostTrendsMonthly, arg.SquadID, arg.PeriodStart, arg.PeriodEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetCostTrendsMonthlyRow{}
+	for rows.Next() {
+		var i GetCostTrendsMonthlyRow
+		if err := rows.Scan(&i.Bucket, &i.TotalCents, &i.EventCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCostTrendsWeekly = `-- name: GetCostTrendsWeekly :many
+SELECT date_trunc('week', created_at)::timestamptz AS bucket,
+       COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+       COUNT(*)::bigint AS event_count
+FROM cost_events
+WHERE squad_id = $1 AND created_at >= $2 AND created_at < $3
+GROUP BY bucket ORDER BY bucket ASC
+`
+
+type GetCostTrendsWeeklyParams struct {
+	SquadID     uuid.UUID `json:"squad_id"`
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+}
+
+type GetCostTrendsWeeklyRow struct {
+	Bucket     time.Time `json:"bucket"`
+	TotalCents int64     `json:"total_cents"`
+	EventCount int64     `json:"event_count"`
+}
+
+func (q *Queries) GetCostTrendsWeekly(ctx context.Context, arg GetCostTrendsWeeklyParams) ([]GetCostTrendsWeeklyRow, error) {
+	rows, err := q.db.QueryContext(ctx, getCostTrendsWeekly, arg.SquadID, arg.PeriodStart, arg.PeriodEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetCostTrendsWeeklyRow{}
+	for rows.Next() {
+		var i GetCostTrendsWeeklyRow
+		if err := rows.Scan(&i.Bucket, &i.TotalCents, &i.EventCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSquadMonthlySpend = `-- name: GetSquadMonthlySpend :one
 SELECT COALESCE(SUM(amount_cents), 0)::BIGINT AS total_cents
 FROM cost_events

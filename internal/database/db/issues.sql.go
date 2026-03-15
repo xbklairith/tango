@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -354,6 +355,89 @@ func (q *Queries) GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdenti
 		&i.CurrentStageID,
 	)
 	return i, err
+}
+
+const getIssuesClosedPerDay = `-- name: GetIssuesClosedPerDay :many
+SELECT date_trunc('day', updated_at)::timestamptz AS day, COUNT(*)::bigint AS count
+FROM issues
+WHERE squad_id = $1 AND status = 'done'
+  AND updated_at >= $2 AND updated_at < $3
+GROUP BY day ORDER BY day ASC
+`
+
+type GetIssuesClosedPerDayParams struct {
+	SquadID     uuid.UUID `json:"squad_id"`
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+}
+
+type GetIssuesClosedPerDayRow struct {
+	Day   time.Time `json:"day"`
+	Count int64     `json:"count"`
+}
+
+func (q *Queries) GetIssuesClosedPerDay(ctx context.Context, arg GetIssuesClosedPerDayParams) ([]GetIssuesClosedPerDayRow, error) {
+	rows, err := q.db.QueryContext(ctx, getIssuesClosedPerDay, arg.SquadID, arg.PeriodStart, arg.PeriodEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetIssuesClosedPerDayRow{}
+	for rows.Next() {
+		var i GetIssuesClosedPerDayRow
+		if err := rows.Scan(&i.Day, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getIssuesCreatedPerDay = `-- name: GetIssuesCreatedPerDay :many
+SELECT date_trunc('day', created_at)::timestamptz AS day, COUNT(*)::bigint AS count
+FROM issues
+WHERE squad_id = $1 AND created_at >= $2 AND created_at < $3
+GROUP BY day ORDER BY day ASC
+`
+
+type GetIssuesCreatedPerDayParams struct {
+	SquadID     uuid.UUID `json:"squad_id"`
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+}
+
+type GetIssuesCreatedPerDayRow struct {
+	Day   time.Time `json:"day"`
+	Count int64     `json:"count"`
+}
+
+func (q *Queries) GetIssuesCreatedPerDay(ctx context.Context, arg GetIssuesCreatedPerDayParams) ([]GetIssuesCreatedPerDayRow, error) {
+	rows, err := q.db.QueryContext(ctx, getIssuesCreatedPerDay, arg.SquadID, arg.PeriodStart, arg.PeriodEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetIssuesCreatedPerDayRow{}
+	for rows.Next() {
+		var i GetIssuesCreatedPerDayRow
+		if err := rows.Scan(&i.Day, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const incrementSquadIssueCounter = `-- name: IncrementSquadIssueCounter :one

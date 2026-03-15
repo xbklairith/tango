@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
@@ -127,6 +128,107 @@ func (q *Queries) GetActiveRunByAgent(ctx context.Context, agentID uuid.UUID) (H
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getAgentLastRun = `-- name: GetAgentLastRun :many
+SELECT DISTINCT ON (agent_id) agent_id, id AS run_id, status, created_at
+FROM heartbeat_runs
+WHERE squad_id = $1
+ORDER BY agent_id, created_at DESC
+`
+
+type GetAgentLastRunRow struct {
+	AgentID   uuid.UUID          `json:"agent_id"`
+	RunID     uuid.UUID          `json:"run_id"`
+	Status    HeartbeatRunStatus `json:"status"`
+	CreatedAt time.Time          `json:"created_at"`
+}
+
+func (q *Queries) GetAgentLastRun(ctx context.Context, squadID uuid.UUID) ([]GetAgentLastRunRow, error) {
+	rows, err := q.db.QueryContext(ctx, getAgentLastRun, squadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetAgentLastRunRow{}
+	for rows.Next() {
+		var i GetAgentLastRunRow
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.RunID,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAgentRunStats = `-- name: GetAgentRunStats :many
+SELECT a.id AS agent_id, a.name AS agent_name, a.status AS agent_status,
+       COUNT(hr.id)::bigint AS total_runs,
+       COUNT(hr.id) FILTER (WHERE hr.status = 'succeeded')::bigint AS success_count,
+       COUNT(hr.id) FILTER (WHERE hr.status = 'failed')::bigint AS failure_count
+FROM agents a
+LEFT JOIN heartbeat_runs hr ON hr.agent_id = a.id
+    AND hr.squad_id = $1
+    AND hr.created_at >= $2 AND hr.created_at < $3
+WHERE a.squad_id = $1
+GROUP BY a.id, a.name, a.status
+ORDER BY failure_count DESC, total_runs DESC
+`
+
+type GetAgentRunStatsParams struct {
+	SquadID     uuid.UUID `json:"squad_id"`
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+}
+
+type GetAgentRunStatsRow struct {
+	AgentID      uuid.UUID   `json:"agent_id"`
+	AgentName    string      `json:"agent_name"`
+	AgentStatus  AgentStatus `json:"agent_status"`
+	TotalRuns    int64       `json:"total_runs"`
+	SuccessCount int64       `json:"success_count"`
+	FailureCount int64       `json:"failure_count"`
+}
+
+func (q *Queries) GetAgentRunStats(ctx context.Context, arg GetAgentRunStatsParams) ([]GetAgentRunStatsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getAgentRunStats, arg.SquadID, arg.PeriodStart, arg.PeriodEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetAgentRunStatsRow{}
+	for rows.Next() {
+		var i GetAgentRunStatsRow
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.AgentName,
+			&i.AgentStatus,
+			&i.TotalRuns,
+			&i.SuccessCount,
+			&i.FailureCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getHeartbeatRunByID = `-- name: GetHeartbeatRunByID :one

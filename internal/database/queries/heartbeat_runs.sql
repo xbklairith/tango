@@ -64,3 +64,22 @@ UPDATE heartbeat_runs
 SET status = 'cancelled', finished_at = now()
 WHERE status IN ('queued', 'running')
   AND created_at < now() - interval '2 hours';
+
+-- name: GetAgentRunStats :many
+SELECT a.id AS agent_id, a.name AS agent_name, a.status AS agent_status,
+       COUNT(hr.id)::bigint AS total_runs,
+       COUNT(hr.id) FILTER (WHERE hr.status = 'succeeded')::bigint AS success_count,
+       COUNT(hr.id) FILTER (WHERE hr.status = 'failed')::bigint AS failure_count
+FROM agents a
+LEFT JOIN heartbeat_runs hr ON hr.agent_id = a.id
+    AND hr.squad_id = @squad_id
+    AND hr.created_at >= @period_start AND hr.created_at < @period_end
+WHERE a.squad_id = @squad_id
+GROUP BY a.id, a.name, a.status
+ORDER BY failure_count DESC, total_runs DESC;
+
+-- name: GetAgentLastRun :many
+SELECT DISTINCT ON (agent_id) agent_id, id AS run_id, status, created_at
+FROM heartbeat_runs
+WHERE squad_id = @squad_id
+ORDER BY agent_id, created_at DESC;

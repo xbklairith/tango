@@ -175,6 +175,10 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	taskHandler := handlers.NewTaskHandler(queries, db, sseHub)
 	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc)
 
+	// Metrics (dashboard observability)
+	metricsSvc := handlers.NewMetricsService(queries)
+	metricsHandler := handlers.NewMetricsHandler(queries, metricsSvc)
+
 	// Inbox system
 	inboxSvc := handlers.NewInboxService(queries, db, sseHub, wakeupSvc)
 	inboxHandler := handlers.NewInboxHandler(queries, db, inboxSvc)
@@ -270,7 +274,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 		issueHandler, projectHandler, goalHandler, activityHandler,
 		costHandler, runtimeHandler, taskHandler, agentSelfHandler,
 		inboxHandler, conversationHandler, pipelineHandler,
-		permissionHandler, secretHandler,
+		metricsHandler, permissionHandler, secretHandler,
 	)
 	if oauthHandler != nil {
 		extraRegistrars = append(extraRegistrars, oauthHandler)

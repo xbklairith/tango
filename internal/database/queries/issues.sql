@@ -154,3 +154,16 @@ SET issue_counter = issue_counter + 1,
     updated_at = now()
 WHERE id = @id
 RETURNING issue_prefix, issue_counter;
+
+-- name: GetIssuesCreatedPerDay :many
+SELECT date_trunc('day', created_at)::timestamptz AS day, COUNT(*)::bigint AS count
+FROM issues
+WHERE squad_id = @squad_id AND created_at >= @period_start AND created_at < @period_end
+GROUP BY day ORDER BY day ASC;
+
+-- name: GetIssuesClosedPerDay :many
+SELECT date_trunc('day', updated_at)::timestamptz AS day, COUNT(*)::bigint AS count
+FROM issues
+WHERE squad_id = @squad_id AND status = 'done'
+  AND updated_at >= @period_start AND updated_at < @period_end
+GROUP BY day ORDER BY day ASC;

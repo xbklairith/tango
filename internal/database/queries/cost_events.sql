@@ -42,3 +42,27 @@ SELECT * FROM agents
 WHERE squad_id = @squad_id
   AND status IN ('running', 'idle')
 ORDER BY created_at ASC;
+
+-- name: GetCostTrendsDaily :many
+SELECT date_trunc('day', created_at)::timestamptz AS bucket,
+       COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+       COUNT(*)::bigint AS event_count
+FROM cost_events
+WHERE squad_id = @squad_id AND created_at >= @period_start AND created_at < @period_end
+GROUP BY bucket ORDER BY bucket ASC;
+
+-- name: GetCostTrendsWeekly :many
+SELECT date_trunc('week', created_at)::timestamptz AS bucket,
+       COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+       COUNT(*)::bigint AS event_count
+FROM cost_events
+WHERE squad_id = @squad_id AND created_at >= @period_start AND created_at < @period_end
+GROUP BY bucket ORDER BY bucket ASC;
+
+-- name: GetCostTrendsMonthly :many
+SELECT date_trunc('month', created_at)::timestamptz AS bucket,
+       COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+       COUNT(*)::bigint AS event_count
+FROM cost_events
+WHERE squad_id = @squad_id AND created_at >= @period_start AND created_at < @period_end
+GROUP BY bucket ORDER BY bucket ASC;
