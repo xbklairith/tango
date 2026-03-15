@@ -27,7 +27,6 @@ interface SidebarProps {
 }
 
 const staticNavItems = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard", end: true },
   { to: "/squads", icon: Users, label: "Squads", end: false },
 ];
 
@@ -72,6 +71,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   const squadNavItems = activeSquadId
     ? [
+        { to: "/", icon: LayoutDashboard, label: "Dashboard", end: true },
         { to: `/squads/${activeSquadId}/agents`, icon: Bot, label: "Agents" },
         { to: `/squads/${activeSquadId}/conversations`, icon: MessageSquare, label: "Conversations" },
         { to: `/squads/${activeSquadId}/issues`, icon: CircleDot, label: "Issues" },
@@ -118,6 +118,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               <NavLink
                 key={item.to}
                 to={item.to}
+                end={"end" in item ? (item as any).end : undefined}
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
