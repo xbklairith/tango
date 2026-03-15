@@ -49,10 +49,12 @@ function SquadSelector() {
   return (
     <div className="px-2">
       <Select value={activeSquadId ?? ""} onValueChange={(v) => { if (v) setActiveSquadId(v); }}>
-        <SelectTrigger className="w-full">
-          <SelectValue />
+        <SelectTrigger className="w-full text-sm truncate">
+          <SelectValue placeholder="Select squad">
+            {squads.find((s) => s.squadId === activeSquadId)?.squadName ?? "Select squad"}
+          </SelectValue>
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="z-50">
           {squads.map((squad) => (
             <SelectItem key={squad.squadId} value={squad.squadId}>
               {squad.squadName}
