@@ -826,6 +826,18 @@ type IssueComment struct {
 	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
+type OauthConnection struct {
+	ID                    uuid.UUID `json:"id"`
+	UserID                uuid.UUID `json:"user_id"`
+	Provider              string    `json:"provider"`
+	ProviderUserID        string    `json:"provider_user_id"`
+	ProviderEmail         string    `json:"provider_email"`
+	AccessTokenEncrypted  []byte    `json:"access_token_encrypted"`
+	RefreshTokenEncrypted []byte    `json:"refresh_token_encrypted"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
+}
+
 type Pipeline struct {
 	ID          uuid.UUID      `json:"id"`
 	SquadID     uuid.UUID      `json:"squad_id"`

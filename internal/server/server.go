@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"io/fs"
@@ -16,11 +17,12 @@ import (
 
 // Server wraps the HTTP server with application dependencies.
 type Server struct {
-	cfg     *config.Config
-	db      *sql.DB
-	version string
-	webFS   fs.FS
-	http    *http.Server
+	cfg       *config.Config
+	db        *sql.DB
+	version   string
+	webFS     fs.FS
+	http      *http.Server
+	tlsConfig *tls.Config
 }
 
 // RouteRegistrar can register additional routes on the mux.
@@ -28,13 +30,23 @@ type RouteRegistrar interface {
 	RegisterRoutes(mux *http.ServeMux)
 }
 
+// ServerOptions holds optional configuration for the server.
+type ServerOptions struct {
+	TLSConfig   *tls.Config
+	RateLimiter *RateLimitMiddleware
+}
+
 // New creates a new Server with routes and middleware configured.
-func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMode, jwtSvc *auth.JWTService, sessions auth.SessionStore, runTokenSvc *auth.RunTokenService, webFS fs.FS, extra ...RouteRegistrar) *Server {
+func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMode, jwtSvc *auth.JWTService, sessions auth.SessionStore, runTokenSvc *auth.RunTokenService, webFS fs.FS, opts *ServerOptions, extra ...RouteRegistrar) *Server {
 	s := &Server{
 		cfg:     cfg,
 		db:      db,
 		version: version,
 		webFS:   webFS,
+	}
+
+	if opts != nil {
+		s.tlsConfig = opts.TLSConfig
 	}
 
 	mux := http.NewServeMux()
@@ -62,6 +74,14 @@ func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMod
 
 	// Limit request body size to 1MB before auth to prevent abuse
 	handler = maxBodySize(1 << 20)(handler)
+
+	// Per-IP rate limiting (before body size so rejected requests don't consume resources)
+	if opts != nil && opts.RateLimiter != nil {
+		handler = opts.RateLimiter.Middleware()(handler)
+	}
+
+	// HSTS middleware when TLS is active
+	handler = hstsMiddleware(s.tlsConfig != nil)(handler)
 
 	handler = s.middleware(handler)
 
@@ -92,13 +112,27 @@ func maxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	errCh := make(chan error, 1)
 
-	go func() {
-		slog.Info("http server listening", "addr", s.http.Addr)
-		if err := s.http.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
-		}
-		close(errCh)
-	}()
+	if s.tlsConfig != nil {
+		s.http.TLSConfig = s.tlsConfig
+		// Start HTTP-to-HTTPS redirect server
+		go startRedirectServer(ctx, s.cfg.TLSRedirectPort)
+
+		go func() {
+			slog.Info("https server listening", "addr", s.http.Addr)
+			if err := s.http.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				errCh <- err
+			}
+			close(errCh)
+		}()
+	} else {
+		go func() {
+			slog.Info("http server listening", "addr", s.http.Addr)
+			if err := s.http.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errCh <- err
+			}
+			close(errCh)
+		}()
+	}
 
 	select {
 	case err := <-errCh:

@@ -250,7 +250,7 @@ func TestNew_ConfiguresTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open failed: %v", err)
 	}
-	s := New(cfg, dummyDB, "test-version", "local_trusted", nil, nil, nil, nil)
+	s := New(cfg, dummyDB, "test-version", "local_trusted", nil, nil, nil, nil, nil)
 
 	if s.http.ReadTimeout != 15*time.Second {
 		t.Errorf("ReadTimeout = %v, want %v", s.http.ReadTimeout, 15*time.Second)
@@ -304,7 +304,7 @@ func TestListenAndServe_StartsAndStops(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open failed: %v", err)
 	}
-	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil, nil, nil)
+	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -344,7 +344,7 @@ func TestGracefulShutdown_OrderedCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open failed: %v", err)
 	}
-	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil, nil, nil)
+	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -390,7 +390,7 @@ func TestGracefulShutdown_DrainsInFlight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open failed: %v", err)
 	}
-	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil, nil, nil)
+	s := New(cfg, dummyDB, "test", "local_trusted", nil, nil, nil, nil, nil)
 
 	// Register a slow handler on a custom mux
 	mux := http.NewServeMux()

@@ -36,10 +36,14 @@ var publicEndpoints = map[string]map[string]bool{
 // isPublicEndpoint checks if the request path+method is in the skip list.
 func isPublicEndpoint(method, path string) bool {
 	methods, ok := publicEndpoints[path]
-	if !ok {
-		return false
+	if ok && methods[method] {
+		return true
 	}
-	return methods[method]
+	// OAuth endpoints are public (start flow, callback, providers)
+	if IsOAuthPublicEndpoint(method, path) {
+		return true
+	}
+	return false
 }
 
 // Middleware returns an http.Handler that enforces authentication.

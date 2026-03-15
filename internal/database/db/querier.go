@@ -58,6 +58,7 @@ type Querier interface {
 	CreateInboxItemWithExpiry(ctx context.Context, arg CreateInboxItemWithExpiryParams) (InboxItem, error)
 	CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error)
 	CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error)
+	CreateOAuthConnection(ctx context.Context, arg CreateOAuthConnectionParams) (OauthConnection, error)
 	CreatePipeline(ctx context.Context, arg CreatePipelineParams) (Pipeline, error)
 	CreatePipelineStage(ctx context.Context, arg CreatePipelineStageParams) (PipelineStage, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
@@ -69,6 +70,7 @@ type Querier interface {
 	CreateWakeupRequest(ctx context.Context, arg CreateWakeupRequestParams) (WakeupRequest, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
 	DeleteIssue(ctx context.Context, id uuid.UUID) error
+	DeleteOAuthConnection(ctx context.Context, id uuid.UUID) error
 	DeletePipeline(ctx context.Context, id uuid.UUID) error
 	DeletePipelineStage(ctx context.Context, id uuid.UUID) error
 	DeleteSession(ctx context.Context, id uuid.UUID) error
@@ -98,6 +100,8 @@ type Querier interface {
 	GetIssueByIdentifier(ctx context.Context, arg GetIssueByIdentifierParams) (Issue, error)
 	GetLatestComment(ctx context.Context, issueID uuid.UUID) (IssueComment, error)
 	GetNextStage(ctx context.Context, arg GetNextStageParams) (PipelineStage, error)
+	GetOAuthConnectionByProviderIdentity(ctx context.Context, arg GetOAuthConnectionByProviderIdentityParams) (OauthConnection, error)
+	GetOAuthConnectionsByUserID(ctx context.Context, userID uuid.UUID) ([]OauthConnection, error)
 	GetPipelineByID(ctx context.Context, id uuid.UUID) (Pipeline, error)
 	GetPipelineStageByID(ctx context.Context, id uuid.UUID) (PipelineStage, error)
 	GetPreviousStage(ctx context.Context, arg GetPreviousStageParams) (PipelineStage, error)

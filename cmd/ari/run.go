@@ -208,8 +208,75 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 		slog.Error("failed to cancel stale runs", "error", err)
 	}
 
-	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler, pipelineHandler, permissionHandler, secretHandler)
+	// 6. Set up production hardening: rate limiter, TLS, OAuth
+	globalRateLimiter := server.NewRateLimitMiddleware(server.RateLimitConfig{
+		GeneralRPS:     cfg.RateLimitRPS,
+		GeneralBurst:   cfg.RateLimitBurst,
+		AuthRPS:        10,
+		AuthBurst:      20,
+		TrustedProxies: cfg.TrustedProxies,
+	})
+	globalRateLimiter.StartCleanup(ctx)
+
+	tlsConfig, err := server.ResolveTLSConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("resolving TLS config: %w", err)
+	}
+	tlsActive := tlsConfig != nil
+
+	serverOpts := &server.ServerOptions{
+		TLSConfig:   tlsConfig,
+		RateLimiter: globalRateLimiter,
+	}
+
+	// OAuth setup
+	var oauthHandler *auth.OAuthHandler
+	if cfg.OAuthGoogleEnabled() || cfg.OAuthGitHubEnabled() {
+		var masterKeyBytes []byte
+		if mk := os.Getenv("ARI_MASTER_KEY"); mk != "" {
+			masterKeyBytes = []byte(mk)
+		}
+		var jwtSecretBytes []byte
+		if cfg.JWTSecret != "" {
+			jwtSecretBytes = []byte(cfg.JWTSecret)
+		}
+
+		scheme := "http"
+		if tlsActive {
+			scheme = "https"
+		}
+		baseURL := fmt.Sprintf("%s://localhost:%d", scheme, cfg.Port)
+		if cfg.TLSDomain != "" {
+			baseURL = scheme + "://" + cfg.TLSDomain
+		}
+
+		oauthSvc, oErr := auth.NewOAuthService(
+			queries, db, jwtSvc, sessionStore,
+			masterKeyBytes, jwtSecretBytes,
+			baseURL, cfg.OAuthGoogle, cfg.OAuthGitHub,
+			cfg.DisableSignUp, cfg.SessionTTL,
+		)
+		if oErr != nil {
+			return fmt.Errorf("creating OAuth service: %w", oErr)
+		}
+		oauthHandler = auth.NewOAuthHandler(oauthSvc, cfg, tlsActive)
+		slog.Info("OAuth initialized", "google", cfg.OAuthGoogleEnabled(), "github", cfg.OAuthGitHubEnabled())
+	}
+
+	// 7. Start HTTP server
+	var extraRegistrars []server.RouteRegistrar
+	extraRegistrars = append(extraRegistrars,
+		authHandler, squadHandler, membershipHandler, agentHandler,
+		issueHandler, projectHandler, goalHandler, activityHandler,
+		costHandler, runtimeHandler, taskHandler, agentSelfHandler,
+		inboxHandler, conversationHandler, pipelineHandler,
+		permissionHandler, secretHandler,
+	)
+	if oauthHandler != nil {
+		extraRegistrars = append(extraRegistrars, oauthHandler)
+	}
+
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), serverOpts, extraRegistrars...)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
