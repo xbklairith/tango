@@ -93,7 +93,7 @@ export function PipelineAttachDialog({
         <Select
           value={selectedPipelineId}
           onValueChange={(v) =>
-            setSelectedPipelineId(v === "__none__" ? "" : v)
+            setSelectedPipelineId(v === "__none__" ? "" : (v ?? ""))
           }
         >
           <SelectTrigger className="w-full">

@@ -304,7 +304,7 @@ export default function PipelineDetailPage() {
                 onValueChange={(v) =>
                   setStageForm({
                     ...stageForm,
-                    assignedAgentId: v === "__none__" ? "" : v,
+                    assignedAgentId: v === "__none__" ? "" : (v ?? ""),
                   })
                 }
               >
