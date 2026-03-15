@@ -53,7 +53,10 @@ func makeEnvWithRunTokens(t *testing.T) (*testEnv, *auth.RunTokenService) {
 	projectHandler := handlers.NewProjectHandler(queries, testDB)
 	goalHandler := handlers.NewGoalHandler(queries, testDB)
 	activityHandler := handlers.NewActivityHandler(queries)
-	agentSelfHandler := handlers.NewAgentSelfHandler(queries, testDB, sseHub)
+	budgetService := handlers.NewBudgetEnforcementService(queries, testDB)
+	inboxSvc := handlers.NewInboxService(queries, testDB, sseHub, nil)
+	budgetService.SetInboxService(inboxSvc)
+	agentSelfHandler := handlers.NewAgentSelfHandler(queries, testDB, sseHub, budgetService, inboxSvc)
 
 	mux := http.NewServeMux()
 	authHandler.RegisterRoutes(mux)

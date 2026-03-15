@@ -10,6 +10,7 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const countGoalChildren = `-- name: CountGoalChildren :one
@@ -133,6 +134,164 @@ func (q *Queries) GetGoalMaxSubtreeDepth(ctx context.Context, goalID uuid.NullUU
 	var max_depth int64
 	err := row.Scan(&max_depth)
 	return max_depth, err
+}
+
+const getGoalsByIDs = `-- name: GetGoalsByIDs :many
+SELECT id, squad_id, parent_id, title, description, status, created_at, updated_at FROM goals
+WHERE id = ANY($1::UUID[])
+ORDER BY title
+`
+
+func (q *Queries) GetGoalsByIDs(ctx context.Context, ids []uuid.UUID) ([]Goal, error) {
+	rows, err := q.db.QueryContext(ctx, getGoalsByIDs, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Goal{}
+	for rows.Next() {
+		var i Goal
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.ParentID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGoalLinkedIssuesByAgent = `-- name: ListGoalLinkedIssuesByAgent :many
+SELECT i.goal_id, i.identifier
+FROM issues i
+WHERE i.squad_id = $1
+  AND i.assignee_agent_id = $2
+  AND i.goal_id IS NOT NULL
+ORDER BY i.goal_id, i.created_at DESC
+`
+
+type ListGoalLinkedIssuesByAgentParams struct {
+	SquadID uuid.UUID     `json:"squad_id"`
+	AgentID uuid.NullUUID `json:"agent_id"`
+}
+
+type ListGoalLinkedIssuesByAgentRow struct {
+	GoalID     uuid.NullUUID `json:"goal_id"`
+	Identifier string        `json:"identifier"`
+}
+
+func (q *Queries) ListGoalLinkedIssuesByAgent(ctx context.Context, arg ListGoalLinkedIssuesByAgentParams) ([]ListGoalLinkedIssuesByAgentRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGoalLinkedIssuesByAgent, arg.SquadID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGoalLinkedIssuesByAgentRow{}
+	for rows.Next() {
+		var i ListGoalLinkedIssuesByAgentRow
+		if err := rows.Scan(&i.GoalID, &i.Identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGoalLinkedIssuesByAgentIDs = `-- name: ListGoalLinkedIssuesByAgentIDs :many
+SELECT i.goal_id, i.identifier
+FROM issues i
+WHERE i.squad_id = $1
+  AND i.assignee_agent_id = ANY($2::UUID[])
+  AND i.goal_id IS NOT NULL
+ORDER BY i.goal_id, i.created_at DESC
+`
+
+type ListGoalLinkedIssuesByAgentIDsParams struct {
+	SquadID  uuid.UUID   `json:"squad_id"`
+	AgentIds []uuid.UUID `json:"agent_ids"`
+}
+
+type ListGoalLinkedIssuesByAgentIDsRow struct {
+	GoalID     uuid.NullUUID `json:"goal_id"`
+	Identifier string        `json:"identifier"`
+}
+
+func (q *Queries) ListGoalLinkedIssuesByAgentIDs(ctx context.Context, arg ListGoalLinkedIssuesByAgentIDsParams) ([]ListGoalLinkedIssuesByAgentIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGoalLinkedIssuesByAgentIDs, arg.SquadID, pq.Array(arg.AgentIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGoalLinkedIssuesByAgentIDsRow{}
+	for rows.Next() {
+		var i ListGoalLinkedIssuesByAgentIDsRow
+		if err := rows.Scan(&i.GoalID, &i.Identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGoalLinkedIssuesBySquad = `-- name: ListGoalLinkedIssuesBySquad :many
+SELECT i.goal_id, i.identifier
+FROM issues i
+WHERE i.squad_id = $1
+  AND i.goal_id IS NOT NULL
+ORDER BY i.goal_id, i.created_at DESC
+`
+
+type ListGoalLinkedIssuesBySquadRow struct {
+	GoalID     uuid.NullUUID `json:"goal_id"`
+	Identifier string        `json:"identifier"`
+}
+
+func (q *Queries) ListGoalLinkedIssuesBySquad(ctx context.Context, squadID uuid.UUID) ([]ListGoalLinkedIssuesBySquadRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGoalLinkedIssuesBySquad, squadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGoalLinkedIssuesBySquadRow{}
+	for rows.Next() {
+		var i ListGoalLinkedIssuesBySquadRow
+		if err := rows.Scan(&i.GoalID, &i.Identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listGoalsBySquad = `-- name: ListGoalsBySquad :many

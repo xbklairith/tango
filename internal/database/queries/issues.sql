@@ -116,6 +116,38 @@ WHERE id = @id
   AND current_stage_id = @expected_stage_id
 RETURNING *;
 
+-- name: ListAssignmentsByAgent :many
+SELECT * FROM issues
+WHERE squad_id = @squad_id
+  AND assignee_agent_id = @agent_id
+  AND (sqlc.narg('filter_status')::issue_status IS NULL OR status = sqlc.narg('filter_status'))
+  AND (sqlc.narg('filter_type')::issue_type IS NULL     OR type = sqlc.narg('filter_type'))
+ORDER BY created_at DESC
+LIMIT @page_limit OFFSET @page_offset;
+
+-- name: CountAssignmentsByAgent :one
+SELECT count(*) FROM issues
+WHERE squad_id = @squad_id
+  AND assignee_agent_id = @agent_id
+  AND (sqlc.narg('filter_status')::issue_status IS NULL OR status = sqlc.narg('filter_status'))
+  AND (sqlc.narg('filter_type')::issue_type IS NULL     OR type = sqlc.narg('filter_type'));
+
+-- name: ListAssignmentsByAgentIDs :many
+SELECT * FROM issues
+WHERE squad_id = @squad_id
+  AND assignee_agent_id = ANY(@agent_ids::UUID[])
+  AND (sqlc.narg('filter_status')::issue_status IS NULL OR status = sqlc.narg('filter_status'))
+  AND (sqlc.narg('filter_type')::issue_type IS NULL     OR type = sqlc.narg('filter_type'))
+ORDER BY created_at DESC
+LIMIT @page_limit OFFSET @page_offset;
+
+-- name: CountAssignmentsByAgentIDs :one
+SELECT count(*) FROM issues
+WHERE squad_id = @squad_id
+  AND assignee_agent_id = ANY(@agent_ids::UUID[])
+  AND (sqlc.narg('filter_status')::issue_status IS NULL OR status = sqlc.narg('filter_status'))
+  AND (sqlc.narg('filter_type')::issue_type IS NULL     OR type = sqlc.narg('filter_type'));
+
 -- name: IncrementSquadIssueCounter :one
 UPDATE squads
 SET issue_counter = issue_counter + 1,

@@ -221,6 +221,56 @@ func (q *Queries) ListAgentChildren(ctx context.Context, parentAgentID uuid.Null
 	return items, nil
 }
 
+const listAgentChildrenBySquad = `-- name: ListAgentChildrenBySquad :many
+SELECT id, squad_id, name, short_name, role, status, parent_agent_id, adapter_type, adapter_config, system_prompt, model, budget_monthly_cents, created_at, updated_at FROM agents
+WHERE squad_id = $1
+  AND parent_agent_id = $2
+ORDER BY created_at ASC
+`
+
+type ListAgentChildrenBySquadParams struct {
+	SquadID       uuid.UUID     `json:"squad_id"`
+	ParentAgentID uuid.NullUUID `json:"parent_agent_id"`
+}
+
+func (q *Queries) ListAgentChildrenBySquad(ctx context.Context, arg ListAgentChildrenBySquadParams) ([]Agent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentChildrenBySquad, arg.SquadID, arg.ParentAgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Agent{}
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Name,
+			&i.ShortName,
+			&i.Role,
+			&i.Status,
+			&i.ParentAgentID,
+			&i.AdapterType,
+			&i.AdapterConfig,
+			&i.SystemPrompt,
+			&i.Model,
+			&i.BudgetMonthlyCents,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentsBySquad = `-- name: ListAgentsBySquad :many
 SELECT id, squad_id, name, short_name, role, status, parent_agent_id, adapter_type, adapter_config, system_prompt, model, budget_monthly_cents, created_at, updated_at FROM agents
 WHERE squad_id = $1

@@ -73,3 +73,9 @@ WHERE squad_id = @squad_id
 SELECT * FROM agents
 WHERE parent_agent_id = @parent_agent_id
 ORDER BY created_at ASC;
+
+-- name: ListAgentChildrenBySquad :many
+SELECT * FROM agents
+WHERE squad_id = @squad_id
+  AND parent_agent_id = @parent_agent_id
+ORDER BY created_at ASC;

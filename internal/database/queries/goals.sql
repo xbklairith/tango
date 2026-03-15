@@ -38,6 +38,34 @@ WITH RECURSIVE ancestors AS (
 )
 SELECT parent_id::UUID AS ancestor_id FROM ancestors WHERE parent_id IS NOT NULL;
 
+-- name: GetGoalsByIDs :many
+SELECT * FROM goals
+WHERE id = ANY(@ids::UUID[])
+ORDER BY title;
+
+-- name: ListGoalLinkedIssuesByAgent :many
+SELECT i.goal_id, i.identifier
+FROM issues i
+WHERE i.squad_id = @squad_id
+  AND i.assignee_agent_id = @agent_id
+  AND i.goal_id IS NOT NULL
+ORDER BY i.goal_id, i.created_at DESC;
+
+-- name: ListGoalLinkedIssuesByAgentIDs :many
+SELECT i.goal_id, i.identifier
+FROM issues i
+WHERE i.squad_id = @squad_id
+  AND i.assignee_agent_id = ANY(@agent_ids::UUID[])
+  AND i.goal_id IS NOT NULL
+ORDER BY i.goal_id, i.created_at DESC;
+
+-- name: ListGoalLinkedIssuesBySquad :many
+SELECT i.goal_id, i.identifier
+FROM issues i
+WHERE i.squad_id = @squad_id
+  AND i.goal_id IS NOT NULL
+ORDER BY i.goal_id, i.created_at DESC;
+
 -- name: CountGoalChildren :one
 SELECT count(*) FROM goals WHERE parent_id = @parent_id;
 

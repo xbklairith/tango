@@ -10,6 +10,7 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const advanceIssuePipelineStage = `-- name: AdvanceIssuePipelineStage :one
@@ -70,6 +71,60 @@ func (q *Queries) AdvanceIssuePipelineStage(ctx context.Context, arg AdvanceIssu
 		&i.CurrentStageID,
 	)
 	return i, err
+}
+
+const countAssignmentsByAgent = `-- name: CountAssignmentsByAgent :one
+SELECT count(*) FROM issues
+WHERE squad_id = $1
+  AND assignee_agent_id = $2
+  AND ($3::issue_status IS NULL OR status = $3)
+  AND ($4::issue_type IS NULL     OR type = $4)
+`
+
+type CountAssignmentsByAgentParams struct {
+	SquadID      uuid.UUID       `json:"squad_id"`
+	AgentID      uuid.NullUUID   `json:"agent_id"`
+	FilterStatus NullIssueStatus `json:"filter_status"`
+	FilterType   NullIssueType   `json:"filter_type"`
+}
+
+func (q *Queries) CountAssignmentsByAgent(ctx context.Context, arg CountAssignmentsByAgentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAssignmentsByAgent,
+		arg.SquadID,
+		arg.AgentID,
+		arg.FilterStatus,
+		arg.FilterType,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAssignmentsByAgentIDs = `-- name: CountAssignmentsByAgentIDs :one
+SELECT count(*) FROM issues
+WHERE squad_id = $1
+  AND assignee_agent_id = ANY($2::UUID[])
+  AND ($3::issue_status IS NULL OR status = $3)
+  AND ($4::issue_type IS NULL     OR type = $4)
+`
+
+type CountAssignmentsByAgentIDsParams struct {
+	SquadID      uuid.UUID       `json:"squad_id"`
+	AgentIds     []uuid.UUID     `json:"agent_ids"`
+	FilterStatus NullIssueStatus `json:"filter_status"`
+	FilterType   NullIssueType   `json:"filter_type"`
+}
+
+func (q *Queries) CountAssignmentsByAgentIDs(ctx context.Context, arg CountAssignmentsByAgentIDsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAssignmentsByAgentIDs,
+		arg.SquadID,
+		pq.Array(arg.AgentIds),
+		arg.FilterStatus,
+		arg.FilterType,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const countConversationsByAgent = `-- name: CountConversationsByAgent :one
@@ -319,6 +374,148 @@ func (q *Queries) IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) 
 	var i IncrementSquadIssueCounterRow
 	err := row.Scan(&i.IssuePrefix, &i.IssueCounter)
 	return i, err
+}
+
+const listAssignmentsByAgent = `-- name: ListAssignmentsByAgent :many
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id FROM issues
+WHERE squad_id = $1
+  AND assignee_agent_id = $2
+  AND ($3::issue_status IS NULL OR status = $3)
+  AND ($4::issue_type IS NULL     OR type = $4)
+ORDER BY created_at DESC
+LIMIT $6 OFFSET $5
+`
+
+type ListAssignmentsByAgentParams struct {
+	SquadID      uuid.UUID       `json:"squad_id"`
+	AgentID      uuid.NullUUID   `json:"agent_id"`
+	FilterStatus NullIssueStatus `json:"filter_status"`
+	FilterType   NullIssueType   `json:"filter_type"`
+	PageOffset   int32           `json:"page_offset"`
+	PageLimit    int32           `json:"page_limit"`
+}
+
+func (q *Queries) ListAssignmentsByAgent(ctx context.Context, arg ListAssignmentsByAgentParams) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listAssignmentsByAgent,
+		arg.SquadID,
+		arg.AgentID,
+		arg.FilterStatus,
+		arg.FilterType,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Identifier,
+			&i.Type,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ParentID,
+			&i.ProjectID,
+			&i.GoalID,
+			&i.AssigneeAgentID,
+			&i.AssigneeUserID,
+			&i.BillingCode,
+			&i.RequestDepth,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CheckoutRunID,
+			&i.ExecutionLockedAt,
+			&i.PipelineID,
+			&i.CurrentStageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAssignmentsByAgentIDs = `-- name: ListAssignmentsByAgentIDs :many
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at, pipeline_id, current_stage_id FROM issues
+WHERE squad_id = $1
+  AND assignee_agent_id = ANY($2::UUID[])
+  AND ($3::issue_status IS NULL OR status = $3)
+  AND ($4::issue_type IS NULL     OR type = $4)
+ORDER BY created_at DESC
+LIMIT $6 OFFSET $5
+`
+
+type ListAssignmentsByAgentIDsParams struct {
+	SquadID      uuid.UUID       `json:"squad_id"`
+	AgentIds     []uuid.UUID     `json:"agent_ids"`
+	FilterStatus NullIssueStatus `json:"filter_status"`
+	FilterType   NullIssueType   `json:"filter_type"`
+	PageOffset   int32           `json:"page_offset"`
+	PageLimit    int32           `json:"page_limit"`
+}
+
+func (q *Queries) ListAssignmentsByAgentIDs(ctx context.Context, arg ListAssignmentsByAgentIDsParams) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listAssignmentsByAgentIDs,
+		arg.SquadID,
+		pq.Array(arg.AgentIds),
+		arg.FilterStatus,
+		arg.FilterType,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Identifier,
+			&i.Type,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ParentID,
+			&i.ProjectID,
+			&i.GoalID,
+			&i.AssigneeAgentID,
+			&i.AssigneeUserID,
+			&i.BillingCode,
+			&i.RequestDepth,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CheckoutRunID,
+			&i.ExecutionLockedAt,
+			&i.PipelineID,
+			&i.CurrentStageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listConversationsByAgent = `-- name: ListConversationsByAgent :many

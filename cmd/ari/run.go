@@ -183,7 +183,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	budgetService.SetInboxService(inboxSvc)
 	runSvc.SetInboxService(inboxSvc)
 
-	agentSelfHandler := handlers.NewAgentSelfHandler(queries, db, sseHub)
+	agentSelfHandler := handlers.NewAgentSelfHandler(queries, db, sseHub, budgetService, inboxSvc)
 
 	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
 	go wakeupProcessor.Start(ctx)
