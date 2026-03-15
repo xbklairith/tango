@@ -71,11 +71,16 @@ func Middleware(
 					agentID, _ := uuid.Parse(rtClaims.Subject)
 					squadID, _ := uuid.Parse(rtClaims.SquadID)
 					runID, _ := uuid.Parse(rtClaims.RunID)
+					var convID uuid.UUID
+					if rtClaims.ConversationID != "" {
+						convID, _ = uuid.Parse(rtClaims.ConversationID)
+					}
 					ctx := WithAgent(r.Context(), AgentIdentity{
-						AgentID: agentID,
-						SquadID: squadID,
-						RunID:   runID,
-						Role:    rtClaims.Role,
+						AgentID:        agentID,
+						SquadID:        squadID,
+						RunID:          runID,
+						Role:           rtClaims.Role,
+						ConversationID: convID,
 					})
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return

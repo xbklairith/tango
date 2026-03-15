@@ -24,18 +24,20 @@ var (
 // RunTokenClaims holds the JWT claims for an agent run token.
 type RunTokenClaims struct {
 	jwt.RegisteredClaims
-	SquadID   string `json:"squad_id"`
-	RunID     string `json:"run_id"`
-	Role      string `json:"role"`
-	TokenType string `json:"typ"`
+	SquadID        string `json:"squad_id"`
+	RunID          string `json:"run_id"`
+	Role           string `json:"role"`
+	TokenType      string `json:"typ"`
+	ConversationID string `json:"conv_id,omitempty"`
 }
 
 // AgentIdentity represents the authenticated agent injected into the request context.
 type AgentIdentity struct {
-	AgentID uuid.UUID
-	SquadID uuid.UUID
-	RunID   uuid.UUID
-	Role    string
+	AgentID        uuid.UUID
+	SquadID        uuid.UUID
+	RunID          uuid.UUID
+	Role           string
+	ConversationID uuid.UUID // uuid.Nil when not in a conversation context
 }
 
 // agentContextKey is the context key for agent identity (separate from user identity).
@@ -66,8 +68,19 @@ func NewRunTokenService(signingKey []byte) (*RunTokenService, error) {
 	return &RunTokenService{signingKey: signingKey}, nil
 }
 
+// MintOption is a functional option for customizing Run Token claims.
+type MintOption func(*RunTokenClaims)
+
+// WithConversationID sets the conv_id claim on the Run Token.
+func WithConversationID(convID uuid.UUID) MintOption {
+	return func(c *RunTokenClaims) {
+		c.ConversationID = convID.String()
+	}
+}
+
 // Mint creates a new signed Run Token JWT for the given agent invocation.
-func (s *RunTokenService) Mint(agentID, squadID, runID uuid.UUID, role string) (string, error) {
+// Optional MintOption functions can be passed to set additional claims (e.g. WithConversationID).
+func (s *RunTokenService) Mint(agentID, squadID, runID uuid.UUID, role string, opts ...MintOption) (string, error) {
 	now := time.Now()
 	claims := RunTokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -79,6 +92,10 @@ func (s *RunTokenService) Mint(agentID, squadID, runID uuid.UUID, role string) (
 		RunID:     runID.String(),
 		Role:      role,
 		TokenType: RunTokenType,
+	}
+
+	for _, opt := range opts {
+		opt(&claims)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

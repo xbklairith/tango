@@ -142,7 +142,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	// Wire wakeup service into issue handler for auto-wake on assignment
 	// (initialized below after wakeupSvc creation — forward reference)
 
-	// Runtime services
+	// Runtime services (SSE hub created early — needed by InboxService and other handlers)
 	sseHub := sse.NewHub()
 	adapterRegistry := adapter.NewRegistry()
 	adapterRegistry.Register(process.New())
@@ -171,6 +171,15 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	taskHandler := handlers.NewTaskHandler(queries, db, sseHub)
 	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc)
 
+	// Inbox system
+	inboxSvc := handlers.NewInboxService(queries, db, sseHub, wakeupSvc)
+	inboxHandler := handlers.NewInboxHandler(queries, db, inboxSvc)
+	conversationHandler := handlers.NewConversationHandler(queries, db, wakeupSvc, sseHub)
+
+	// Wire InboxService into budget and run services
+	budgetService.SetInboxService(inboxSvc)
+	runSvc.SetInboxService(inboxSvc)
+
 	agentSelfHandler := handlers.NewAgentSelfHandler(queries, db, sseHub)
 
 	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
@@ -182,7 +191,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	}
 
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -23,16 +25,22 @@ import (
 // RunService manages the HeartbeatRun lifecycle: creating runs,
 // invoking adapters, and finalizing results.
 type RunService struct {
-	dbConn   *sql.DB
-	queries  *db.Queries
-	registry *adapter.Registry
-	tokenSvc *auth.RunTokenService
-	sseHub   *sse.Hub
-	apiURL   string
+	dbConn       *sql.DB
+	queries      *db.Queries
+	registry     *adapter.Registry
+	tokenSvc     *auth.RunTokenService
+	sseHub       *sse.Hub
+	apiURL       string
+	inboxService *InboxService
 
 	// active tracks cancel funcs for running invocations (for graceful stop)
 	mu     sync.Mutex
 	active map[uuid.UUID]context.CancelFunc // runID → cancel
+}
+
+// SetInboxService sets the InboxService for error reporting on failed runs.
+func (s *RunService) SetInboxService(is *InboxService) {
+	s.inboxService = is
 }
 
 // NewRunService creates a new RunService.
@@ -78,7 +86,19 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 	// 3. Load session state (if applicable)
 	var sessionBefore string
 	taskID := extractTaskID(wakeup.ContextJson)
-	if taskID != nil {
+	convID := extractConversationID(wakeup.ContextJson)
+
+	if convID != nil {
+		// Conversation session — separate table from task sessions
+		ss, err := s.queries.GetConversationSession(ctx, db.GetConversationSessionParams{
+			AgentID: agent.ID,
+			IssueID: *convID,
+		})
+		if err == nil {
+			sessionBefore = ss
+		}
+	} else if taskID != nil {
+		// Task session — existing path
 		ss, err := s.queries.GetTaskSession(ctx, db.GetTaskSessionParams{
 			AgentID: agent.ID,
 			IssueID: *taskID,
@@ -107,8 +127,12 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 		"invocationSource": string(wakeup.InvocationSource),
 	})
 
-	// 5. Mint Run Token
-	token, err := s.tokenSvc.Mint(agent.ID, wakeup.SquadID, run.ID, string(agent.Role))
+	// 5. Mint Run Token (with optional conversation ID)
+	var mintOpts []auth.MintOption
+	if convID != nil {
+		mintOpts = append(mintOpts, auth.WithConversationID(*convID))
+	}
+	token, err := s.tokenSvc.Mint(agent.ID, wakeup.SquadID, run.ID, string(agent.Role), mintOpts...)
 	if err != nil {
 		return err
 	}
@@ -140,6 +164,14 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 		"to":      "running",
 		"runId":   run.ID,
 	})
+
+	// Emit conversation typing indicator if this is a conversation wakeup
+	if convID != nil && wakeup.InvocationSource == "conversation_message" {
+		s.sseHub.Publish(wakeup.SquadID, "conversation.agent.typing", map[string]any{
+			"conversationId": *convID,
+			"agentId":        agent.ID,
+		})
+	}
 
 	// 7. Build InvokeInput
 	input := s.buildInvokeInput(agent, wakeup, run, token, sessionBefore)
@@ -179,7 +211,7 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 	s.mu.Unlock()
 
 	// 11. Finalize
-	return s.finalize(ctx, agent, run, wakeup, result, execErr, taskID)
+	return s.finalize(ctx, agent, run, wakeup, result, execErr, taskID, convID)
 }
 
 // Stop cancels the active invocation for the agent's current run.
@@ -238,6 +270,7 @@ func (s *RunService) finalize(
 	result adapter.InvokeResult,
 	execErr error,
 	taskID *uuid.UUID,
+	convID *uuid.UUID,
 ) error {
 	// Map adapter RunStatus to DB HeartbeatRunStatus
 	dbStatus := mapRunStatus(result.Status)
@@ -260,15 +293,14 @@ func (s *RunService) finalize(
 	}
 
 	// Persist session state (REQ-026)
-	if result.SessionState != "" && taskID != nil {
-		convID := extractConversationID(wakeup.ContextJson)
+	if result.SessionState != "" {
 		if convID != nil {
 			_ = s.queries.UpsertConversationSession(ctx, db.UpsertConversationSessionParams{
 				AgentID:      agent.ID,
 				IssueID:      *convID,
 				SessionState: result.SessionState,
 			})
-		} else {
+		} else if taskID != nil {
 			_ = s.queries.UpsertTaskSession(ctx, db.UpsertTaskSessionParams{
 				AgentID:      agent.ID,
 				IssueID:      *taskID,
@@ -321,6 +353,34 @@ func (s *RunService) finalize(
 		"to":      string(nextStatus),
 	})
 
+	// Emit conversation typing stopped if this was a conversation wakeup
+	if convID != nil && wakeup.InvocationSource == "conversation_message" {
+		s.sseHub.Publish(wakeup.SquadID, "conversation.agent.typing.stopped", map[string]any{
+			"conversationId": *convID,
+			"agentId":        agent.ID,
+		})
+	}
+
+	// Create inbox alert for failed/timed-out runs (best-effort)
+	if (result.Status == adapter.RunStatusFailed || result.Status == adapter.RunStatusTimedOut) && s.inboxService != nil {
+		alertType := "run_failed"
+		if result.Status == adapter.RunStatusTimedOut {
+			alertType = "run_timed_out"
+		}
+		_, inboxErr := s.inboxService.CreateAgentError(ctx, s.queries, CreateAgentErrorParams{
+			SquadID:       wakeup.SquadID,
+			AgentID:       agent.ID,
+			RunID:         run.ID,
+			Type:          alertType,
+			ExitCode:      result.ExitCode,
+			StderrExcerpt: result.Stderr,
+		})
+		if inboxErr != nil {
+			slog.Error("failed to create inbox alert for run error",
+				"run_id", run.ID, "error", inboxErr)
+		}
+	}
+
 	if execErr != nil {
 		slog.Error("adapter execution error", "run_id", run.ID, "error", execErr)
 	}
@@ -368,8 +428,8 @@ func (s *RunService) buildInvokeInput(
 		model = agent.Model.String
 	}
 
-	// Enrich with issue details when a task is assigned
-	if taskID != nil {
+	// Enrich with issue details when a task is assigned (but NOT for conversation wakeups)
+	if taskID != nil && convID == nil {
 		issue, err := s.queries.GetIssueByID(context.Background(), *taskID)
 		if err == nil {
 			envVars["ARI_ISSUE_TITLE"] = issue.Title
@@ -411,6 +471,73 @@ Body: {"issueId": "%s", "status": "done"}`,
 		}
 	}
 
+	// Build conversation context when ARI_CONVERSATION_ID is present
+	var conversation *adapter.ConversationContext
+	if convID != nil {
+		convIssue, err := s.queries.GetIssueByID(context.Background(), *convID)
+		if err == nil {
+			comments, err := s.queries.ListIssueComments(context.Background(), db.ListIssueCommentsParams{
+				IssueID:    *convID,
+				PageLimit:  100,
+				PageOffset: 0,
+			})
+			if err == nil {
+				messages := make([]adapter.CommentEntry, 0, len(comments))
+				for _, c := range comments {
+					messages = append(messages, adapter.CommentEntry{
+						ID:         c.ID,
+						AuthorType: string(c.AuthorType),
+						AuthorID:   c.AuthorID,
+						Body:       c.Body,
+						CreatedAt:  c.CreatedAt,
+					})
+				}
+
+				// Load conversation session state
+				var conversationSessionState string
+				ss, ssErr := s.queries.GetConversationSession(context.Background(), db.GetConversationSessionParams{
+					AgentID: agent.ID,
+					IssueID: *convID,
+				})
+				if ssErr == nil {
+					conversationSessionState = ss
+				}
+
+				conversation = &adapter.ConversationContext{
+					IssueID:      *convID,
+					Messages:     messages,
+					SessionState: conversationSessionState,
+				}
+
+				// Build conversation-specific prompt
+				squadName := wakeup.SquadID.String()
+				if squad, sqErr := s.queries.GetSquadByID(context.Background(), wakeup.SquadID); sqErr == nil {
+					squadName = squad.Name
+				}
+
+				prompt := fmt.Sprintf(`You are %s, a %s in squad %s.
+
+%s
+
+You are in a conversation: %s (%s)
+
+Message thread:
+%s
+
+Reply to the user's latest message. Use POST /api/agent/me/reply to send your response:
+POST %s/api/agent/me/reply
+Body: {"conversationId": "%s", "body": "<your reply>"}`,
+					agent.Name, string(agent.Role), squadName,
+					systemPrompt,
+					convIssue.Title, convIssue.Identifier,
+					formatMessageThread(comments),
+					s.apiURL, convID.String(),
+				)
+				envVars["ARI_PROMPT"] = prompt
+			}
+		}
+	}
+
 	if systemPrompt != "" {
 		envVars["ARI_SYSTEM_PROMPT"] = systemPrompt
 	}
@@ -434,8 +561,20 @@ Body: {"issueId": "%s", "status": "done"}`,
 			TaskID:       taskID,
 			SessionState: sessionBefore,
 		},
-		EnvVars: envVars,
+		EnvVars:      envVars,
+		Conversation: conversation,
 	}
+}
+
+// formatMessageThread formats a list of issue comments into a human-readable message thread.
+func formatMessageThread(comments []db.IssueComment) string {
+	var sb strings.Builder
+	for _, c := range comments {
+		role := string(c.AuthorType)
+		ts := c.CreatedAt.Format(time.RFC3339)
+		sb.WriteString(fmt.Sprintf("[%s] %s: %s\n", ts, role, c.Body))
+	}
+	return sb.String()
 }
 
 // mapRunStatus converts adapter.RunStatus to db.HeartbeatRunStatus.

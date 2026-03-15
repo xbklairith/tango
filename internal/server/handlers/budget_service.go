@@ -15,8 +15,14 @@ import (
 
 // BudgetEnforcementService handles cost recording and budget threshold enforcement.
 type BudgetEnforcementService struct {
-	queries *db.Queries
-	dbConn  *sql.DB
+	queries      *db.Queries
+	dbConn       *sql.DB
+	inboxService *InboxService
+}
+
+// SetInboxService sets the InboxService for budget threshold notifications.
+func (s *BudgetEnforcementService) SetInboxService(is *InboxService) {
+	s.inboxService = is
 }
 
 // NewBudgetEnforcementService creates a new BudgetEnforcementService.
@@ -94,10 +100,32 @@ func (s *BudgetEnforcementService) RecordAndEnforce(ctx context.Context, params 
 					"agent_id", params.AgentID, "spent", agentSpend,
 					"budget", budgetVal, "percent", pct)
 			}
+			// Create critical inbox alert for 100% threshold
+			if s.inboxService != nil {
+				_, _ = s.inboxService.CreateBudgetWarning(ctx, qtx, CreateBudgetWarningParams{
+					SquadID:     params.SquadID,
+					AgentID:     params.AgentID,
+					Type:        "budget_threshold_100",
+					Urgency:     domain.InboxUrgencyCritical,
+					SpentCents:  agentSpend,
+					BudgetCents: budgetVal,
+				})
+			}
 		} else if threshold == domain.ThresholdWarning {
 			slog.Warn("agent budget warning: 80% threshold reached",
 				"agent_id", params.AgentID, "spent", agentSpend,
 				"budget", budgetVal, "percent", pct)
+			// Create normal inbox alert for 80% threshold
+			if s.inboxService != nil {
+				_, _ = s.inboxService.CreateBudgetWarning(ctx, qtx, CreateBudgetWarningParams{
+					SquadID:     params.SquadID,
+					AgentID:     params.AgentID,
+					Type:        "budget_threshold_80",
+					Urgency:     domain.InboxUrgencyNormal,
+					SpentCents:  agentSpend,
+					BudgetCents: budgetVal,
+				})
+			}
 		}
 	}
 
@@ -142,10 +170,32 @@ func (s *BudgetEnforcementService) RecordAndEnforce(ctx context.Context, params 
 					"squad_id", params.SquadID, "agents_paused", len(activeAgents),
 					"spent", squadSpend, "budget", budgetVal, "percent", pct)
 			}
+			// Create critical inbox alert for squad 100% threshold
+			if s.inboxService != nil {
+				_, _ = s.inboxService.CreateBudgetWarning(ctx, qtx, CreateBudgetWarningParams{
+					SquadID:     params.SquadID,
+					AgentID:     params.AgentID,
+					Type:        "squad_budget_threshold_100",
+					Urgency:     domain.InboxUrgencyCritical,
+					SpentCents:  squadSpend,
+					BudgetCents: budgetVal,
+				})
+			}
 		} else if threshold == domain.ThresholdWarning {
 			slog.Warn("squad budget warning: 80% threshold reached",
 				"squad_id", params.SquadID, "spent", squadSpend,
 				"budget", budgetVal, "percent", pct)
+			// Create normal inbox alert for squad 80% threshold
+			if s.inboxService != nil {
+				_, _ = s.inboxService.CreateBudgetWarning(ctx, qtx, CreateBudgetWarningParams{
+					SquadID:     params.SquadID,
+					AgentID:     params.AgentID,
+					Type:        "squad_budget_threshold_80",
+					Urgency:     domain.InboxUrgencyNormal,
+					SpentCents:  squadSpend,
+					BudgetCents: budgetVal,
+				})
+			}
 		}
 	}
 
