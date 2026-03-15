@@ -54,7 +54,7 @@ function SquadSelector() {
             {squads.find((s) => s.squadId === activeSquadId)?.squadName ?? "Select squad"}
           </SelectValue>
         </SelectTrigger>
-        <SelectContent className="z-50">
+        <SelectContent alignItemWithTrigger={false}>
           {squads.map((squad) => (
             <SelectItem key={squad.squadId} value={squad.squadId}>
               {squad.squadName}
