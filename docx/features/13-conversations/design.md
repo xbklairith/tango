@@ -255,6 +255,8 @@ Alias for `GET /api/issues/{id}/comments` — same handler, same pagination.
 
 ### Agent Self-Service Endpoints
 
+> **Design Decision (C1):** Agents do NOT use the existing `POST /api/issues/{issueId}/comments` endpoint to reply in conversations. That endpoint requires `UserFromContext` (user session auth) and is designed for human users adding comments to issues. Instead, agents reply via `POST /api/agent/me/reply`, which uses `AgentFromContext` (Run Token auth). This separation ensures proper auth boundaries — agents authenticate with Run Tokens, not user sessions.
+
 #### `POST /api/agent/me/reply` — Agent Posts Reply
 
 **Request:**
@@ -279,7 +281,7 @@ Alias for `GET /api/issues/{id}/comments` — same handler, same pagination.
 ```
 
 **Handler logic:**
-1. Extract agent identity from Run Token context.
+1. Extract agent identity from Run Token context (`AgentFromContext`).
 2. Parse `conversationId` and `body` from request body.
 3. Fetch conversation issue; verify `type=conversation`.
 4. Verify agent is the `assigneeAgentId` of the conversation.
@@ -311,9 +313,20 @@ Returns conversation issues assigned to the authenticated agent.
 }
 ```
 
+### Run Token Extension: `conv_id` Claim
+
+> **Important (M5/M6):** The PRD specifies that the Run Token JWT includes a `conv_id` claim (see PRD line: `"conv_id": "<issue_id|null>"`). This requires modifications to `internal/auth/run_token.go`:
+
+1. Add `ConversationID string json:"conv_id,omitempty"` to `RunTokenClaims`.
+2. Add `ConversationID uuid.UUID` (or `*uuid.UUID`) to `AgentIdentity`.
+3. Modify `RunTokenService.Mint()` to accept an optional `conversationID` parameter (use variadic `opts ...MintOption` or add a `MintParams` struct to avoid breaking existing callers).
+4. Update `Validate()` to populate `AgentIdentity.ConversationID` from the `conv_id` claim.
+
+This allows the `GetMe` handler to read the conversation ID directly from the token identity instead of performing a multi-step DB lookup (find active run → load wakeup → parse context JSON). The `Invoke()` method must pass the conversation ID when calling `Mint()`.
+
 #### `GET /api/agent/me` — Extended Response
 
-When `ARI_WAKE_REASON=conversation_message`, the existing `/api/agent/me` response is extended:
+When `ARI_WAKE_REASON=conversation_message`, the existing `/api/agent/me` response is extended. The conversation ID is read from `AgentIdentity.ConversationID` (populated from the `conv_id` Run Token claim):
 
 ```json
 {
@@ -340,6 +353,8 @@ When `ARI_WAKE_REASON=conversation_message`, the existing `/api/agent/me` respon
 
 The `conversation` field is only present when the wakeup reason is `conversation_message` and `ARI_CONVERSATION_ID` is set in the wakeup context.
 
+> **Note (ISSUE-10):** The `tasks` array in the `GET /api/agent/me` response uses `ListIssuesByAssigneeAgent`. This query should filter `type != 'conversation'` so that conversation issues do not appear in the `tasks` array. Alternatively, rename the field to `issues` to be type-agnostic. For v1, filtering out conversations from the `tasks` array is the simpler approach.
+
 ---
 
 ## Wakeup Flow (Conversation Message)
@@ -348,24 +363,61 @@ The conversation wakeup uses the same pipeline as any other wakeup (Feature 11),
 
 ### 1. Enqueue
 
+> **Design Decision (ISSUE-09):** Only set `ARI_CONVERSATION_ID` in the wakeup context map, NOT `ARI_TASK_ID`. Setting `ARI_TASK_ID` would cause `buildInvokeInput` to generate a task-oriented prompt ("Your current task: ...") which is wrong for conversations. The conversation has its own session lookup path via `GetConversationSession`.
+
 ```go
 // In ConversationHandler.SendMessage()
 ctxMap := map[string]any{
     "ARI_CONVERSATION_ID": conversationIssueID.String(),
-    "ARI_TASK_ID":         conversationIssueID.String(), // reuse for session lookup
+    // NOTE: Do NOT set ARI_TASK_ID here. Conversations use a separate
+    // session lookup (GetConversationSession) and prompt assembly path.
 }
 wakeupSvc.Enqueue(ctx, agentID, squadID, "conversation_message", ctxMap)
 ```
 
-### 2. Dispatch (RunService.Invoke)
+### 2. Dispatch (RunService.Invoke) — Session Loading for Conversations
 
-The existing `RunService.Invoke` already handles conversation context:
-- `extractConversationID(wakeup.ContextJson)` extracts `ARI_CONVERSATION_ID`
-- Session state is loaded from `agent_conversation_sessions` when `ARI_CONVERSATION_ID` is present
+> **Critical (C3):** The `Invoke()` method (around line 78-89 in `run_handler.go`) currently loads session state ONLY via `GetTaskSession` keyed by `taskID`. For conversations, this method **must be modified** to:
+> 1. Extract `convID` from the wakeup context via `extractConversationID(wakeup.ContextJson)`.
+> 2. If `convID != nil`, call `GetConversationSession(agentID, convID)` instead of `GetTaskSession`.
+> 3. If `convID == nil` and `taskID != nil`, use the existing `GetTaskSession` path.
+>
+> This is critical for session continuity — without this change, conversation session state will never be loaded on subsequent turns.
 
-### 3. Build Invoke Input (Extended)
+```go
+// In RunService.Invoke(), replace the session loading block (lines 78-89):
+var sessionBefore string
+taskID := extractTaskID(wakeup.ContextJson)
+convID := extractConversationID(wakeup.ContextJson)
 
-Extend `RunService.buildInvokeInput` to populate `ConversationContext` when `ARI_CONVERSATION_ID` is present:
+if convID != nil {
+    // Conversation session — separate table from task sessions
+    ss, err := s.queries.GetConversationSession(ctx, db.GetConversationSessionParams{
+        AgentID: agent.ID,
+        IssueID: *convID,
+    })
+    if err == nil {
+        sessionBefore = ss
+    }
+} else if taskID != nil {
+    // Task session — existing path
+    ss, err := s.queries.GetTaskSession(ctx, db.GetTaskSessionParams{
+        AgentID: agent.ID,
+        IssueID: *taskID,
+    })
+    if err == nil {
+        sessionBefore = ss
+    }
+}
+```
+
+### 3. Build Invoke Input (New Conversation Code)
+
+> **Critical (C2):** The conversation context loading in `buildInvokeInput` is **entirely new functionality** that must be written. This includes: extracting the conversation ID from wakeup context, loading the conversation issue, fetching the message thread (up to `maxMessages`), assembling the conversation prompt, loading conversation session state, and populating `InvokeInput.Conversation`. None of this code exists today.
+>
+> **Guard (ISSUE-09):** The task-prompt block (`if taskID != nil { ... }` around line 368-408) must be guarded with `if taskID != nil && convID == nil` to prevent generating a task-oriented prompt when processing a conversation wakeup.
+
+Add new conversation context loading to `RunService.buildInvokeInput` when `ARI_CONVERSATION_ID` is present:
 
 ```go
 if convID != nil {
@@ -509,7 +561,10 @@ Add conversation context loading when `ARI_CONVERSATION_ID` is present in the wa
 ### Extended: `RunService.Invoke`
 
 Add typing indicator SSE events:
-- Emit `conversation.agent.typing` after `heartbeat.run.started` when `invocationSource=conversation_message`.
+
+> **Important (M4):** The `conversationId` must be extracted from the wakeup context (`extractConversationID`) BEFORE the `heartbeat.run.started` SSE emission, so the typing event can include the conversation ID. The extraction should happen alongside the existing `extractTaskID` call in the session-loading block (see section 2 above).
+
+- Emit `conversation.agent.typing` immediately after `heartbeat.run.started` when `invocationSource=conversation_message` and `convID != nil`.
 - Emit `conversation.agent.typing.stopped` in `finalize()` when the wakeup source is `conversation_message`.
 
 ---
@@ -538,10 +593,6 @@ WHERE type = 'conversation'
 ### `internal/database/queries/issue_comments.sql` — Additions
 
 ```sql
--- name: CountIssueCommentsByType :one
-SELECT count(*) FROM issue_comments
-WHERE issue_id = @issue_id AND author_type = @author_type;
-
 -- name: GetLatestComment :one
 SELECT * FROM issue_comments
 WHERE issue_id = @issue_id

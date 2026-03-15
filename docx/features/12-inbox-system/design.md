@@ -7,7 +7,7 @@
 
 ## Architecture Overview
 
-The inbox is the unified governance interface in Ari. It consolidates all events requiring human attention — budget warnings, agent errors, approval requests, questions, and decisions — into a single prioritized queue per squad. The inbox integrates with the existing `BudgetEnforcementService`, `RunService`, and `WakeupService` to auto-create items and trigger agent wakeups on resolution.
+The inbox is the unified governance interface in Ari. It consolidates all events requiring human attention — approvals, questions, decisions, and alerts (budget warnings, agent errors, etc.) — into a single prioritized queue per squad. The PRD defines four categories: `approval`, `question`, `decision`, `alert`. The `type` TEXT field differentiates within each category (e.g., `budget_threshold_80`, `run_failed`). The inbox integrates with the existing `BudgetEnforcementService`, `RunService`, and `WakeupService` to auto-create items and trigger agent wakeups on resolution.
 
 ### High-Level Component Relationships
 
@@ -41,20 +41,24 @@ Every `InboxItem` is keyed by `squad_id`. The list, count, and detail endpoints 
 -- +goose Up
 
 CREATE TYPE inbox_category AS ENUM (
-    'approval_request', 'question', 'decision', 'info', 'budget_warning', 'agent_error'
+    'approval', 'question', 'decision', 'alert'
 );
 
 CREATE TYPE inbox_urgency AS ENUM (
-    'critical', 'high', 'medium', 'low'
+    'critical', 'normal', 'low'
 );
 
 CREATE TYPE inbox_status AS ENUM (
-    'pending', 'acknowledged', 'resolved'
+    'pending', 'acknowledged', 'resolved', 'expired'
 );
 
 CREATE TYPE inbox_resolution AS ENUM (
-    'approved', 'rejected', 'answered', 'dismissed'
+    'approved', 'rejected', 'request_revision', 'answered', 'dismissed'
 );
+
+-- Ensure 'inbox_resolved' exists in wakeup_invocation_source enum.
+-- If not already present from a prior migration, uncomment:
+-- ALTER TYPE wakeup_invocation_source ADD VALUE IF NOT EXISTS 'inbox_resolved';
 
 CREATE TABLE inbox_items (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -62,7 +66,7 @@ CREATE TABLE inbox_items (
     category              inbox_category NOT NULL,
     type                  TEXT NOT NULL,
     status                inbox_status NOT NULL DEFAULT 'pending',
-    urgency               inbox_urgency NOT NULL DEFAULT 'medium',
+    urgency               inbox_urgency NOT NULL DEFAULT 'normal',
     title                 TEXT NOT NULL,
     body                  TEXT,
     payload               JSONB NOT NULL DEFAULT '{}',
@@ -93,15 +97,11 @@ CREATE INDEX idx_inbox_items_squad_list ON inbox_items(squad_id, urgency, create
 
 -- Filter by status (for badge counts and filtered views)
 CREATE INDEX idx_inbox_items_squad_status ON inbox_items(squad_id, status)
-    WHERE status IN ('pending', 'acknowledged');
+    WHERE status NOT IN ('resolved', 'expired');
 
--- Deduplication for auto-created items (one active budget warning per agent per type)
-CREATE UNIQUE INDEX uq_inbox_active_budget_per_agent ON inbox_items(squad_id, related_agent_id, type)
-    WHERE category = 'budget_warning' AND status IN ('pending', 'acknowledged');
-
--- Deduplication for agent errors (one active error per agent)
-CREATE UNIQUE INDEX uq_inbox_active_error_per_agent ON inbox_items(squad_id, related_agent_id)
-    WHERE category = 'agent_error' AND status IN ('pending', 'acknowledged');
+-- Deduplication for auto-created alert items (one active alert per agent per type)
+CREATE UNIQUE INDEX uq_inbox_active_alert_per_agent_type ON inbox_items(squad_id, related_agent_id, type)
+    WHERE category = 'alert' AND status IN ('pending', 'acknowledged');
 
 -- +goose Down
 DROP TABLE IF EXISTS inbox_items;
@@ -141,7 +141,7 @@ DROP TYPE IF EXISTS inbox_category;
   "type": "clarify_requirement",
   "title": "Need clarification on auth flow",
   "body": "Should login support SSO or just email/password for v1?",
-  "urgency": "medium",
+  "urgency": "normal",
   "relatedIssueId": "uuid-optional",
   "payload": {
     "options": ["SSO + email/password", "Email/password only"],
@@ -158,7 +158,7 @@ DROP TYPE IF EXISTS inbox_category;
   "category": "question",
   "type": "clarify_requirement",
   "status": "pending",
-  "urgency": "medium",
+  "urgency": "normal",
   "title": "Need clarification on auth flow",
   "body": "Should login support SSO or just email/password for v1?",
   "requestedByAgentId": "uuid",
@@ -171,7 +171,7 @@ DROP TYPE IF EXISTS inbox_category;
 **Validation:**
 - `category` must be a valid enum value
 - `title` is required, max 500 characters
-- `urgency` defaults to `medium` if not provided
+- `urgency` defaults to `normal` if not provided
 - `type` is required, max 100 characters
 - Agent callers: `requestedByAgentId` is set from Run Token; squad must match
 
@@ -195,10 +195,10 @@ DROP TYPE IF EXISTS inbox_category;
     {
       "id": "uuid",
       "squadId": "uuid",
-      "category": "budget_warning",
+      "category": "alert",
       "type": "budget_threshold_80",
       "status": "pending",
-      "urgency": "high",
+      "urgency": "normal",
       "title": "Agent alice is at 80% budget",
       "requestedByAgentId": null,
       "relatedAgentId": "uuid",
@@ -213,7 +213,7 @@ DROP TYPE IF EXISTS inbox_category;
 }
 ```
 
-**Sorting:** urgency (critical > high > medium > low), then `created_at DESC`.
+**Sorting:** urgency (critical > normal > low), then `created_at DESC`.
 
 ### GET /api/inbox/{id} — Get Inbox Item Detail
 
@@ -227,7 +227,7 @@ DROP TYPE IF EXISTS inbox_category;
   "category": "question",
   "type": "clarify_requirement",
   "status": "resolved",
-  "urgency": "medium",
+  "urgency": "normal",
   "title": "Need clarification on auth flow",
   "body": "Should login support SSO or just email/password for v1?",
   "requestedByAgentId": "uuid",
@@ -287,7 +287,7 @@ DROP TYPE IF EXISTS inbox_category;
 
 **Side effects:**
 1. Sets `resolvedByUserId`, `resolvedAt`, `responseNote`, `responsePayload`
-2. For categories `approval_request`, `question`, `decision`: creates a `WakeupRequest` with `invocationSource=inbox_resolved` for the `requestedByAgentId`
+2. For categories `approval`, `question`, `decision`: creates a `WakeupRequest` with `invocationSource=inbox_resolved` for the `requestedByAgentId`
 3. Emits `inbox.item.resolved` SSE event
 4. Appends `ActivityLog` entry
 
@@ -306,6 +306,30 @@ DROP TYPE IF EXISTS inbox_category;
 1. Sets `acknowledgedByUserId`, `acknowledgedAt`, `status=acknowledged`
 2. Emits `inbox.item.acknowledged` SSE event
 
+### PATCH /api/inbox/{id}/dismiss — Dismiss Inbox Item (Alerts Only)
+
+**Auth:** User session (squad membership required)
+
+**Request:**
+```json
+{
+  "responseNote": "Noted, will monitor."
+}
+```
+
+**Response (200):** Full updated inbox item (same shape as GET detail, with `resolution=dismissed`).
+
+**Validation:**
+- Item must have `category=alert`; returns 400 with `code=INVALID_RESOLUTION` for non-alert categories
+- Item must be in `pending` or `acknowledged` status
+
+**Side effects:**
+This is a convenience shortcut equivalent to `PATCH /api/inbox/{id}/resolve` with `resolution=dismissed`. It:
+1. Sets `status=resolved`, `resolution=dismissed`, `resolvedByUserId`, `resolvedAt`, and optional `responseNote`
+2. Does NOT create a `WakeupRequest` (alerts are informational)
+3. Emits `inbox.item.resolved` SSE event
+4. Appends `ActivityLog` entry
+
 ---
 
 ## Domain Model
@@ -316,24 +340,23 @@ DROP TYPE IF EXISTS inbox_category;
 package domain
 
 // InboxCategory represents the type of attention an inbox item requires.
+// Aligned with PRD: approval, question, decision, alert.
 type InboxCategory string
 
 const (
-    InboxCategoryApprovalRequest InboxCategory = "approval_request"
-    InboxCategoryQuestion        InboxCategory = "question"
-    InboxCategoryDecision        InboxCategory = "decision"
-    InboxCategoryInfo            InboxCategory = "info"
-    InboxCategoryBudgetWarning   InboxCategory = "budget_warning"
-    InboxCategoryAgentError      InboxCategory = "agent_error"
+    InboxCategoryApproval InboxCategory = "approval"
+    InboxCategoryQuestion InboxCategory = "question"
+    InboxCategoryDecision InboxCategory = "decision"
+    InboxCategoryAlert    InboxCategory = "alert"
 )
 
 // InboxUrgency represents the priority level of an inbox item.
+// Aligned with PRD: critical, normal, low.
 type InboxUrgency string
 
 const (
     InboxUrgencyCritical InboxUrgency = "critical"
-    InboxUrgencyHigh     InboxUrgency = "high"
-    InboxUrgencyMedium   InboxUrgency = "medium"
+    InboxUrgencyNormal   InboxUrgency = "normal"
     InboxUrgencyLow      InboxUrgency = "low"
 )
 
@@ -344,34 +367,37 @@ const (
     InboxStatusPending      InboxStatus = "pending"
     InboxStatusAcknowledged InboxStatus = "acknowledged"
     InboxStatusResolved     InboxStatus = "resolved"
+    InboxStatusExpired      InboxStatus = "expired"
 )
 
 // InboxResolution represents how an inbox item was resolved.
 type InboxResolution string
 
 const (
-    InboxResolutionApproved  InboxResolution = "approved"
-    InboxResolutionRejected  InboxResolution = "rejected"
-    InboxResolutionAnswered  InboxResolution = "answered"
-    InboxResolutionDismissed InboxResolution = "dismissed"
+    InboxResolutionApproved        InboxResolution = "approved"
+    InboxResolutionRejected        InboxResolution = "rejected"
+    InboxResolutionRequestRevision InboxResolution = "request_revision"
+    InboxResolutionAnswered        InboxResolution = "answered"
+    InboxResolutionDismissed       InboxResolution = "dismissed"
 )
 
 // ValidateInboxStatusTransition checks if a status transition is allowed.
 func ValidateInboxStatusTransition(from, to InboxStatus) error {
-    // pending -> acknowledged | resolved
-    // acknowledged -> resolved
+    // pending -> acknowledged | resolved | expired
+    // acknowledged -> resolved | expired
     // resolved -> (terminal)
+    // expired -> (terminal)
     ...
 }
 
 // ValidResolutionsForCategory returns the allowed resolution types for a given category.
 func ValidResolutionsForCategory(category InboxCategory) []InboxResolution {
     switch category {
-    case InboxCategoryApprovalRequest:
-        return []InboxResolution{InboxResolutionApproved, InboxResolutionRejected}
+    case InboxCategoryApproval:
+        return []InboxResolution{InboxResolutionApproved, InboxResolutionRejected, InboxResolutionRequestRevision}
     case InboxCategoryQuestion, InboxCategoryDecision:
         return []InboxResolution{InboxResolutionAnswered, InboxResolutionDismissed}
-    case InboxCategoryInfo, InboxCategoryBudgetWarning, InboxCategoryAgentError:
+    case InboxCategoryAlert:
         return []InboxResolution{InboxResolutionDismissed}
     default:
         return nil
@@ -381,7 +407,7 @@ func ValidResolutionsForCategory(category InboxCategory) []InboxResolution {
 // CategoryWakesAgent returns true if resolving items of this category should wake the requesting agent.
 func CategoryWakesAgent(category InboxCategory) bool {
     switch category {
-    case InboxCategoryApprovalRequest, InboxCategoryQuestion, InboxCategoryDecision:
+    case InboxCategoryApproval, InboxCategoryQuestion, InboxCategoryDecision:
         return true
     default:
         return false
@@ -393,13 +419,17 @@ func CategoryWakesAgent(category InboxCategory) bool {
 
 ```
 pending ──────> acknowledged ──────> resolved
-   │                                    ^
-   └────────────────────────────────────┘
+   │                │                    ^
+   │                └─────> expired      │
+   │                          ^          │
+   ├──────────────────────────┘          │
+   └─────────────────────────────────────┘
 ```
 
 - `pending`: Item created, awaiting human attention.
 - `acknowledged`: User has seen the item but not yet resolved it.
 - `resolved`: User has taken action; terminal state.
+- `expired`: Item is no longer actionable; terminal state. (Auto-expiry not implemented in v1; status available for manual use.)
 
 ---
 
@@ -413,18 +443,20 @@ Modify `RecordAndEnforce()` to accept an `InboxService` dependency and call it w
 
 ```go
 // In RecordAndEnforce, after threshold detection:
+// Pass the transactional qtx so the inbox item is created atomically
+// within the same transaction as the cost event.
 if threshold == domain.ThresholdWarning {
-    _ = s.inboxService.CreateBudgetWarning(ctx, CreateBudgetWarningParams{
+    _ = s.inboxService.CreateBudgetWarning(ctx, qtx, CreateBudgetWarningParams{
         SquadID:    params.SquadID,
         AgentID:    params.AgentID,
         Type:       "budget_threshold_80",
-        Urgency:    domain.InboxUrgencyHigh,
+        Urgency:    domain.InboxUrgencyNormal,
         SpentCents: agentSpend,
         BudgetCents: budgetVal,
     })
 }
 if threshold == domain.ThresholdExceeded {
-    _ = s.inboxService.CreateBudgetWarning(ctx, CreateBudgetWarningParams{
+    _ = s.inboxService.CreateBudgetWarning(ctx, qtx, CreateBudgetWarningParams{
         SquadID:    params.SquadID,
         AgentID:    params.AgentID,
         Type:       "budget_threshold_100",
@@ -435,7 +467,7 @@ if threshold == domain.ThresholdExceeded {
 }
 ```
 
-The `InboxService.CreateBudgetWarning()` method uses `INSERT ... ON CONFLICT DO NOTHING` on the unique partial index to deduplicate within a billing period.
+The `InboxService.CreateBudgetWarning(ctx, qtx, params)` method accepts a `*db.Queries` parameter (the transactional `qtx`) instead of using the service's own `s.queries`. This ensures the inbox item is created within the same database transaction as the cost event. It uses `INSERT ... ON CONFLICT DO NOTHING` on the unique partial index to deduplicate within a billing period.
 
 ### 2. RunService Integration
 
@@ -445,8 +477,11 @@ Modify `finalize()` to create an inbox item when a run fails:
 
 ```go
 // In finalize(), after marking HeartbeatRun as failed:
+// Note: finalize() is non-transactional, so agent error inbox items are
+// best-effort. Failure to create the inbox item must NOT prevent run
+// finalization. Pass s.queries (non-transactional) directly.
 if result.Status == adapter.RunStatusFailed || result.Status == adapter.RunStatusTimedOut {
-    _ = s.inboxService.CreateAgentError(ctx, CreateAgentErrorParams{
+    _ = s.inboxService.CreateAgentError(ctx, s.queries, CreateAgentErrorParams{
         SquadID:       wakeup.SquadID,
         AgentID:       agent.ID,
         RunID:         run.ID,
@@ -481,9 +516,9 @@ if domain.CategoryWakesAgent(item.Category) && item.RequestedByAgentID.Valid {
 ```json
 {
   "itemId": "uuid",
-  "category": "budget_warning",
+  "category": "alert",
   "type": "budget_threshold_80",
-  "urgency": "high",
+  "urgency": "normal",
   "title": "Agent alice is at 80% budget"
 }
 ```
@@ -535,9 +570,8 @@ WHERE squad_id = @squad_id
 ORDER BY
     CASE urgency
         WHEN 'critical' THEN 0
-        WHEN 'high' THEN 1
-        WHEN 'medium' THEN 2
-        WHEN 'low' THEN 3
+        WHEN 'normal' THEN 1
+        WHEN 'low' THEN 2
     END,
     created_at DESC
 LIMIT @page_limit OFFSET @page_offset;
@@ -581,12 +615,15 @@ UPDATE inbox_items SET
 WHERE id = $1 AND status = 'pending'
 RETURNING *;
 
--- name: CreateInboxItemOnConflictDoNothing :exec
+-- name: CreateInboxItemOnConflictDoNothing :one
 INSERT INTO inbox_items (
     squad_id, category, type, urgency, title, body, payload,
     related_agent_id, related_run_id
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT DO NOTHING;
+ON CONFLICT DO NOTHING
+RETURNING *;
+-- Note: Returns nil when the row was deduplicated (ON CONFLICT).
+-- The service layer must handle a nil return gracefully (item already exists, no SSE event needed).
 ```
 
 ---
@@ -612,8 +649,8 @@ type InboxService struct {
 | `Create(ctx, params)` | Insert item, emit SSE, log activity |
 | `Resolve(ctx, itemID, userID, resolution, note, payload)` | Update status, emit SSE, optionally enqueue wakeup, log activity |
 | `Acknowledge(ctx, itemID, userID)` | Update status, emit SSE |
-| `CreateBudgetWarning(ctx, params)` | Auto-create budget warning (ON CONFLICT DO NOTHING) |
-| `CreateAgentError(ctx, params)` | Auto-create agent error (ON CONFLICT DO NOTHING) |
+| `CreateBudgetWarning(ctx, qtx, params)` | Auto-create budget alert (ON CONFLICT DO NOTHING). Accepts transactional `*db.Queries` (`qtx`) for atomic creation within budget enforcement transaction. Returns nil item if deduplicated. |
+| `CreateAgentError(ctx, qtx, params)` | Auto-create agent error alert (ON CONFLICT DO NOTHING). Accepts `*db.Queries` — typically the service's own non-transactional queries since `finalize()` is non-transactional. Returns nil item if deduplicated. |
 
 ---
 
@@ -634,6 +671,7 @@ func (h *InboxHandler) RegisterRoutes(mux *http.ServeMux) {
     mux.HandleFunc("GET /api/inbox/{id}", h.GetInboxItem)
     mux.HandleFunc("PATCH /api/inbox/{id}/resolve", h.ResolveInboxItem)
     mux.HandleFunc("PATCH /api/inbox/{id}/acknowledge", h.AcknowledgeInboxItem)
+    mux.HandleFunc("PATCH /api/inbox/{id}/dismiss", h.DismissInboxItem)
 }
 ```
 
@@ -672,10 +710,10 @@ The `InboxBadge` component calls `GET /api/squads/{id}/inbox/count` on mount and
 
 | Category | Form Elements |
 |----------|--------------|
-| `approval_request` | Approve / Reject buttons + optional note |
+| `approval` | Approve / Reject / Request Revision buttons + optional note |
 | `question` | Text area for answer |
 | `decision` | Radio/select from `payload.options` + optional note |
-| `info` / `budget_warning` / `agent_error` | Dismiss button + optional note |
+| `alert` | Dismiss button + optional note |
 
 ---
 

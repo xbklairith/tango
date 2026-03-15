@@ -5,9 +5,11 @@
 
 ## Overview
 
-Implement the unified inbox — the primary governance interface where agents request human attention. The inbox consolidates budget warnings, approval requests, questions, error reports, and decisions into a single prioritized queue with real-time SSE notifications.
+Implement the unified inbox — the primary governance interface where agents request human attention. The inbox consolidates approvals, questions, decisions, and alerts into a single prioritized queue with real-time SSE notifications. The PRD defines four categories: `approval`, `question`, `decision`, `alert`. Within `alert`, the `type` TEXT field differentiates sub-kinds (e.g., `budget_threshold_80`, `run_failed`).
 
-Agents create inbox items via the Ari API during execution. The system also auto-creates inbox items from budget enforcement (80% warning, 100% auto-pause) and agent runtime errors (run failed). When a user resolves an inbox item, the originating agent is woken with `ARI_WAKE_REASON=inbox_resolved` so it can act on the human's response.
+Agents create inbox items via the Ari API during execution. The system also auto-creates inbox items from budget enforcement (80% warning, 100% auto-pause) and agent runtime errors (run failed) as `alert` category items. When a user resolves an inbox item, the originating agent is woken with `ARI_WAKE_REASON=inbox_resolved` so it can act on the human's response.
+
+> **ADR: `dismissed` as resolution, not status.** The PRD lists `dismissed` as a top-level status. In our implementation we model `dismissed` as an `InboxResolution` value instead, because (a) dismissed items are functionally resolved — no further action is possible, (b) it keeps the status machine simpler (`pending -> acknowledged -> resolved | expired`), and (c) queries for "unresolved" items need only check `status NOT IN ('resolved','expired')`. A dismissed item has `status=resolved, resolution=dismissed`.
 
 ### Requirement ID Format
 
@@ -22,15 +24,15 @@ Agents create inbox items via the Ari API during execution. The system also auto
 
 **Inbox Item Creation**
 
-- [REQ-INB-001] WHEN an agent calls `POST /api/squads/{id}/inbox` with a valid payload THEN the system SHALL create an `InboxItem` record with `status=pending`, validate that `category` is one of `approval_request`, `question`, `decision`, `info`, `budget_warning`, `agent_error`, set `requestedByAgentId` from the caller's Run Token identity, and return HTTP 201 with the created item.
+- [REQ-INB-001] WHEN an agent calls `POST /api/squads/{id}/inbox` with a valid payload THEN the system SHALL create an `InboxItem` record with `status=pending`, validate that `category` is one of `approval`, `question`, `decision`, `alert`, set `requestedByAgentId` from the caller's Run Token identity, and return HTTP 201 with the created item.
 
-- [REQ-INB-002] WHEN the `BudgetEnforcementService` detects that an agent's monthly spend has reached 80% of its `budgetMonthlyCents` THEN the system SHALL auto-create an `InboxItem` with `category=budget_warning`, `urgency=high`, `type=budget_threshold_80`, link `relatedAgentId` to the agent, and include spend/budget amounts in the `payload` JSON.
+- [REQ-INB-002] WHEN the `BudgetEnforcementService` detects that an agent's monthly spend has reached 80% of its `budgetMonthlyCents` THEN the system SHALL auto-create an `InboxItem` with `category=alert`, `urgency=normal`, `type=budget_threshold_80`, link `relatedAgentId` to the agent, and include spend/budget amounts in the `payload` JSON.
 
-- [REQ-INB-003] WHEN the `BudgetEnforcementService` detects that an agent's monthly spend has reached 100% of its `budgetMonthlyCents` and auto-pauses the agent THEN the system SHALL auto-create an `InboxItem` with `category=budget_warning`, `urgency=critical`, `type=budget_threshold_100`, link `relatedAgentId` to the agent, and include spend/budget amounts in the `payload` JSON.
+- [REQ-INB-003] WHEN the `BudgetEnforcementService` detects that an agent's monthly spend has reached 100% of its `budgetMonthlyCents` and auto-pauses the agent THEN the system SHALL auto-create an `InboxItem` with `category=alert`, `urgency=critical`, `type=budget_threshold_100`, link `relatedAgentId` to the agent, and include spend/budget amounts in the `payload` JSON.
 
-- [REQ-INB-004] WHEN a `HeartbeatRun` finishes with `status=failed` THEN the system SHALL auto-create an `InboxItem` with `category=agent_error`, `urgency=high`, `type=run_failed`, link `relatedAgentId` to the agent and `relatedRunId` to the failed run, and include `exitCode` and `stderrExcerpt` in the `payload` JSON.
+- [REQ-INB-004] WHEN a `HeartbeatRun` finishes with `status=failed` THEN the system SHALL auto-create an `InboxItem` with `category=alert`, `urgency=normal`, `type=run_failed`, link `relatedAgentId` to the agent and `relatedRunId` to the failed run, and include `exitCode` and `stderrExcerpt` in the `payload` JSON.
 
-- [REQ-INB-005] WHEN a `HeartbeatRun` finishes with `status=timed_out` THEN the system SHALL auto-create an `InboxItem` with `category=agent_error`, `urgency=high`, `type=run_timed_out`, link `relatedAgentId` to the agent and `relatedRunId` to the run, and include the timeout duration in the `payload` JSON.
+- [REQ-INB-005] WHEN a `HeartbeatRun` finishes with `status=timed_out` THEN the system SHALL auto-create an `InboxItem` with `category=alert`, `urgency=normal`, `type=run_timed_out`, link `relatedAgentId` to the agent and `relatedRunId` to the run, and include the timeout duration in the `payload` JSON.
 
 **Inbox Item Retrieval**
 
@@ -46,9 +48,9 @@ Agents create inbox items via the Ari API during execution. The system also auto
 
 - [REQ-INB-010] WHEN a user calls `PATCH /api/inbox/{id}/resolve` with a valid resolution THEN the system SHALL update the `InboxItem` with `status=resolved`, set `resolution` to one of `approved`, `rejected`, `answered`, `dismissed`, record `resolvedByUserId`, `resolvedAt`, `responseNote`, and `responsePayload`, and return the updated item.
 
-- [REQ-INB-011] WHEN an inbox item of category `approval_request`, `question`, or `decision` is resolved THEN the system SHALL create a `WakeupRequest` with `invocationSource=inbox_resolved` for the `requestedByAgentId`, injecting the resolution payload (`resolution`, `responseNote`, `responsePayload`, `inboxItemId`) as `ARI_WAKE_REASON=inbox_resolved` context so the agent wakes with the user's response.
+- [REQ-INB-011] WHEN an inbox item of category `approval`, `question`, or `decision` is resolved THEN the system SHALL create a `WakeupRequest` with `invocationSource=inbox_resolved` for the `requestedByAgentId`, injecting the resolution payload (`resolution`, `responseNote`, `responsePayload`, `inboxItemId`) as `ARI_WAKE_REASON=inbox_resolved` context so the agent wakes with the user's response.
 
-- [REQ-INB-012] WHEN an inbox item of category `info`, `budget_warning`, or `agent_error` is resolved with `resolution=dismissed` THEN the system SHALL NOT create a `WakeupRequest` — the resolution is informational only.
+- [REQ-INB-012] WHEN an inbox item of category `alert` is resolved with `resolution=dismissed` THEN the system SHALL NOT create a `WakeupRequest` — the resolution is informational only.
 
 - [REQ-INB-013] WHEN a user calls `PATCH /api/inbox/{id}/acknowledge` THEN the system SHALL update the `InboxItem` with `status=acknowledged` without resolving it, recording `acknowledgedByUserId` and `acknowledgedAt`.
 
@@ -68,7 +70,7 @@ Agents create inbox items via the Ari API during execution. The system also auto
 
 - [REQ-INB-018] WHILE there are unresolved inbox items with `urgency=critical` for a squad, the system SHALL include a `criticalCount` field in the SSE initial snapshot sent to new subscribers on `GET /api/squads/{id}/events/stream`.
 
-- [REQ-INB-019] WHILE an `InboxItem` has `status=pending`, the system SHALL allow transitions to `acknowledged` or `resolved` but NOT back to `pending`.
+- [REQ-INB-019] WHILE an `InboxItem` has `status=pending`, the system SHALL allow transitions to `acknowledged`, `resolved`, or `expired` but NOT back to `pending`.
 
 ---
 
@@ -77,17 +79,16 @@ Agents create inbox items via the Ari API during execution. The system also auto
 - [REQ-INB-020] The system SHALL scope all inbox items to a single `squadId`; cross-squad inbox items SHALL never be created or returned.
 
 - [REQ-INB-021] The system SHALL enforce the inbox item status machine for every status transition:
-  - `pending` -> `acknowledged` | `resolved`
-  - `acknowledged` -> `resolved`
+  - `pending` -> `acknowledged` | `resolved` | `expired`
+  - `acknowledged` -> `resolved` | `expired`
   - `resolved` -> (terminal, no further transitions)
+  - `expired` -> (terminal, no further transitions)
 
 - [REQ-INB-022] The system SHALL validate that `resolution` values match the item's `category`:
-  - `approval_request` -> `approved` | `rejected`
+  - `approval` -> `approved` | `rejected` | `request_revision`
   - `question` -> `answered` | `dismissed`
   - `decision` -> `answered` | `dismissed`
-  - `info` -> `dismissed`
-  - `budget_warning` -> `dismissed`
-  - `agent_error` -> `dismissed`
+  - `alert` -> `dismissed`
 
 - [REQ-INB-023] The system SHALL record an `ActivityLog` entry for every inbox item creation (`inbox.created`) and resolution (`inbox.resolved`) with `entityType=inbox_item`.
 
@@ -97,7 +98,7 @@ Agents create inbox items via the Ari API during execution. The system also auto
 
 ### Conditional Requirements (IF...THEN)
 
-- [REQ-INB-025] IF an agent creates an inbox item with `category=approval_request` and `urgency=critical` THEN the system SHALL emit an additional `cost.threshold.warning`-style SSE event to ensure the user is immediately notified even if they are not viewing the inbox.
+- [REQ-INB-025] IF an agent creates an inbox item with `category=approval` and `urgency=critical` THEN the system SHALL emit an additional `cost.threshold.warning`-style SSE event to ensure the user is immediately notified even if they are not viewing the inbox.
 
 - [REQ-INB-026] IF a squad has no active SSE subscribers when an inbox item is created THEN the system SHALL still persist the item; the user will see it on their next visit to the inbox.
 
@@ -125,7 +126,7 @@ Agents create inbox items via the Ari API during execution. The system also auto
 
 ### Reliability
 
-- [REQ-INB-034] The system SHALL create auto-generated inbox items (budget warnings, agent errors) within the same database transaction as the triggering event to ensure consistency.
+- [REQ-INB-034] The system SHALL create auto-generated budget warning inbox items within the same database transaction as the triggering cost event to ensure consistency. Agent error inbox items (`category=alert`, `type=run_failed` / `run_timed_out`) are best-effort (non-transactional) because `RunService.finalize()` is itself non-transactional; failure to create the inbox item MUST NOT prevent run finalization.
 
 - [REQ-INB-035] SSE event delivery for inbox events SHALL be best-effort: a slow subscriber MUST NOT block inbox item persistence or delivery to other subscribers.
 
@@ -134,9 +135,9 @@ Agents create inbox items via the Ari API during execution. The system also auto
 ## Constraints
 
 - All inbox items MUST be scoped to a single squad (FK to `squads`).
-- Inbox item status transitions MUST follow the state machine: `pending` -> `acknowledged` -> `resolved`.
+- Inbox item status transitions MUST follow the state machine: `pending` -> `acknowledged` -> `resolved` | `expired`.
 - Resolution types MUST match the item's category (see REQ-INB-022).
-- Auto-created items (budget, errors) MUST be created within the triggering transaction.
+- Auto-created budget warning items MUST be created within the triggering transaction. Agent error items are best-effort (see REQ-INB-034).
 - The inbox API MUST support both user authentication (session JWT) and agent authentication (Run Token JWT).
 - Resolved inbox items are immutable — no UPDATE or DELETE after resolution.
 
@@ -150,10 +151,12 @@ Agents create inbox items via the Ari API during execution. The system also auto
 - [ ] `GET /api/squads/{id}/inbox/count` returns pending/acknowledged/total counts.
 - [ ] `PATCH /api/inbox/{id}/resolve` resolves an item and wakes the agent (for approval/question/decision).
 - [ ] `PATCH /api/inbox/{id}/acknowledge` transitions item to acknowledged.
+- [ ] `PATCH /api/inbox/{id}/dismiss` dismisses an `alert` item (convenience shortcut for resolve with `resolution=dismissed`).
+- [ ] Dismissing a non-`alert` item returns 400.
 - [ ] Resolving an already-resolved item returns 409.
-- [ ] Budget enforcement at 80% auto-creates `budget_warning` inbox item.
-- [ ] Budget enforcement at 100% auto-creates `budget_warning` inbox item with `urgency=critical`.
-- [ ] Failed `HeartbeatRun` auto-creates `agent_error` inbox item.
+- [ ] Budget enforcement at 80% auto-creates `alert` inbox item with `type=budget_threshold_80`.
+- [ ] Budget enforcement at 100% auto-creates `alert` inbox item with `type=budget_threshold_100`, `urgency=critical`.
+- [ ] Failed `HeartbeatRun` auto-creates `alert` inbox item with `type=run_failed`.
 - [ ] `inbox.item.created` SSE event fires on creation.
 - [ ] `inbox.item.resolved` SSE event fires on resolution.
 - [ ] Agent is woken with `inbox_resolved` context when approval/question/decision is resolved.
@@ -164,7 +167,7 @@ Agents create inbox items via the Ari API during execution. The system also auto
 
 ## Out of Scope
 
-- Inbox item expiration / TTL (all items persist indefinitely for v1).
+- Inbox item automatic expiration / TTL triggers (the `expired` status exists per the PRD but no auto-expiry logic runs in v1; items can be manually expired).
 - Email or push notifications for inbox items (SSE only for v1).
 - Bulk resolve operations (one at a time for v1).
 - Inbox item comments or threaded discussion (use `responseNote` for v1).
@@ -194,8 +197,8 @@ Agents create inbox items via the Ari API during execution. The system also auto
 - The `payload` and `responsePayload` JSONB fields are flexible enough to cover all category-specific data.
 
 **Risks:**
-- High-volume budget warning creation could flood the inbox if an agent makes many small cost events near the 80% threshold. Mitigation: deduplicate budget warnings — only create one per threshold per billing period per agent.
-- Agent error inbox items could accumulate rapidly if an agent enters a crash loop. Mitigation: limit to one active `agent_error` item per agent (deduplicate while a pending item exists).
+- High-volume budget alert creation could flood the inbox if an agent makes many small cost events near the 80% threshold. Mitigation: deduplicate alerts — only create one per type per agent while an active (pending/acknowledged) item exists.
+- Agent error alert items could accumulate rapidly if an agent enters a crash loop. Mitigation: limit to one active alert per agent per type (deduplicate while a pending/acknowledged item exists via the `uq_inbox_active_alert_per_agent_type` unique partial index).
 - The wakeup created on inbox resolution depends on the agent being in a wakeup-eligible status. If the agent was paused (e.g., budget exceeded), the wakeup will be discarded per existing REQ-044.
 
 ---

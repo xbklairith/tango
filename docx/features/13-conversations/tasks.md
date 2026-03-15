@@ -15,7 +15,7 @@ Work from backend to frontend: SQL queries first, then the conversation handler,
 
 ## Progress Summary
 
-- Total Tasks: 8
+- Total Tasks: 9
 - Completed: 0
 - In Progress: None
 - Remaining: All
@@ -35,6 +35,8 @@ Work from backend to frontend: SQL queries first, then the conversation handler,
 #### Context
 
 Add sqlc queries for listing conversations by agent and supporting the conversation endpoints. The existing `ListIssuesBySquad` query already supports `type` filtering (REQ-CONV-016), so no changes needed there. New queries: `ListConversationsByAgent`, `CountConversationsByAgent`, `GetLatestComment`.
+
+> **Prerequisite (M7):** After adding new `.sql` query files, run `make sqlc` to regenerate Go code BEFORE writing or running any Go tests. The generated code in `internal/database/db/` must exist for test compilation.
 
 #### RED — Write Failing Tests
 
@@ -76,7 +78,7 @@ Tests fail because the queries do not exist yet.
    LIMIT 1;
    ```
 
-3. Run `make sqlc` to regenerate Go code.
+3. **Run `make sqlc`** to regenerate Go code. This MUST happen before writing or compiling any Go tests that reference the new query functions (`ListConversationsByAgent`, `CountConversationsByAgent`, `GetLatestComment`).
 4. Run `make test` — all query tests pass.
 
 #### REFACTOR
@@ -316,24 +318,95 @@ Tests fail because `Reply` and `ListConversations` are not implemented.
 
 ---
 
-### [ ] Task 06 — RunService: Conversation Context + Typing SSE
+### [ ] Task 06 — Run Token: Add `conv_id` Claim
+
+**Requirements:** REQ-CONV-008, REQ-CONV-031
+**Estimated time:** 30 min
+
+#### Context
+
+The PRD specifies that the Run Token JWT includes a `conv_id` claim (`"conv_id": "<issue_id|null>"`). This allows the `GetMe` handler to read the conversation ID directly from the token identity instead of performing a multi-step DB lookup. Requires modifications to `internal/auth/run_token.go`.
+
+#### RED — Write Failing Tests
+
+Add to `internal/auth/run_token_test.go`:
+
+1. `TestMint_WithConversationID` — mint a token with a conversation ID, validate it, verify `ConversationID` claim is present and correct.
+2. `TestMint_WithoutConversationID` — mint a token without conversation ID, validate it, verify `ConversationID` claim is empty/omitted.
+3. `TestValidate_ConversationID` — validate a token with `conv_id` claim, verify `AgentIdentity.ConversationID` is populated.
+
+Tests fail because `ConversationID` field does not exist on `RunTokenClaims` or `AgentIdentity`.
+
+#### GREEN — Implement Minimum to Pass
+
+1. Add `ConversationID string \`json:"conv_id,omitempty"\`` to `RunTokenClaims` in `internal/auth/run_token.go`.
+2. Add `ConversationID uuid.UUID` to `AgentIdentity` (use `uuid.Nil` when not set).
+3. Modify `RunTokenService.Mint()` signature to accept optional conversation ID. Use a variadic option pattern to avoid breaking existing callers:
+   ```go
+   type MintOption func(*RunTokenClaims)
+
+   func WithConversationID(convID uuid.UUID) MintOption {
+       return func(c *RunTokenClaims) {
+           c.ConversationID = convID.String()
+       }
+   }
+
+   func (s *RunTokenService) Mint(agentID, squadID, runID uuid.UUID, role string, opts ...MintOption) (string, error)
+   ```
+4. Update `Validate()` to parse `conv_id` claim into `AgentIdentity.ConversationID`.
+5. Update the `RunService.Invoke()` call to `Mint()` to pass `WithConversationID(convID)` when `convID != nil`.
+6. Run all tests — pass.
+
+#### REFACTOR
+
+- Verify existing `Mint()` callers still compile without changes (variadic opts are backward-compatible).
+- Ensure `conv_id` is omitted from JWT when not set (JSON `omitempty` handles this).
+
+#### Acceptance Criteria
+
+- [ ] `RunTokenClaims` has `ConversationID` field with `json:"conv_id,omitempty"`
+- [ ] `AgentIdentity` has `ConversationID` field
+- [ ] `Mint()` accepts optional conversation ID without breaking existing callers
+- [ ] `Validate()` populates `AgentIdentity.ConversationID` from `conv_id` claim
+- [ ] `RunService.Invoke()` passes conversation ID to `Mint()` when applicable
+- [ ] `make test` passes
+
+#### Files to Create / Modify
+
+- **Modify:** `internal/auth/run_token.go`
+- **Modify:** `internal/auth/run_token_test.go`
+- **Modify:** `internal/server/handlers/run_handler.go` (Mint call)
+
+---
+
+### [ ] Task 07 — RunService: Conversation Context + Typing SSE
 
 **Requirements:** REQ-CONV-007, REQ-CONV-008, REQ-CONV-011, REQ-CONV-012, REQ-CONV-013, REQ-CONV-014
 **Estimated time:** 60 min
 
 #### Context
 
-Extend `RunService.buildInvokeInput` to load conversation context (message thread + session state) when the wakeup is triggered by `conversation_message`. Add typing indicator SSE events. Extend `AgentSelfHandler.GetMe` to include conversation data when the wake reason is `conversation_message`.
+Extend `RunService` to support conversation wakeups. This involves three critical changes:
+
+1. **Session loading in `Invoke()` (C3):** The `Invoke()` method (around line 78-89 in `run_handler.go`) must be modified to check for `ARI_CONVERSATION_ID` in the wakeup context. When present, use `GetConversationSession(agentID, convID)` instead of `GetTaskSession(agentID, taskID)`. Without this, conversation session state will never be restored across turns.
+
+2. **Conversation context in `buildInvokeInput()` (C2):** This is entirely new code — load conversation issue, fetch message thread (up to 100 messages), assemble conversation-specific prompt, and populate `InvokeInput.Conversation`. Add a guard: `if taskID != nil && convID == nil` around the existing task-prompt block to prevent generating task prompts for conversation wakeups (ISSUE-09).
+
+3. **Typing indicator SSE events (M4):** Extract `conversationId` from wakeup context BEFORE the `heartbeat.run.started` SSE emission so typing events can include the conversation ID.
+
+Also extend `AgentSelfHandler.GetMe` to include conversation data when the wake reason is `conversation_message`.
 
 #### RED — Write Failing Tests
 
 Add to `internal/server/handlers/run_handler_test.go`:
 
-1. `TestBuildInvokeInput_ConversationContext` — create a conversation wakeup with `ARI_CONVERSATION_ID`, verify `InvokeInput.Conversation` is populated with messages and session state.
-2. `TestBuildInvokeInput_ConversationPrompt` — verify the assembled prompt includes conversation title, message thread, and reply instructions.
-3. `TestBuildInvokeInput_NoConversation` — wakeup without `ARI_CONVERSATION_ID`, verify `InvokeInput.Conversation` is nil.
-4. `TestInvoke_ConversationTypingSSE` — invoke with `conversation_message` source, verify `conversation.agent.typing` SSE event emitted after `heartbeat.run.started`.
-5. `TestFinalize_ConversationTypingStoppedSSE` — finalize a conversation run, verify `conversation.agent.typing.stopped` SSE event emitted.
+1. `TestInvoke_ConversationSessionLoading` — create a conversation with existing session state in `agent_conversation_sessions`, invoke with `ARI_CONVERSATION_ID` set (and NO `ARI_TASK_ID`), verify `GetConversationSession` is called (not `GetTaskSession`) and `sessionBefore` is populated correctly.
+2. `TestBuildInvokeInput_ConversationContext` — create a conversation wakeup with `ARI_CONVERSATION_ID`, verify `InvokeInput.Conversation` is populated with messages and session state.
+3. `TestBuildInvokeInput_ConversationPrompt` — verify the assembled prompt includes conversation title, message thread, and reply instructions (NOT task-oriented prompt).
+4. `TestBuildInvokeInput_TaskPromptGuard` — create a wakeup with both `ARI_TASK_ID` and `ARI_CONVERSATION_ID`, verify the task-prompt block is skipped (no "Your current task:" in prompt).
+5. `TestBuildInvokeInput_NoConversation` — wakeup without `ARI_CONVERSATION_ID`, verify `InvokeInput.Conversation` is nil.
+6. `TestInvoke_ConversationTypingSSE` — invoke with `conversation_message` source, verify `conversation.agent.typing` SSE event emitted after `heartbeat.run.started` and includes `conversationId`.
+7. `TestFinalize_ConversationTypingStoppedSSE` — finalize a conversation run, verify `conversation.agent.typing.stopped` SSE event emitted.
 
 Add to `internal/server/handlers/agent_self_handler_test.go`:
 
@@ -343,18 +416,24 @@ Tests fail because conversation context loading and typing SSE are not implement
 
 #### GREEN — Implement Minimum to Pass
 
-1. Extend `RunService.buildInvokeInput`:
-   - When `convID != nil`, load conversation issue, message thread (up to 100), and session state.
+1. **Modify `RunService.Invoke()` session loading (C3):**
+   - Extract `convID` via `extractConversationID(wakeup.ContextJson)` alongside the existing `extractTaskID` call (around line 78-89).
+   - If `convID != nil`, call `GetConversationSession(agentID, convID)` to load session state.
+   - Else if `taskID != nil`, use existing `GetTaskSession` path.
+   - Extract `convID` BEFORE `heartbeat.run.started` SSE emission so it is available for the typing event (M4).
+2. **Extend `RunService.Invoke()` with typing SSE:**
+   - Immediately after `heartbeat.run.started` SSE, if `invocationSource=conversation_message` and `convID != nil`, emit `conversation.agent.typing` with `conversationId` and `agentId`.
+3. **Extend `RunService.buildInvokeInput()` (C2 — all new code):**
+   - Guard the existing task-prompt block: change `if taskID != nil {` to `if taskID != nil && convID == nil {` (ISSUE-09).
+   - When `convID != nil`, load conversation issue, message thread (up to 100 messages), and conversation session state.
+   - Assemble conversation-specific prompt with message thread and reply instructions.
    - Populate `adapter.ConversationContext` on `InvokeInput`.
-   - Build conversation-specific prompt with message thread and reply instructions.
-2. Extend `RunService.Invoke`:
-   - After `heartbeat.run.started` SSE, if `invocationSource=conversation_message`, emit `conversation.agent.typing`.
-3. Extend `RunService.finalize`:
+4. **Extend `RunService.finalize()`:**
    - If wakeup source is `conversation_message`, emit `conversation.agent.typing.stopped`.
-4. Extend `AgentSelfHandler.GetMe`:
-   - Check if `ARI_CONVERSATION_ID` env var is present (from wakeup context on the active run).
+5. **Extend `AgentSelfHandler.GetMe`:**
+   - Read conversation ID from `AgentIdentity.ConversationID` (populated from `conv_id` Run Token claim — see M5/M6).
    - If present, load conversation issue and messages, include in response.
-5. Run all tests — pass.
+6. Run all tests — pass.
 
 #### REFACTOR
 
@@ -364,9 +443,11 @@ Tests fail because conversation context loading and typing SSE are not implement
 
 #### Acceptance Criteria
 
+- [ ] `Invoke()` uses `GetConversationSession` (not `GetTaskSession`) when `ARI_CONVERSATION_ID` is present
 - [ ] `buildInvokeInput` populates `ConversationContext` when `ARI_CONVERSATION_ID` is present
+- [ ] Task-prompt block is guarded with `if taskID != nil && convID == nil` (no task prompt for conversations)
 - [ ] Conversation prompt includes message thread and reply instructions
-- [ ] `conversation.agent.typing` SSE emitted when conversation run starts
+- [ ] `conversation.agent.typing` SSE emitted when conversation run starts, includes `conversationId`
 - [ ] `conversation.agent.typing.stopped` SSE emitted when conversation run finishes
 - [ ] Session state loaded from `agent_conversation_sessions`
 - [ ] `GET /api/agent/me` includes conversation field when wake reason is `conversation_message`
@@ -375,11 +456,13 @@ Tests fail because conversation context loading and typing SSE are not implement
 #### Files to Create / Modify
 
 - **Modify:** `internal/server/handlers/run_handler.go`
+- **Modify:** `internal/server/handlers/run_handler_test.go`
 - **Modify:** `internal/server/handlers/agent_self_handler.go`
+- **Modify:** `internal/server/handlers/agent_self_handler_test.go`
 
 ---
 
-### [ ] Task 07 — Server Wiring + Route Registration
+### [ ] Task 08 — Server Wiring + Route Registration
 
 **Requirements:** REQ-CONV-022, REQ-CONV-024
 **Estimated time:** 30 min
@@ -401,6 +484,7 @@ Tests fail because conversation routes are not wired.
    - Create `ConversationHandler` with dependencies.
    - Call `conversationHandler.RegisterRoutes(mux)`.
    - The `AgentSelfHandler` routes already include the new `Reply` and `ListConversations` from Task 05.
+   - The Run Token `conv_id` claim from Task 06 must be wired through.
 2. Run full test suite — pass.
 
 #### REFACTOR
@@ -422,7 +506,7 @@ Tests fail because conversation routes are not wired.
 
 ---
 
-### [ ] Task 08 — React Chat UI
+### [ ] Task 09 — React Chat UI
 
 **Requirements:** REQ-CONV-028, REQ-CONV-029
 **Estimated time:** 90 min
