@@ -1,7 +1,7 @@
 # Tasks: Conversations (Agent Chat Interface)
 
 **Created:** 2026-03-15
-**Status:** Not Started
+**Status:** In Progress
 
 ## Requirement Traceability
 
@@ -16,9 +16,9 @@ Work from backend to frontend: SQL queries first, then the conversation handler,
 ## Progress Summary
 
 - Total Tasks: 9
-- Completed: 0
+- Completed: 8
 - In Progress: None
-- Remaining: All
+- Remaining: Task 09 (React Chat UI)
 - Test Coverage: TBD
 
 ---
@@ -27,7 +27,7 @@ Work from backend to frontend: SQL queries first, then the conversation handler,
 
 ---
 
-### [ ] Task 01 — SQL Queries for Conversations
+### [x] Task 01 — SQL Queries for Conversations
 
 **Requirements:** REQ-CONV-015, REQ-CONV-016, REQ-CONV-017, REQ-CONV-018
 **Estimated time:** 30 min
@@ -88,11 +88,11 @@ Tests fail because the queries do not exist yet.
 
 #### Acceptance Criteria
 
-- [ ] `ListConversationsByAgent` query returns only conversation-type issues for the specified agent
-- [ ] `CountConversationsByAgent` query returns correct count with optional status filter
-- [ ] `GetLatestComment` query returns the most recent comment for an issue
-- [ ] `make sqlc` succeeds
-- [ ] `make test` passes
+- [x] `ListConversationsByAgent` query returns only conversation-type issues for the specified agent
+- [x] `CountConversationsByAgent` query returns correct count with optional status filter
+- [x] `GetLatestComment` query returns the most recent comment for an issue
+- [x] `make sqlc` succeeds
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -101,7 +101,7 @@ Tests fail because the queries do not exist yet.
 
 ---
 
-### [ ] Task 02 — ConversationHandler: Start Conversation
+### [x] Task 02 — ConversationHandler: Start Conversation
 
 **Requirements:** REQ-CONV-001, REQ-CONV-002, REQ-CONV-022, REQ-CONV-024
 **Estimated time:** 60 min
@@ -139,12 +139,12 @@ Tests fail because `ConversationHandler` does not exist.
 
 #### Acceptance Criteria
 
-- [ ] `POST /api/agents/{id}/conversations` creates a conversation issue
-- [ ] Optional `message` field creates first IssueComment and enqueues wakeup
-- [ ] Squad membership is verified
-- [ ] Activity logged as `conversation.created`
-- [ ] Response includes conversation and optional message
-- [ ] `make test` passes
+- [x] `POST /api/agents/{id}/conversations` creates a conversation issue
+- [x] Optional `message` field creates first IssueComment and enqueues wakeup
+- [x] Squad membership is verified
+- [x] Activity logged as `conversation.created`
+- [x] Response includes conversation and optional message
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -153,7 +153,7 @@ Tests fail because `ConversationHandler` does not exist.
 
 ---
 
-### [ ] Task 03 — ConversationHandler: Send Message + Auto-Wake
+### [x] Task 03 — ConversationHandler: Send Message + Auto-Wake
 
 **Requirements:** REQ-CONV-004, REQ-CONV-005, REQ-CONV-006, REQ-CONV-020, REQ-CONV-025, REQ-CONV-027
 **Estimated time:** 60 min
@@ -190,13 +190,13 @@ Tests fail because `SendMessage` is not implemented.
 
 #### Acceptance Criteria
 
-- [ ] `POST /api/conversations/{id}/messages` creates a user comment
-- [ ] `conversation.message` SSE event emitted
-- [ ] Wakeup enqueued with `conversation_message` source
-- [ ] Closed conversations rejected with 422
-- [ ] Non-conversation issues rejected with 422
-- [ ] Agent paused: message saved, wakeup silently skipped
-- [ ] `make test` passes
+- [x] `POST /api/conversations/{id}/messages` creates a user comment
+- [x] `conversation.message` SSE event emitted
+- [x] Wakeup enqueued with `conversation_message` source
+- [x] Closed conversations rejected with 422
+- [x] Non-conversation issues rejected with 422
+- [x] Agent paused: message saved, wakeup silently skipped
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -205,7 +205,7 @@ Tests fail because `SendMessage` is not implemented.
 
 ---
 
-### [ ] Task 04 — ConversationHandler: List, Messages, Close
+### [x] Task 04 — ConversationHandler: List, Messages, Close
 
 **Requirements:** REQ-CONV-003, REQ-CONV-015, REQ-CONV-018, REQ-CONV-024
 **Estimated time:** 45 min
@@ -242,12 +242,12 @@ Tests fail because handlers are not implemented.
 
 #### Acceptance Criteria
 
-- [ ] `GET /api/agents/{id}/conversations` returns only conversation issues for the agent
-- [ ] `GET /api/conversations/{id}/messages` returns comments with pagination
-- [ ] `PATCH /api/conversations/{id}/close` transitions to `done`
-- [ ] Activity logged for close: `conversation.closed`
-- [ ] Non-conversation issues rejected
-- [ ] `make test` passes
+- [x] `GET /api/agents/{id}/conversations` returns only conversation issues for the agent
+- [x] `GET /api/conversations/{id}/messages` returns comments with pagination
+- [x] `PATCH /api/conversations/{id}/close` transitions to `done`
+- [x] Activity logged for close: `conversation.closed`
+- [x] Non-conversation issues rejected
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -256,7 +256,7 @@ Tests fail because handlers are not implemented.
 
 ---
 
-### [ ] Task 05 — AgentSelfHandler: Reply + List Conversations
+### [x] Task 05 — AgentSelfHandler: Reply + List Conversations
 
 **Requirements:** REQ-CONV-009, REQ-CONV-010, REQ-CONV-017, REQ-CONV-023, REQ-CONV-031
 **Estimated time:** 60 min
@@ -303,13 +303,13 @@ Tests fail because `Reply` and `ListConversations` are not implemented.
 
 #### Acceptance Criteria
 
-- [ ] `POST /api/agent/me/reply` creates agent comment on conversation
-- [ ] `conversation.agent.replied` SSE event emitted
-- [ ] Agent must be the conversation's assignee
-- [ ] Closed conversations reject replies
-- [ ] Squad scope enforced via Run Token
-- [ ] `GET /api/agent/me/conversations` returns agent's conversations
-- [ ] `make test` passes
+- [x] `POST /api/agent/me/reply` creates agent comment on conversation
+- [x] `conversation.agent.replied` SSE event emitted
+- [x] Agent must be the conversation's assignee
+- [x] Closed conversations reject replies
+- [x] Squad scope enforced via Run Token
+- [x] `GET /api/agent/me/conversations` returns agent's conversations
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -318,7 +318,7 @@ Tests fail because `Reply` and `ListConversations` are not implemented.
 
 ---
 
-### [ ] Task 06 — Run Token: Add `conv_id` Claim
+### [x] Task 06 — Run Token: Add `conv_id` Claim
 
 **Requirements:** REQ-CONV-008, REQ-CONV-031
 **Estimated time:** 30 min
@@ -364,12 +364,12 @@ Tests fail because `ConversationID` field does not exist on `RunTokenClaims` or 
 
 #### Acceptance Criteria
 
-- [ ] `RunTokenClaims` has `ConversationID` field with `json:"conv_id,omitempty"`
-- [ ] `AgentIdentity` has `ConversationID` field
-- [ ] `Mint()` accepts optional conversation ID without breaking existing callers
-- [ ] `Validate()` populates `AgentIdentity.ConversationID` from `conv_id` claim
-- [ ] `RunService.Invoke()` passes conversation ID to `Mint()` when applicable
-- [ ] `make test` passes
+- [x] `RunTokenClaims` has `ConversationID` field with `json:"conv_id,omitempty"`
+- [x] `AgentIdentity` has `ConversationID` field
+- [x] `Mint()` accepts optional conversation ID without breaking existing callers
+- [x] `Validate()` populates `AgentIdentity.ConversationID` from `conv_id` claim
+- [x] `RunService.Invoke()` passes conversation ID to `Mint()` when applicable
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -379,7 +379,7 @@ Tests fail because `ConversationID` field does not exist on `RunTokenClaims` or 
 
 ---
 
-### [ ] Task 07 — RunService: Conversation Context + Typing SSE
+### [x] Task 07 — RunService: Conversation Context + Typing SSE
 
 **Requirements:** REQ-CONV-007, REQ-CONV-008, REQ-CONV-011, REQ-CONV-012, REQ-CONV-013, REQ-CONV-014
 **Estimated time:** 60 min
@@ -443,15 +443,15 @@ Tests fail because conversation context loading and typing SSE are not implement
 
 #### Acceptance Criteria
 
-- [ ] `Invoke()` uses `GetConversationSession` (not `GetTaskSession`) when `ARI_CONVERSATION_ID` is present
-- [ ] `buildInvokeInput` populates `ConversationContext` when `ARI_CONVERSATION_ID` is present
-- [ ] Task-prompt block is guarded with `if taskID != nil && convID == nil` (no task prompt for conversations)
-- [ ] Conversation prompt includes message thread and reply instructions
-- [ ] `conversation.agent.typing` SSE emitted when conversation run starts, includes `conversationId`
-- [ ] `conversation.agent.typing.stopped` SSE emitted when conversation run finishes
-- [ ] Session state loaded from `agent_conversation_sessions`
-- [ ] `GET /api/agent/me` includes conversation field when wake reason is `conversation_message`
-- [ ] `make test` passes
+- [x] `Invoke()` uses `GetConversationSession` (not `GetTaskSession`) when `ARI_CONVERSATION_ID` is present
+- [x] `buildInvokeInput` populates `ConversationContext` when `ARI_CONVERSATION_ID` is present
+- [x] Task-prompt block is guarded with `if taskID != nil && convID == nil` (no task prompt for conversations)
+- [x] Conversation prompt includes message thread and reply instructions
+- [x] `conversation.agent.typing` SSE emitted when conversation run starts, includes `conversationId`
+- [x] `conversation.agent.typing.stopped` SSE emitted when conversation run finishes
+- [x] Session state loaded from `agent_conversation_sessions`
+- [x] `GET /api/agent/me` includes conversation field when wake reason is `conversation_message`
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -462,7 +462,7 @@ Tests fail because conversation context loading and typing SSE are not implement
 
 ---
 
-### [ ] Task 08 — Server Wiring + Route Registration
+### [x] Task 08 — Server Wiring + Route Registration
 
 **Requirements:** REQ-CONV-022, REQ-CONV-024
 **Estimated time:** 30 min
@@ -494,11 +494,11 @@ Tests fail because conversation routes are not wired.
 
 #### Acceptance Criteria
 
-- [ ] `ConversationHandler` created and routes registered in server startup
-- [ ] All conversation endpoints return non-404 responses
-- [ ] Agent self-service reply and conversations endpoints registered
-- [ ] `make test` passes
-- [ ] `make build` succeeds
+- [x] `ConversationHandler` created and routes registered in server startup
+- [x] All conversation endpoints return non-404 responses
+- [x] Agent self-service reply and conversations endpoints registered
+- [x] `make test` passes
+- [x] `make build` succeeds
 
 #### Files to Create / Modify
 

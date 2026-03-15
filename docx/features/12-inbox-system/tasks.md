@@ -1,7 +1,7 @@
 # Tasks: Inbox System (Human-in-the-Loop Queue)
 
 **Created:** 2026-03-15
-**Status:** Not Started
+**Status:** In Progress
 
 ## Requirement Traceability
 
@@ -16,9 +16,9 @@ Work bottom-up through the dependency graph: domain model and validation first, 
 ## Progress Summary
 
 - Total Tasks: 10
-- Completed: 0
+- Completed: 9
 - In Progress: None
-- Remaining: All
+- Remaining: Task 09 (React UI)
 - Test Coverage: TBD
 
 ---
@@ -27,7 +27,7 @@ Work bottom-up through the dependency graph: domain model and validation first, 
 
 ---
 
-### [ ] Task 01 — Domain Model: Inbox Types and Validation
+### [x] Task 01 — Domain Model: Inbox Types and Validation
 
 **Requirements:** REQ-INB-021, REQ-INB-022
 **Estimated time:** 30 min
@@ -63,7 +63,7 @@ Create `internal/domain/inbox.go`:
 
 ---
 
-### [ ] Task 02 — Database Migration: Inbox Items Table
+### [x] Task 02 — Database Migration: Inbox Items Table
 
 **Requirements:** REQ-INB-020, REQ-INB-024
 **Estimated time:** 30 min
@@ -91,7 +91,7 @@ Create `internal/database/migrations/20260315000014_create_inbox_items.sql` with
 
 ---
 
-### [ ] Task 03 — SQL Queries and sqlc Generation
+### [x] Task 03 — SQL Queries and sqlc Generation
 
 **Requirements:** REQ-INB-001, REQ-INB-006, REQ-INB-007, REQ-INB-008, REQ-INB-009, REQ-INB-010, REQ-INB-013
 **Estimated time:** 45 min
@@ -123,7 +123,7 @@ Create `internal/database/queries/inbox_items.sql` with all queries from the des
 
 ---
 
-### [ ] Task 04 — InboxService: Core Logic
+### [x] Task 04 — InboxService: Core Logic
 
 **Requirements:** REQ-INB-001, REQ-INB-010, REQ-INB-011, REQ-INB-012, REQ-INB-013, REQ-INB-015, REQ-INB-016, REQ-INB-017, REQ-INB-023
 **Estimated time:** 60 min
@@ -165,7 +165,7 @@ Create `internal/server/handlers/inbox_service.go`:
 
 ---
 
-### [ ] Task 05 — InboxHandler: HTTP Endpoints
+### [x] Task 05 — InboxHandler: HTTP Endpoints
 
 **Requirements:** REQ-INB-001, REQ-INB-006, REQ-INB-007, REQ-INB-008, REQ-INB-009, REQ-INB-010, REQ-INB-012, REQ-INB-013, REQ-INB-014, REQ-INB-025, REQ-INB-028, REQ-INB-032, REQ-INB-033
 **Estimated time:** 60 min
@@ -217,7 +217,7 @@ Create `internal/server/handlers/inbox_handler.go`:
 
 ---
 
-### [ ] Task 06 — Budget Enforcement Integration
+### [x] Task 06 — Budget Enforcement Integration
 
 **Requirements:** REQ-INB-002, REQ-INB-003, REQ-INB-034
 **Estimated time:** 45 min
@@ -251,7 +251,7 @@ Modify `internal/server/handlers/budget_service.go`:
 
 ---
 
-### [ ] Task 07 — Run Service Integration
+### [x] Task 07 — Run Service Integration
 
 **Requirements:** REQ-INB-004, REQ-INB-005, REQ-INB-034
 **Estimated time:** 30 min
@@ -284,7 +284,7 @@ Modify `internal/server/handlers/run_handler.go`:
 
 ---
 
-### [ ] Task 08 — Server Wiring: Register Inbox Routes
+### [x] Task 08 — Server Wiring: Register Inbox Routes
 
 **Requirements:** All (integration)
 **Estimated time:** 30 min
@@ -369,7 +369,7 @@ Add routes to the React router and add inbox link + badge to sidebar nav.
 
 ---
 
-### [ ] Task 10 — Activity Log Entries and SSE Snapshot
+### [x] Task 10 — Activity Log Entries and SSE Snapshot
 
 **Requirements:** REQ-INB-018, REQ-INB-023
 **Estimated time:** 30 min

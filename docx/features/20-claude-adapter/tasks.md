@@ -1,7 +1,7 @@
 # Tasks: Claude Adapter
 
 **Created:** 2026-03-15
-**Status:** Not started
+**Status:** Complete
 
 ## Requirement Traceability
 
@@ -16,9 +16,9 @@ Work bottom-up: prerequisite fix first, then config and helpers, then stream-jso
 ## Progress Summary
 
 - Total Tasks: 7
-- Completed: 0
+- Completed: 7
 - In Progress: None
-- Remaining: All
+- Remaining: None
 - Test Coverage: TBD
 
 ---
@@ -27,7 +27,7 @@ Work bottom-up: prerequisite fix first, then config and helpers, then stream-jso
 
 ---
 
-### [ ] Task 00 — Prerequisite: Fix OnLogLine Hook to Forward Fields
+### [x] Task 00 — Prerequisite: Fix OnLogLine Hook to Forward Fields
 
 **Requirements:** Prerequisite for REQ-CLA-009, REQ-CLA-020, REQ-CLA-023
 **Estimated time:** 10 min
@@ -75,10 +75,10 @@ OnLogLine: func(line adapter.LogLine) {
 
 #### Acceptance Criteria
 
-- [ ] `line.Fields` is forwarded in the SSE payload when non-nil
-- [ ] `fields` key is omitted from payload when `line.Fields` is nil (no empty object)
-- [ ] `make test` passes
-- [ ] No regressions in existing SSE event handling
+- [x] `line.Fields` is forwarded in the SSE payload when non-nil
+- [x] `fields` key is omitted from payload when `line.Fields` is nil (no empty object)
+- [x] `make test` passes
+- [x] No regressions in existing SSE event handling
 
 #### Files to Create / Modify
 
@@ -86,7 +86,7 @@ OnLogLine: func(line adapter.LogLine) {
 
 ---
 
-### [ ] Task 01 — Config Parsing and Defaults
+### [x] Task 01 — Config Parsing and Defaults
 
 **Requirements:** REQ-CLA-004, REQ-CLA-006, REQ-CLA-007, REQ-CLA-016, REQ-CLA-026, REQ-CLA-030, REQ-CLA-032, REQ-CLA-036, REQ-CLA-039, REQ-CLA-041
 **Estimated time:** 30 min
@@ -128,12 +128,12 @@ Tests fail because `internal/adapter/claude/` does not exist.
 
 #### Acceptance Criteria
 
-- [ ] `Config` struct defined with all fields from design.md (no `MaxTurns`)
-- [ ] `parseConfig` applies defaults for all missing fields
-- [ ] `parseConfig` handles nil, empty, partial, and malformed JSON
-- [ ] `SkipPermissions` defaults to `true` when not set
-- [ ] `validateWorkingDir` rejects relative paths and `..` segments
-- [ ] `make test` passes
+- [x] `Config` struct defined with all fields from design.md (no `MaxTurns`)
+- [x] `parseConfig` applies defaults for all missing fields
+- [x] `parseConfig` handles nil, empty, partial, and malformed JSON
+- [x] `SkipPermissions` defaults to `true` when not set
+- [x] `validateWorkingDir` rejects relative paths and `..` segments
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -142,7 +142,7 @@ Tests fail because `internal/adapter/claude/` does not exist.
 
 ---
 
-### [ ] Task 02 — Stream-JSON Event Types and Parser
+### [x] Task 02 — Stream-JSON Event Types and Parser
 
 **Requirements:** REQ-CLA-008, REQ-CLA-009, REQ-CLA-010, REQ-CLA-011, REQ-CLA-020, REQ-CLA-031
 **Estimated time:** 60 min
@@ -196,13 +196,13 @@ Tests fail because `internal/adapter/claude/parser.go` does not exist.
 
 #### Acceptance Criteria
 
-- [ ] `claudeEvent` type hierarchy correctly models all stream-json event types
-- [ ] `eventCollector.extract()` returns `TokenUsage` and `SessionState` from collected events
-- [ ] `streamAndParseEvents` extracts `toolName`, `toolInput` from assistant tool-use content blocks into `LogLine.Fields`
-- [ ] `streamAndParseEvents` detects `rate_limit_event` and produces LogLine with `rateLimited: true`
-- [ ] `streamStderr` detects rate limits via "429" and "rate limit" patterns (fallback)
-- [ ] Malformed JSON events are skipped gracefully (REQ-CLA-031)
-- [ ] `make test` passes
+- [x] `claudeEvent` type hierarchy correctly models all stream-json event types
+- [x] `eventCollector.extract()` returns `TokenUsage` and `SessionState` from collected events
+- [x] `streamAndParseEvents` extracts `toolName`, `toolInput` from assistant tool-use content blocks into `LogLine.Fields`
+- [x] `streamAndParseEvents` detects `rate_limit_event` and produces LogLine with `rateLimited: true`
+- [x] `streamStderr` detects rate limits via "429" and "rate limit" patterns (fallback)
+- [x] Malformed JSON events are skipped gracefully (REQ-CLA-031)
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -211,7 +211,7 @@ Tests fail because `internal/adapter/claude/parser.go` does not exist.
 
 ---
 
-### [ ] Task 03 — ClaudeAdapter Struct, Type, Models, TestEnvironment
+### [x] Task 03 — ClaudeAdapter Struct, Type, Models, TestEnvironment
 
 **Requirements:** REQ-CLA-024, REQ-CLA-028, REQ-CLA-029, REQ-CLA-034
 **Estimated time:** 30 min
@@ -250,12 +250,12 @@ Tests fail because `internal/adapter/claude/claude.go` does not exist.
 
 #### Acceptance Criteria
 
-- [ ] `ClaudeAdapter` satisfies `adapter.Adapter` interface (compile-time check)
-- [ ] `Type()` returns `"claude_local"`
-- [ ] `Models()` returns 3 Anthropic models
-- [ ] `TestEnvironment(Basic)` checks `exec.LookPath`
-- [ ] `TestEnvironment(Full)` runs `claude --version`
-- [ ] `make test` passes
+- [x] `ClaudeAdapter` satisfies `adapter.Adapter` interface (compile-time check)
+- [x] `Type()` returns `"claude_local"`
+- [x] `Models()` returns 3 Anthropic models
+- [x] `TestEnvironment(Basic)` checks `exec.LookPath`
+- [x] `TestEnvironment(Full)` runs `claude --version`
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -264,7 +264,7 @@ Tests fail because `internal/adapter/claude/claude.go` does not exist.
 
 ---
 
-### [ ] Task 04 — Execute Method (Core Subprocess Logic)
+### [x] Task 04 — Execute Method (Core Subprocess Logic)
 
 **Requirements:** REQ-CLA-001, REQ-CLA-002, REQ-CLA-003, REQ-CLA-014, REQ-CLA-015, REQ-CLA-016, REQ-CLA-017, REQ-CLA-018, REQ-CLA-019, REQ-CLA-021, REQ-CLA-022, REQ-CLA-025, REQ-CLA-035, REQ-CLA-037, REQ-CLA-038, REQ-CLA-039, REQ-CLA-040, REQ-CLA-041
 **Estimated time:** 90 min
@@ -329,22 +329,22 @@ Tests fail because `Execute` is currently a stub.
 
 #### Acceptance Criteria
 
-- [ ] `Execute` spawns `claude` (or mock) with correct flags
-- [ ] `--append-system-prompt` used (NOT `--system-prompt`) to preserve Claude Code's built-in capabilities
-- [ ] `--output-format stream-json` used (NOT `json`)
-- [ ] `--dangerously-skip-permissions` included when `skipPermissions` is true (default)
-- [ ] `--no-session-persistence` always included
-- [ ] `--max-budget-usd` passed when `maxBudgetUSD > 0`
-- [ ] Session resume via `--resume` flag when session state is available
-- [ ] ARI_* env vars injected into subprocess environment
-- [ ] ARI_API_KEY never appears in command-line arguments
-- [ ] Timeout kills process group and returns `RunStatusTimedOut`
-- [ ] Context cancellation sends SIGTERM, then SIGKILL after 5s
-- [ ] Stdout/stderr streamed in real time via hooks
-- [ ] Token usage and session state extracted from collected stream-json events
-- [ ] Working directory validation rejects relative paths and `..`
-- [ ] No data races under concurrent execution (`-race`)
-- [ ] `make test` passes
+- [x] `Execute` spawns `claude` (or mock) with correct flags
+- [x] `--append-system-prompt` used (NOT `--system-prompt`) to preserve Claude Code's built-in capabilities
+- [x] `--output-format stream-json` used (NOT `json`)
+- [x] `--dangerously-skip-permissions` included when `skipPermissions` is true (default)
+- [x] `--no-session-persistence` always included
+- [x] `--max-budget-usd` passed when `maxBudgetUSD > 0`
+- [x] Session resume via `--resume` flag when session state is available
+- [x] ARI_* env vars injected into subprocess environment
+- [x] ARI_API_KEY never appears in command-line arguments
+- [x] Timeout kills process group and returns `RunStatusTimedOut`
+- [x] Context cancellation sends SIGTERM, then SIGKILL after 5s
+- [x] Stdout/stderr streamed in real time via hooks
+- [x] Token usage and session state extracted from collected stream-json events
+- [x] Working directory validation rejects relative paths and `..`
+- [x] No data races under concurrent execution (`-race`)
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -352,7 +352,7 @@ Tests fail because `Execute` is currently a stub.
 
 ---
 
-### [ ] Task 05 — Session Resume with Fallback
+### [x] Task 05 — Session Resume with Fallback
 
 **Requirements:** REQ-CLA-012, REQ-CLA-013, REQ-CLA-032
 **Estimated time:** 30 min
@@ -390,12 +390,12 @@ Tests fail because the retry-on-resume-failure logic is not yet implemented.
 
 #### Acceptance Criteria
 
-- [ ] `--resume` passed when session state is available and `disableResumeOnError` is false
-- [ ] Failed resume triggers exactly one retry without `--resume`
-- [ ] Warning logged on resume fallback
-- [ ] `disableResumeOnError: true` prevents `--resume` from being added
-- [ ] Retry respects original timeout context
-- [ ] `make test` passes
+- [x] `--resume` passed when session state is available and `disableResumeOnError` is false
+- [x] Failed resume triggers exactly one retry without `--resume`
+- [x] Warning logged on resume fallback
+- [x] `disableResumeOnError: true` prevents `--resume` from being added
+- [x] Retry respects original timeout context
+- [x] `make test` passes
 
 #### Files to Create / Modify
 
@@ -403,7 +403,7 @@ Tests fail because the retry-on-resume-failure logic is not yet implemented.
 
 ---
 
-### [ ] Task 06 — Adapter Registration and Server Integration
+### [x] Task 06 — Adapter Registration and Server Integration
 
 **Requirements:** REQ-CLA-024, REQ-CLA-028
 **Estimated time:** 30 min
@@ -437,12 +437,12 @@ Tests fail because the Claude adapter is not yet registered in the server.
 
 #### Acceptance Criteria
 
-- [ ] `claude.New()` is registered in the adapter registry at server startup
-- [ ] `TestEnvironment` is called for Claude adapter at startup
-- [ ] Missing `claude` binary results in `MarkUnavailable`, not a startup crash
-- [ ] `Resolve("claude_local")` returns the Claude adapter when available
-- [ ] `make build` and `make test` pass
-- [ ] Server starts and runs without error when `claude` is not installed
+- [x] `claude.New()` is registered in the adapter registry at server startup
+- [x] `TestEnvironment` is called for Claude adapter at startup
+- [x] Missing `claude` binary results in `MarkUnavailable`, not a startup crash
+- [x] `Resolve("claude_local")` returns the Claude adapter when available
+- [x] `make build` and `make test` pass
+- [x] Server starts and runs without error when `claude` is not installed
 
 #### Files to Create / Modify
 

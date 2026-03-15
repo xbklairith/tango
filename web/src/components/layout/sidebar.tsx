@@ -15,8 +15,11 @@ import {
   CircleDot,
   FolderKanban,
   Target,
+  MessageSquare,
+  Inbox,
   LogOut,
 } from "lucide-react";
+import { InboxBadge } from "@/features/inbox/inbox-badge";
 
 interface SidebarProps {
   onNavigate?: () => void;
@@ -67,7 +70,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const squadNavItems = activeSquadId
     ? [
         { to: `/squads/${activeSquadId}/agents`, icon: Bot, label: "Agents" },
+        { to: `/squads/${activeSquadId}/conversations`, icon: MessageSquare, label: "Conversations" },
         { to: `/squads/${activeSquadId}/issues`, icon: CircleDot, label: "Issues" },
+        { to: `/squads/${activeSquadId}/inbox`, icon: Inbox, label: "Inbox", hasBadge: true },
         { to: `/squads/${activeSquadId}/projects`, icon: FolderKanban, label: "Projects" },
         { to: `/squads/${activeSquadId}/goals`, icon: Target, label: "Goals" },
       ]
@@ -120,6 +125,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               >
                 <item.icon className="h-4 w-4" />
                 {item.label}
+                {"hasBadge" in item && item.hasBadge && activeSquadId && (
+                  <InboxBadge squadId={activeSquadId} />
+                )}
               </NavLink>
             ))}
           </>

@@ -22,6 +22,10 @@ const ProjectListPage = lazy(() => import("./features/projects/project-list-page
 const ProjectDetailPage = lazy(() => import("./features/projects/project-detail-page"));
 const GoalListPage = lazy(() => import("./features/goals/goal-list-page"));
 const GoalDetailPage = lazy(() => import("./features/goals/goal-detail-page"));
+const ConversationListPage = lazy(() => import("./features/conversations/conversation-list-page"));
+const ConversationPage = lazy(() => import("./features/conversations/conversation-page"));
+const InboxListPage = lazy(() => import("./features/inbox/inbox-list-page"));
+const InboxDetailPage = lazy(() => import("./features/inbox/inbox-detail-page"));
 const NotFoundPage = lazy(() => import("./features/not-found-page"));
 
 export function App() {
@@ -86,6 +90,26 @@ export function App() {
                   <Route path="projects/:id" element={
                     <Suspense fallback={<LoadingScreen />}>
                       <ProjectDetailPage />
+                    </Suspense>
+                  } />
+                  <Route path="squads/:id/conversations" element={
+                    <Suspense fallback={<LoadingScreen />}>
+                      <ConversationListPage />
+                    </Suspense>
+                  } />
+                  <Route path="conversations/:id" element={
+                    <Suspense fallback={<LoadingScreen />}>
+                      <ConversationPage />
+                    </Suspense>
+                  } />
+                  <Route path="squads/:id/inbox" element={
+                    <Suspense fallback={<LoadingScreen />}>
+                      <InboxListPage />
+                    </Suspense>
+                  } />
+                  <Route path="inbox/:id" element={
+                    <Suspense fallback={<LoadingScreen />}>
+                      <InboxDetailPage />
                     </Suspense>
                   } />
                   <Route path="squads/:id/goals" element={

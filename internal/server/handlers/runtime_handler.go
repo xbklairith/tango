@@ -368,6 +368,21 @@ func (h *RuntimeHandler) sendAgentSnapshot(w http.ResponseWriter, flusher http.F
 		}
 		writeSSEEvent(w, flusher, evt)
 	}
+
+	// Include unresolved inbox count in the initial snapshot.
+	counts, err := h.queries.CountUnresolvedBySquad(r.Context(), squadID)
+	if err != nil {
+		slog.Error("failed to count unresolved inbox items for SSE snapshot", "error", err)
+		return
+	}
+	writeSSEEvent(w, flusher, sse.Event{
+		Type: "inbox.count",
+		Data: map[string]any{
+			"pendingCount":      counts.PendingCount,
+			"acknowledgedCount": counts.AcknowledgedCount,
+			"totalCount":        counts.TotalCount,
+		},
+	})
 }
 
 func writeSSEEvent(w io.Writer, f http.Flusher, evt sse.Event) {

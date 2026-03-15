@@ -27,6 +27,7 @@ func (a ActivityActorType) Valid() bool {
 var ValidActivityEntityTypes = map[string]bool{
 	"squad": true, "agent": true, "issue": true,
 	"comment": true, "project": true, "goal": true, "member": true,
+	"inbox_item": true,
 }
 
 // ActivityEntry is the domain model returned from the feed endpoint.

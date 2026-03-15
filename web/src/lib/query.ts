@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import type { IssueFilters } from "@/types/issue";
+import type { InboxFilters } from "@/types/inbox";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,8 +41,18 @@ export const queryKeys = {
     list: (squadId: string) => ["goals", { squadId }] as const,
     detail: (id: string) => ["goals", id] as const,
   },
+  conversations: {
+    list: (squadId: string) => ["conversations", { squadId }] as const,
+    messages: (id: string) => ["conversations", id, "messages"] as const,
+  },
   activity: {
     list: (squadId: string) => ["activity", { squadId }] as const,
+  },
+  inbox: {
+    list: (squadId: string, filters?: InboxFilters) =>
+      ["inbox", { squadId, ...filters }] as const,
+    detail: (id: string) => ["inbox", id] as const,
+    count: (squadId: string) => ["inbox", "count", { squadId }] as const,
   },
   auth: {
     me: ["auth", "me"] as const,

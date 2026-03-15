@@ -67,6 +67,28 @@ export function useSquadEvents(squadId: string | undefined) {
             queryKey: queryKeys.agents.list(squadId!),
           });
           break;
+
+        case "conversation.message":
+        case "conversation.agent.replied":
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.conversations.list(squadId!),
+          });
+          if (parsed.data.conversationId) {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.conversations.messages(
+                parsed.data.conversationId as string,
+              ),
+            });
+          }
+          break;
+
+        case "inbox.item.created":
+        case "inbox.item.resolved":
+        case "inbox.item.acknowledged":
+          queryClient.invalidateQueries({
+            queryKey: ["inbox"],
+          });
+          break;
       }
     }
 
@@ -76,6 +98,11 @@ export function useSquadEvents(squadId: string | undefined) {
     source.addEventListener("heartbeat.run.queued", handleEvent);
     source.addEventListener("heartbeat.run.started", handleEvent);
     source.addEventListener("heartbeat.run.finished", handleEvent);
+    source.addEventListener("conversation.message", handleEvent);
+    source.addEventListener("conversation.agent.replied", handleEvent);
+    source.addEventListener("inbox.item.created", handleEvent);
+    source.addEventListener("inbox.item.resolved", handleEvent);
+    source.addEventListener("inbox.item.acknowledged", handleEvent);
 
     return () => {
       source.close();
