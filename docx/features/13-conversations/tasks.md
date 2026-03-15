@@ -506,7 +506,7 @@ Tests fail because conversation routes are not wired.
 
 ---
 
-### [ ] Task 09 — React Chat UI
+### [x] Task 09 — React Chat UI
 
 **Requirements:** REQ-CONV-028, REQ-CONV-029
 **Estimated time:** 90 min

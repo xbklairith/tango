@@ -319,7 +319,7 @@ Modify server initialization (likely `cmd/ari/run.go` or `internal/server/server
 
 ---
 
-### [ ] Task 09 — React UI: Inbox Page and Badge
+### [x] Task 09 — React UI: Inbox Page and Badge
 
 **Requirements:** REQ-INB-006, REQ-INB-008, REQ-INB-009, REQ-INB-010, REQ-INB-013
 **Estimated time:** 90 min
