@@ -13,6 +13,7 @@ import (
 func (s *Server) middleware(next http.Handler) http.Handler {
 	h := next
 	h = s.recoverMiddleware(h)
+	h = s.securityHeadersMiddleware(h)
 	h = s.corsMiddleware(h)
 	h = s.contentTypeMiddleware(h)
 	h = s.loggingMiddleware(h)
@@ -87,7 +88,11 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := "http://localhost:5173" // Vite dev server
 		if s.cfg.IsProduction() {
-			origin = fmt.Sprintf("https://%s", s.cfg.Addr())
+			if s.cfg.TLSDomain != "" {
+				origin = "https://" + s.cfg.TLSDomain
+			} else {
+				origin = fmt.Sprintf("https://%s", s.cfg.Addr())
+			}
 		}
 
 		w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -101,6 +106,16 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityHeadersMiddleware adds standard security headers to all responses.
+func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
 }

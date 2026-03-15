@@ -140,13 +140,38 @@ func extractIP(r *http.Request, trustedProxies []*net.IPNet) string {
 
 	remoteIP := net.ParseIP(host)
 	if remoteIP != nil && len(trustedProxies) > 0 {
+		isTrusted := false
 		for _, cidr := range trustedProxies {
 			if cidr.Contains(remoteIP) {
-				if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-					parts := strings.SplitN(xff, ",", 2)
-					return strings.TrimSpace(parts[0])
-				}
+				isTrusted = true
 				break
+			}
+		}
+		if isTrusted {
+			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				// Walk from right to left, find first non-trusted IP
+				parts := strings.Split(xff, ",")
+				for i := len(parts) - 1; i >= 0; i-- {
+					ip := strings.TrimSpace(parts[i])
+					if ip == "" {
+						continue
+					}
+					parsed := net.ParseIP(ip)
+					if parsed == nil {
+						// Unparseable entry — treat as untrusted client
+						return ip
+					}
+					trusted := false
+					for _, cidr := range trustedProxies {
+						if cidr.Contains(parsed) {
+							trusted = true
+							break
+						}
+					}
+					if !trusted {
+						return ip
+					}
+				}
 			}
 		}
 	}

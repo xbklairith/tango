@@ -198,6 +198,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	runSvc.SetSecretsService(secretsSvc)
 
 	agentSelfHandler := handlers.NewAgentSelfHandler(queries, db, sseHub, budgetService, inboxSvc)
+	agentSelfHandler.SetPipelineService(pipelineSvc)
 	permissionHandler := handlers.NewPermissionHandler()
 
 	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
@@ -233,9 +234,9 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 		RateLimiter: globalRateLimiter,
 	}
 
-	// OAuth setup
+	// OAuth setup (only in authenticated mode — requires JWTService and SessionStore)
 	var oauthHandler *auth.OAuthHandler
-	if cfg.OAuthGoogleEnabled() || cfg.OAuthGitHubEnabled() {
+	if mode == auth.ModeAuthenticated && (cfg.OAuthGoogleEnabled() || cfg.OAuthGitHubEnabled()) {
 		var masterKeyBytes []byte
 		if mk := os.Getenv("ARI_MASTER_KEY"); mk != "" {
 			masterKeyBytes = []byte(mk)

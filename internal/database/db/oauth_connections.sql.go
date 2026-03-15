@@ -125,3 +125,22 @@ func (q *Queries) GetOAuthConnectionsByUserID(ctx context.Context, userID uuid.U
 	}
 	return items, nil
 }
+
+const updateOAuthConnectionTokens = `-- name: UpdateOAuthConnectionTokens :exec
+UPDATE oauth_connections
+SET access_token_encrypted = $2,
+    refresh_token_encrypted = $3,
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdateOAuthConnectionTokensParams struct {
+	ID                    uuid.UUID `json:"id"`
+	AccessTokenEncrypted  []byte    `json:"access_token_encrypted"`
+	RefreshTokenEncrypted []byte    `json:"refresh_token_encrypted"`
+}
+
+func (q *Queries) UpdateOAuthConnectionTokens(ctx context.Context, arg UpdateOAuthConnectionTokensParams) error {
+	_, err := q.db.ExecContext(ctx, updateOAuthConnectionTokens, arg.ID, arg.AccessTokenEncrypted, arg.RefreshTokenEncrypted)
+	return err
+}

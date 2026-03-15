@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -247,6 +248,11 @@ func (h *PipelineHandler) GetPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: pipeline.read
+	if !requirePermission(w, r, p.SquadID, auth.ResourcePipeline, auth.ActionRead, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	stages, err := h.queries.ListStagesByPipeline(r.Context(), p.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error(), Code: "INTERNAL_ERROR"})
@@ -399,11 +405,31 @@ func (h *PipelineHandler) CreateStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look up pipeline to get squadID for permission check
+	cstagePipeline, cstageLookupErr := h.queries.GetPipelineByID(r.Context(), pipelineID)
+	if cstageLookupErr != nil {
+		if cstageLookupErr == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Pipeline not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: pipeline.create
+	if !requirePermission(w, r, cstagePipeline.SquadID, auth.ResourcePipeline, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	stage, err := h.pipelineSvc.CreateStage(r.Context(), pipelineID, req)
 	if err != nil {
 		var mismatchErr *AgentSquadMismatchError
 		if errors.As(err, &mismatchErr) {
 			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: err.Error(), Code: "AGENT_SQUAD_MISMATCH"})
+			return
+		}
+		if isUniqueConstraintViolation(err) {
+			writeJSON(w, http.StatusConflict, errorResponse{Error: "Stage position already exists in this pipeline", Code: "POSITION_CONFLICT"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error(), Code: "INTERNAL_ERROR"})
@@ -454,11 +480,36 @@ func (h *PipelineHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look up stage → pipeline to get squadID for permission check
+	ustageExisting, ustageErr := h.queries.GetPipelineStageByID(r.Context(), id)
+	if ustageErr != nil {
+		if ustageErr == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Stage not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	ustagePipeline, ustagePipelineErr := h.queries.GetPipelineByID(r.Context(), ustageExisting.PipelineID)
+	if ustagePipelineErr != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: pipeline.update
+	if !requirePermission(w, r, ustagePipeline.SquadID, auth.ResourcePipeline, auth.ActionUpdate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	stage, err := h.pipelineSvc.UpdateStage(r.Context(), id, req)
 	if err != nil {
 		var mismatchErr *AgentSquadMismatchError
 		if errors.As(err, &mismatchErr) {
 			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: err.Error(), Code: "AGENT_SQUAD_MISMATCH"})
+			return
+		}
+		if isUniqueConstraintViolation(err) {
+			writeJSON(w, http.StatusConflict, errorResponse{Error: "Stage position already exists in this pipeline", Code: "POSITION_CONFLICT"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error(), Code: "INTERNAL_ERROR"})
@@ -478,6 +529,27 @@ func (h *PipelineHandler) DeleteStage(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid stage ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Look up stage → pipeline to get squadID for permission check
+	dstageExisting, dstageErr := h.queries.GetPipelineStageByID(r.Context(), id)
+	if dstageErr != nil {
+		if dstageErr == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Stage not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	dstagePipeline, dstagePipelineErr := h.queries.GetPipelineByID(r.Context(), dstageExisting.PipelineID)
+	if dstagePipelineErr != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: pipeline.delete
+	if !requirePermission(w, r, dstagePipeline.SquadID, auth.ResourcePipeline, auth.ActionDelete, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -575,6 +647,17 @@ func (h *PipelineHandler) RejectIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, dbIssueToResponse(*updated))
+}
+
+// isUniqueConstraintViolation checks if an error is a PostgreSQL unique constraint violation.
+func isUniqueConstraintViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "SQLSTATE 23505")
 }
 
 // handlePipelineError maps pipeline domain errors to HTTP responses.

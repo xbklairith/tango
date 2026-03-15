@@ -185,12 +185,14 @@ func (c *ApprovalTimeoutChecker) autoResolveItem(ctx context.Context, item db.In
 	}
 
 	// Emit SSE event
-	c.sseHub.Publish(resolved.SquadID, "inbox.item.resolved", map[string]any{
-		"itemId":       resolved.ID,
-		"resolution":   resolution,
-		"resolvedAt":   resolved.ResolvedAt.Time,
-		"autoResolved": true,
-	})
+	if c.sseHub != nil {
+		c.sseHub.Publish(resolved.SquadID, "inbox.item.resolved", map[string]any{
+			"itemId":       resolved.ID,
+			"resolution":   resolution,
+			"resolvedAt":   resolved.ResolvedAt.Time,
+			"autoResolved": true,
+		})
+	}
 
 	slog.Info("auto-resolved approval item",
 		"itemId", resolved.ID,

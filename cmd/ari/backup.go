@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,6 +47,7 @@ func runBackup(cmd *cobra.Command, args []string) error {
 	slog.Info("running backup", "binary", pgDump, "output", output)
 
 	execCmd := exec.Command(pgDump, pgArgs...)
+	execCmd.Env = pgDumpEnv(cfg)
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
 
@@ -104,7 +106,8 @@ func buildPgDumpArgs(cfg *config.Config, output, format string) []string {
 	args = append(args, "--file="+output)
 
 	if cfg.DatabaseURL != "" {
-		args = append(args, cfg.DatabaseURL)
+		// Parse the URL to extract components and avoid exposing credentials in process args
+		args = append(args, buildPgDumpArgsFromURL(cfg.DatabaseURL)...)
 	} else {
 		// Embedded PG — construct connection string
 		args = append(args,
@@ -116,5 +119,52 @@ func buildPgDumpArgs(cfg *config.Config, output, format string) []string {
 	}
 
 	return args
+}
+
+// buildPgDumpArgsFromURL parses a database URL and returns pg_dump flags
+// without exposing the password in process arguments.
+func buildPgDumpArgsFromURL(dbURL string) []string {
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		// Fallback: pass as dbname (legacy behavior)
+		return []string{"--dbname=" + dbURL}
+	}
+
+	var args []string
+	if u.Hostname() != "" {
+		args = append(args, "--host="+u.Hostname())
+	}
+	if u.Port() != "" {
+		args = append(args, "--port="+u.Port())
+	}
+	if u.User != nil {
+		if user := u.User.Username(); user != "" {
+			args = append(args, "--username="+user)
+		}
+	}
+	dbName := u.Path
+	if len(dbName) > 0 && dbName[0] == '/' {
+		dbName = dbName[1:]
+	}
+	if dbName != "" {
+		args = append(args, "--dbname="+dbName)
+	}
+
+	return args
+}
+
+// pgDumpEnv returns environment variables for pg_dump, passing the password
+// via PGPASSWORD instead of command-line arguments.
+func pgDumpEnv(cfg *config.Config) []string {
+	env := os.Environ()
+	if cfg.DatabaseURL != "" {
+		u, err := url.Parse(cfg.DatabaseURL)
+		if err == nil && u.User != nil {
+			if pw, ok := u.User.Password(); ok {
+				env = append(env, "PGPASSWORD="+pw)
+			}
+		}
+	}
+	return env
 }
 

@@ -55,22 +55,21 @@ func TestUserPermissions_AdminHasAllExceptSquadDelete(t *testing.T) {
 		}
 	}
 
-	// admin should have all actions on non-squad resources (except activity=read-only)
+	// admin should have all actions on non-squad, non-activity resources
 	for _, res := range AllResources {
 		if res == ResourceSquad || res == ResourceActivity {
 			continue
 		}
 		acts, ok := adminPerms[res]
 		if !ok {
+			t.Errorf("admin missing resource %s", res)
 			continue
 		}
 		for _, act := range AllActions {
 			if !acts[act] {
-				// It's okay if not all actions are present on all resources
-				continue
+				t.Errorf("admin should have %s.%s", res, act)
 			}
 		}
-		_ = acts
 	}
 }
 

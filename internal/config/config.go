@@ -288,6 +288,14 @@ func Load() (*Config, error) {
 		cfg.RateLimitBurst = n
 	}
 
+	// Enforce positive rate limit values (clamp non-positive to defaults)
+	if cfg.RateLimitRPS <= 0 {
+		cfg.RateLimitRPS = 100
+	}
+	if cfg.RateLimitBurst <= 0 {
+		cfg.RateLimitBurst = 200
+	}
+
 	// Cross-field validation: TLS cert and key must both be set or both empty
 	if (cfg.TLSCert != "") != (cfg.TLSKey != "") {
 		return nil, fmt.Errorf("ARI_TLS_CERT and ARI_TLS_KEY must both be set or both empty")

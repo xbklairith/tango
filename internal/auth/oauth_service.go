@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,6 +23,9 @@ import (
 	"github.com/xb/ari/internal/config"
 	db "github.com/xb/ari/internal/database/db"
 )
+
+// oauthHTTPClient is a dedicated HTTP client for OAuth external calls with a timeout.
+var oauthHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 var (
 	ErrOAuthProviderDisabled = errors.New("auth: OAuth provider is not configured")
@@ -157,23 +161,16 @@ func (s *OAuthService) GetAuthURL(provider string) (string, string, error) {
 
 	callbackURL := fmt.Sprintf("%s/api/auth/oauth/%s/callback", s.baseURL, provider)
 
-	// Build the authorization URL manually to avoid oauth2 dependency
-	authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&state=%s",
-		ep.AuthURL,
-		provCfg.ClientID,
-		callbackURL,
-		state,
-	)
+	// Build the authorization URL with proper URL encoding
+	params := url.Values{}
+	params.Set("client_id", provCfg.ClientID)
+	params.Set("redirect_uri", callbackURL)
+	params.Set("response_type", "code")
+	params.Set("state", state)
 	if len(ep.Scopes) > 0 {
-		scope := ""
-		for i, s := range ep.Scopes {
-			if i > 0 {
-				scope += " "
-			}
-			scope += s
-		}
-		authURL += "&scope=" + scope
+		params.Set("scope", strings.Join(ep.Scopes, " "))
 	}
+	authURL := ep.AuthURL + "?" + params.Encode()
 
 	return authURL, state, nil
 }
@@ -227,6 +224,26 @@ func (s *OAuthService) HandleCallback(ctx context.Context, provider, code, state
 			return "", fmt.Errorf("looking up user: %w", err)
 		}
 		userEmail = user.Email
+
+		// Update tokens on re-authentication
+		encAccessToken, encErr := s.encryptToken([]byte(accessToken))
+		if encErr != nil {
+			return "", fmt.Errorf("encrypting access token: %w", encErr)
+		}
+		var encRefreshToken []byte
+		if refreshToken != "" {
+			encRefreshToken, encErr = s.encryptToken([]byte(refreshToken))
+			if encErr != nil {
+				return "", fmt.Errorf("encrypting refresh token: %w", encErr)
+			}
+		}
+		if updateErr := qtx.UpdateOAuthConnectionTokens(ctx, db.UpdateOAuthConnectionTokensParams{
+			ID:                    conn.ID,
+			AccessTokenEncrypted:  encAccessToken,
+			RefreshTokenEncrypted: encRefreshToken,
+		}); updateErr != nil {
+			return "", fmt.Errorf("updating oauth tokens: %w", updateErr)
+		}
 	} else {
 		// No existing connection — try to find user by email
 		user, err := qtx.GetUserByEmail(ctx, userInfo.Email)
@@ -256,7 +273,7 @@ func (s *OAuthService) HandleCallback(ctx context.Context, provider, code, state
 				ID:           userID,
 				Email:        userInfo.Email,
 				DisplayName:  displayName,
-				PasswordHash: "oauth-only", // No password for OAuth-only users
+				PasswordHash: "!oauth-no-password", // Sentinel that can never match a bcrypt hash (bcrypt starts with "$2")
 				Status:       "active",
 				IsAdmin:      false,
 			})
@@ -343,19 +360,23 @@ func (s *OAuthService) HandleCallback(ctx context.Context, provider, code, state
 func (s *OAuthService) exchangeCode(ctx context.Context, provCfg config.OAuthProviderConfig, ep OAuthProviderEndpoints, provider, code string) (accessToken, refreshToken string, err error) {
 	callbackURL := fmt.Sprintf("%s/api/auth/oauth/%s/callback", s.baseURL, provider)
 
-	data := fmt.Sprintf("grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s",
-		code, callbackURL, provCfg.ClientID, provCfg.ClientSecret)
+	data := url.Values{}
+	data.Set("grant_type", "authorization_code")
+	data.Set("code", code)
+	data.Set("redirect_uri", callbackURL)
+	data.Set("client_id", provCfg.ClientID)
+	data.Set("client_secret", provCfg.ClientSecret)
+	body := data.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", ep.TokenURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", ep.TokenURL, strings.NewReader(body))
 	if err != nil {
 		return "", "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.Body = io.NopCloser(strings.NewReader(data))
-	req.ContentLength = int64(len(data))
+	req.ContentLength = int64(len(body))
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthHTTPClient.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("token request: %w", err)
 	}
@@ -389,7 +410,7 @@ func (s *OAuthService) fetchUserInfo(ctx context.Context, provider, accessToken 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("user info request: %w", err)
 	}
@@ -463,7 +484,7 @@ func fetchGitHubPrimaryEmail(ctx context.Context, accessToken string) (string, e
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}

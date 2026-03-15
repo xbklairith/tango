@@ -135,6 +135,7 @@ type Querier interface {
 	ListAgentChildrenBySquad(ctx context.Context, arg ListAgentChildrenBySquadParams) ([]Agent, error)
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListAllSecrets(ctx context.Context) ([]SquadSecret, error)
+	ListAllSecretsForUpdate(ctx context.Context) ([]SquadSecret, error)
 	ListAssignmentsByAgent(ctx context.Context, arg ListAssignmentsByAgentParams) ([]Issue, error)
 	ListAssignmentsByAgentIDs(ctx context.Context, arg ListAssignmentsByAgentIDsParams) ([]Issue, error)
 	ListConversationsByAgent(ctx context.Context, arg ListConversationsByAgentParams) ([]Issue, error)
@@ -157,6 +158,7 @@ type Querier interface {
 	ListSquadMembers(ctx context.Context, squadID uuid.UUID) ([]ListSquadMembersRow, error)
 	ListSquadMembershipsByUser(ctx context.Context, userID uuid.UUID) ([]SquadMembership, error)
 	ListSquadSecrets(ctx context.Context, squadID uuid.UUID) ([]ListSquadSecretsRow, error)
+	ListSquadSecretsForDecryption(ctx context.Context, squadID uuid.UUID) ([]ListSquadSecretsForDecryptionRow, error)
 	ListSquadsByUser(ctx context.Context, arg ListSquadsByUserParams) ([]ListSquadsByUserRow, error)
 	ListStagesByPipeline(ctx context.Context, pipelineID uuid.UUID) ([]PipelineStage, error)
 	ListTopLevelGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)
@@ -174,6 +176,7 @@ type Querier interface {
 	UpdateHeartbeatRunStarted(ctx context.Context, id uuid.UUID) (HeartbeatRun, error)
 	UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error)
 	UpdateIssuePipeline(ctx context.Context, arg UpdateIssuePipelineParams) (Issue, error)
+	UpdateOAuthConnectionTokens(ctx context.Context, arg UpdateOAuthConnectionTokensParams) error
 	UpdatePipeline(ctx context.Context, arg UpdatePipelineParams) (Pipeline, error)
 	UpdatePipelineStage(ctx context.Context, arg UpdatePipelineStageParams) (PipelineStage, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)

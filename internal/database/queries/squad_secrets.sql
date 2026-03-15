@@ -34,6 +34,14 @@ WHERE squad_id = $1;
 SELECT * FROM squad_secrets
 ORDER BY squad_id, name;
 
+-- name: ListSquadSecretsForDecryption :many
+SELECT id, squad_id, name, encrypted_value, nonce FROM squad_secrets
+WHERE squad_id = @squad_id ORDER BY name;
+
+-- name: ListAllSecretsForUpdate :many
+SELECT * FROM squad_secrets
+FOR UPDATE;
+
 -- name: UpdateSquadSecretEncryption :exec
 UPDATE squad_secrets
 SET encrypted_value = $1,

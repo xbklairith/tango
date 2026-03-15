@@ -126,7 +126,6 @@ var UserPermissions = RolePermissions{
 		ResourceTask:         readOnly(),
 		ResourceRun:          readOnly(),
 		ResourceWakeup:       readOnly(),
-		ResourceSecret:       readOnly(),
 	},
 }
 

@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -43,29 +41,7 @@ func (h *MetricsHandler) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auth check.
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return
-	}
-
-	// Verify squad membership.
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return
-		}
-		slog.Error("metrics: failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
-	}
-
-	// Permission check: squad.read
+	// Permission check: squad.read (handles auth, membership, and LocalOperator)
 	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}

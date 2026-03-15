@@ -576,7 +576,7 @@ Body: {"conversationId": "%s", "body": "<your reply>"}`,
 			}
 			if len(injectedNames) > 0 {
 				sort.Strings(injectedNames)
-				slog.Info("injecting secrets into agent run",
+				slog.Debug("injecting secrets into agent run",
 					"squad_id", wakeup.SquadID,
 					"agent_id", wakeup.AgentID,
 					"secret_names", strings.Join(injectedNames, ", "),

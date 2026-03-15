@@ -79,6 +79,14 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, squadID uuid.UUID,
 
 // UpdatePipeline updates a pipeline.
 func (s *PipelineService) UpdatePipeline(ctx context.Context, pipelineID uuid.UUID, userID uuid.UUID, req domain.UpdatePipelineRequest) (*db.Pipeline, error) {
+	tx, err := s.dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline update: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := s.queries.WithTx(tx)
+
 	params := db.UpdatePipelineParams{
 		ID:             pipelineID,
 		SetDescription: req.SetDescription,
@@ -93,12 +101,28 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, pipelineID uuid.UU
 		params.IsActive = sql.NullBool{Bool: *req.IsActive, Valid: true}
 	}
 
-	p, err := s.queries.UpdatePipeline(ctx, params)
+	p, err := qtx.UpdatePipeline(ctx, params)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("pipeline not found")
 		}
 		return nil, fmt.Errorf("pipeline update: %w", err)
+	}
+
+	if err := logActivity(ctx, qtx, ActivityParams{
+		SquadID:    p.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    userID,
+		Action:     "pipeline.updated",
+		EntityType: "pipeline",
+		EntityID:   p.ID,
+		Metadata:   map[string]any{"name": p.Name},
+	}); err != nil {
+		return nil, fmt.Errorf("pipeline update: log activity: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("pipeline update: commit: %w", err)
 	}
 
 	if s.sseHub != nil {
@@ -343,13 +367,58 @@ func (s *PipelineService) AttachIssueToPipeline(ctx context.Context, issueID, pi
 
 // DetachIssueFromPipeline removes an issue from its pipeline.
 func (s *PipelineService) DetachIssueFromPipeline(ctx context.Context, issueID uuid.UUID, userID uuid.UUID) (*db.Issue, error) {
-	updated, err := s.queries.UpdateIssuePipeline(ctx, db.UpdateIssuePipelineParams{
+	tx, err := s.dbConn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("detach: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := s.queries.WithTx(tx)
+
+	// Validate issue exists
+	issue, err := qtx.GetIssueByID(ctx, issueID)
+	if err != nil {
+		return nil, fmt.Errorf("detach: get issue: %w", err)
+	}
+
+	oldPipelineID := issue.PipelineID
+	oldStageID := issue.CurrentStageID
+
+	updated, err := qtx.UpdateIssuePipeline(ctx, db.UpdateIssuePipelineParams{
 		ID:             issueID,
 		PipelineID:     uuid.NullUUID{},
 		CurrentStageID: uuid.NullUUID{},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("detach: update issue: %w", err)
+	}
+
+	if err := logActivity(ctx, qtx, ActivityParams{
+		SquadID:    issue.SquadID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    userID,
+		Action:     "issue.pipeline.detached",
+		EntityType: "issue",
+		EntityID:   issueID,
+		Metadata: map[string]any{
+			"pipelineId": oldPipelineID,
+			"stageId":    oldStageID,
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("detach: log activity: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("detach: commit: %w", err)
+	}
+
+	// SSE after commit
+	if s.sseHub != nil {
+		s.sseHub.Publish(issue.SquadID, "issue.pipeline.stage_changed", map[string]any{
+			"issueId":    issueID,
+			"pipelineId": oldPipelineID,
+			"transition": "detach",
+		})
 	}
 
 	return &updated, nil

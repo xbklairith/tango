@@ -7,7 +7,7 @@ CREATE TABLE squad_secrets (
     name            TEXT NOT NULL,
     encrypted_value BYTEA NOT NULL,
     nonce           BYTEA NOT NULL,
-    masked_hint     VARCHAR(12) NOT NULL DEFAULT '',
+    masked_hint     VARCHAR(32) NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_rotated_at TIMESTAMPTZ,
@@ -19,12 +19,22 @@ CREATE TABLE squad_secrets (
 -- Index for listing secrets by squad
 CREATE INDEX idx_squad_secrets_squad_id ON squad_secrets(squad_id);
 
--- Updated_at trigger
-CREATE TRIGGER set_squad_secrets_updated_at
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION update_squad_secrets_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+CREATE TRIGGER trg_squad_secrets_updated_at
     BEFORE UPDATE ON squad_secrets
     FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+    EXECUTE FUNCTION update_squad_secrets_updated_at();
 
 -- +goose Down
-DROP TRIGGER IF EXISTS set_squad_secrets_updated_at ON squad_secrets;
+DROP TRIGGER IF EXISTS trg_squad_secrets_updated_at ON squad_secrets;
+DROP FUNCTION IF EXISTS update_squad_secrets_updated_at();
 DROP TABLE IF EXISTS squad_secrets;

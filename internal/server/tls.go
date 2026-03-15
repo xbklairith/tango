@@ -52,14 +52,23 @@ func hstsMiddleware(enabled bool) func(http.Handler) http.Handler {
 
 // startRedirectServer starts an HTTP server that redirects all requests to HTTPS.
 // It shuts down gracefully when the context is cancelled.
-func startRedirectServer(ctx context.Context, port int) {
+func startRedirectServer(ctx context.Context, port int, cfg ...*config.Config) {
 	if port == 0 {
 		port = 80
+	}
+	var expectedDomain string
+	if len(cfg) > 0 && cfg[0] != nil {
+		expectedDomain = cfg[0].TLSDomain
 	}
 	redirect := &http.Server{
 		Addr: fmt.Sprintf(":%d", port),
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			target := "https://" + r.Host + r.URL.RequestURI()
+			host := r.Host
+			if expectedDomain != "" && host != expectedDomain {
+				http.Error(w, "invalid host", http.StatusBadRequest)
+				return
+			}
+			target := "https://" + host + r.URL.RequestURI()
 			http.Redirect(w, r, target, http.StatusMovedPermanently)
 		}),
 		ReadTimeout:  5 * time.Second,

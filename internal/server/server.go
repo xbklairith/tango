@@ -115,7 +115,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	if s.tlsConfig != nil {
 		s.http.TLSConfig = s.tlsConfig
 		// Start HTTP-to-HTTPS redirect server
-		go startRedirectServer(ctx, s.cfg.TLSRedirectPort)
+		go startRedirectServer(ctx, s.cfg.TLSRedirectPort, s.cfg)
 
 		go func() {
 			slog.Info("https server listening", "addr", s.http.Addr)

@@ -842,6 +842,13 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Auto-advance: if status changed to done and issue is in a pipeline, advance to next stage
+	if req.Status != nil && *req.Status == domain.IssueStatusDone && h.pipelineSvc != nil {
+		if handled, _, advErr := h.pipelineSvc.AutoAdvanceOnDone(r.Context(), issueID, identity.UserID); handled && advErr != nil {
+			slog.Warn("auto-advance on done failed", "issue_id", issueID, "error", advErr)
+		}
+	}
+
 	slog.Info("issue updated", "issue_id", issueID)
 	writeJSON(w, http.StatusOK, dbIssueToResponse(updated))
 }

@@ -142,6 +142,44 @@ func (q *Queries) ListAllSecrets(ctx context.Context) ([]SquadSecret, error) {
 	return items, nil
 }
 
+const listAllSecretsForUpdate = `-- name: ListAllSecretsForUpdate :many
+SELECT id, squad_id, name, encrypted_value, nonce, masked_hint, created_at, updated_at, last_rotated_at FROM squad_secrets
+FOR UPDATE
+`
+
+func (q *Queries) ListAllSecretsForUpdate(ctx context.Context) ([]SquadSecret, error) {
+	rows, err := q.db.QueryContext(ctx, listAllSecretsForUpdate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SquadSecret{}
+	for rows.Next() {
+		var i SquadSecret
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Name,
+			&i.EncryptedValue,
+			&i.Nonce,
+			&i.MaskedHint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastRotatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSquadSecrets = `-- name: ListSquadSecrets :many
 SELECT id, squad_id, name, masked_hint, created_at, updated_at, last_rotated_at
 FROM squad_secrets
@@ -176,6 +214,48 @@ func (q *Queries) ListSquadSecrets(ctx context.Context, squadID uuid.UUID) ([]Li
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastRotatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSquadSecretsForDecryption = `-- name: ListSquadSecretsForDecryption :many
+SELECT id, squad_id, name, encrypted_value, nonce FROM squad_secrets
+WHERE squad_id = $1 ORDER BY name
+`
+
+type ListSquadSecretsForDecryptionRow struct {
+	ID             uuid.UUID `json:"id"`
+	SquadID        uuid.UUID `json:"squad_id"`
+	Name           string    `json:"name"`
+	EncryptedValue []byte    `json:"encrypted_value"`
+	Nonce          []byte    `json:"nonce"`
+}
+
+func (q *Queries) ListSquadSecretsForDecryption(ctx context.Context, squadID uuid.UUID) ([]ListSquadSecretsForDecryptionRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSquadSecretsForDecryption, squadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSquadSecretsForDecryptionRow{}
+	for rows.Next() {
+		var i ListSquadSecretsForDecryptionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Name,
+			&i.EncryptedValue,
+			&i.Nonce,
 		); err != nil {
 			return nil, err
 		}

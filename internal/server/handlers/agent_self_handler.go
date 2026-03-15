@@ -28,6 +28,7 @@ type AgentSelfHandler struct {
 	sseHub        *sse.Hub
 	budgetService *BudgetEnforcementService
 	inboxService  *InboxService
+	pipelineSvc   *PipelineService
 }
 
 // NewAgentSelfHandler creates a new AgentSelfHandler.
@@ -39,6 +40,11 @@ func NewAgentSelfHandler(q *db.Queries, dbConn *sql.DB, sseHub *sse.Hub, budgetS
 		budgetService: budgetSvc,
 		inboxService:  inboxSvc,
 	}
+}
+
+// SetPipelineService sets the pipeline service for auto-advance on done.
+func (h *AgentSelfHandler) SetPipelineService(ps *PipelineService) {
+	h.pipelineSvc = ps
 }
 
 // RegisterRoutes registers agent self-service routes on the given mux.
@@ -700,6 +706,13 @@ func (h *AgentSelfHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Auto-advance: if status changed to done and issue is in a pipeline, advance to next stage
+	if newStatus == domain.IssueStatusDone && h.pipelineSvc != nil {
+		if handled, _, advErr := h.pipelineSvc.AutoAdvanceOnDone(r.Context(), issueID, identity.AgentID); handled && advErr != nil {
+			slog.Warn("auto-advance on done failed", "issue_id", issueID, "error", advErr)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, issueResponse{
 		ID:           updated.ID,
 		SquadID:      updated.SquadID,
@@ -740,13 +753,23 @@ func (h *AgentSelfHandler) GetAssignments(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Build optional filters
+	// Build optional filters with validation
 	var filterStatus db.NullIssueStatus
 	if s := r.URL.Query().Get("status"); s != "" {
+		status := domain.IssueStatus(s)
+		if !status.Valid() {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid status filter", Code: "VALIDATION_ERROR"})
+			return
+		}
 		filterStatus = db.NullIssueStatus{IssueStatus: db.IssueStatus(s), Valid: true}
 	}
 	var filterType db.NullIssueType
 	if t := r.URL.Query().Get("type"); t != "" {
+		issueType := domain.IssueType(t)
+		if !issueType.Valid() {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid type filter", Code: "VALIDATION_ERROR"})
+			return
+		}
 		filterType = db.NullIssueType{IssueType: db.IssueType(t), Valid: true}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -235,16 +236,13 @@ func (s *SecretsService) Delete(ctx context.Context, squadID uuid.UUID, name str
 // GetDecryptedSecrets decrypts all secrets for a squad and returns them as a name-value map.
 // Failed decryptions are logged and skipped (not fatal).
 func (s *SecretsService) GetDecryptedSecrets(ctx context.Context, squadID uuid.UUID) (map[string]string, error) {
-	allSecrets, err := s.queries.ListAllSecrets(ctx)
+	squadSecrets, err := s.queries.ListSquadSecretsForDecryption(ctx, squadID)
 	if err != nil {
 		return nil, fmt.Errorf("listing secrets for decryption: %w", err)
 	}
 
 	result := make(map[string]string)
-	for _, sec := range allSecrets {
-		if sec.SquadID != squadID {
-			continue
-		}
+	for _, sec := range squadSecrets {
 		plaintext, err := s.keyMgr.Decrypt(sec.EncryptedValue, sec.Nonce)
 		if err != nil {
 			slog.Warn("failed to decrypt secret, skipping",
@@ -268,22 +266,7 @@ func (s *SecretsService) RotateMasterKey(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("rotating key: %w", err)
 	}
 
-	// 2. List all secrets
-	allSecrets, err := s.queries.ListAllSecrets(ctx)
-	if err != nil {
-		s.keyMgr.RestoreKey(oldKey)
-		return 0, fmt.Errorf("listing secrets for rotation: %w", err)
-	}
-
-	if len(allSecrets) == 0 {
-		// Persist the new key even with no secrets
-		if err := s.keyMgr.PersistKey(); err != nil {
-			slog.Error("failed to persist rotated key", "error", err)
-		}
-		return 0, nil
-	}
-
-	// 3. Begin transaction for re-encryption
+	// 2. Begin transaction for re-encryption
 	tx, err := s.dbConn.BeginTx(ctx, nil)
 	if err != nil {
 		s.keyMgr.RestoreKey(oldKey)
@@ -291,6 +274,31 @@ func (s *SecretsService) RotateMasterKey(ctx context.Context) (int, error) {
 	}
 	defer tx.Rollback()
 	qtx := s.queries.WithTx(tx)
+
+	// Acquire advisory lock to serialize concurrent rotations
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(19)"); err != nil {
+		s.keyMgr.RestoreKey(oldKey)
+		return 0, fmt.Errorf("acquiring advisory lock: %w", err)
+	}
+
+	// List all secrets with FOR UPDATE to lock rows during re-encryption
+	allSecrets, err := qtx.ListAllSecretsForUpdate(ctx)
+	if err != nil {
+		s.keyMgr.RestoreKey(oldKey)
+		return 0, fmt.Errorf("listing secrets for rotation: %w", err)
+	}
+
+	if len(allSecrets) == 0 {
+		// Persist the new key even with no secrets
+		if err := tx.Commit(); err != nil {
+			s.keyMgr.RestoreKey(oldKey)
+			return 0, fmt.Errorf("commit: %w", err)
+		}
+		if err := s.keyMgr.PersistKey(); err != nil {
+			slog.Error("failed to persist rotated key", "error", err)
+		}
+		return 0, nil
+	}
 
 	for _, sec := range allSecrets {
 		// Decrypt with old key
@@ -389,18 +397,6 @@ func isDuplicateKeyError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return containsString(err.Error(), "duplicate key") || containsString(err.Error(), "unique constraint")
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
 }

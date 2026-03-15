@@ -70,8 +70,12 @@ func ValidateCreateSecretInput(name, value string) error {
 }
 
 // MaskValue computes a masked hint for a secret value.
-// Returns "--------" + last 4 chars for values >= 8 chars.
-// Since we enforce minimum 8 chars, this always shows last 4.
+// Returns "••••••••" + last 4 chars for values >= 5 runes.
+// For very short values (<=4 runes), returns all bullets.
 func MaskValue(plaintext string) string {
-	return strings.Repeat("\u2022", 8) + plaintext[len(plaintext)-4:]
+	runes := []rune(plaintext)
+	if len(runes) <= 4 {
+		return strings.Repeat("\u2022", len(runes))
+	}
+	return strings.Repeat("\u2022", 8) + string(runes[len(runes)-4:])
 }

@@ -12,6 +12,13 @@ SELECT * FROM oauth_connections
 WHERE user_id = $1
 ORDER BY provider;
 
+-- name: UpdateOAuthConnectionTokens :exec
+UPDATE oauth_connections
+SET access_token_encrypted = $2,
+    refresh_token_encrypted = $3,
+    updated_at = now()
+WHERE id = $1;
+
 -- name: DeleteOAuthConnection :exec
 DELETE FROM oauth_connections
 WHERE id = $1;
