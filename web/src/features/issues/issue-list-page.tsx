@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import { humanize, buildQueryString } from "@/lib/utils";
+import { useSquadEvents } from "@/lib/use-squad-events";
 import type { PaginatedResponse } from "@/types/api";
 import type { Issue, IssueFilters as IssueFiltersType } from "@/types/issue";
 import type { Agent } from "@/types/agent";
@@ -18,6 +19,7 @@ const PAGE_SIZE = 20;
 export default function IssueListPage() {
   const { id: squadId } = useParams<{ id: string }>();
   const [createOpen, setCreateOpen] = useState(false);
+  useSquadEvents(squadId);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const filters: IssueFiltersType = {

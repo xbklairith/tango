@@ -63,7 +63,7 @@ func (m *mockSessionStore) DeleteExpired(_ context.Context) (int64, error) {
 }
 
 func TestMiddleware_LocalTrusted_InjectsSyntheticIdentity(t *testing.T) {
-	mw := Middleware(ModeLocalTrusted, nil, nil)
+	mw := Middleware(ModeLocalTrusted, nil, nil, nil)
 
 	var gotIdentity Identity
 	var gotOk bool
@@ -99,7 +99,7 @@ func TestMiddleware_SkipsPublicEndpoints(t *testing.T) {
 
 	// Use authenticated mode to verify these are truly skipped
 	svc, _ := NewJWTService(testKey, time.Hour)
-	mw := Middleware(ModeAuthenticated, svc, newMockSessionStore())
+	mw := Middleware(ModeAuthenticated, svc, newMockSessionStore(), nil)
 
 	for _, tc := range tests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestUserFromContext_ReturnsFalseWhenMissing(t *testing.T) {
 func TestMiddleware_Authenticated_RejectsNoToken(t *testing.T) {
 	svc, _ := NewJWTService(testKey, time.Hour)
 	store := newMockSessionStore()
-	mw := Middleware(ModeAuthenticated, svc, store)
+	mw := Middleware(ModeAuthenticated, svc, store, nil)
 
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("handler should not be called")
@@ -170,7 +170,7 @@ func TestMiddleware_Authenticated_RejectsNoToken(t *testing.T) {
 func TestMiddleware_Authenticated_AcceptsValidCookie(t *testing.T) {
 	svc, _ := NewJWTService(testKey, time.Hour)
 	store := newMockSessionStore()
-	mw := Middleware(ModeAuthenticated, svc, store)
+	mw := Middleware(ModeAuthenticated, svc, store, nil)
 
 	userID := uuid.New()
 	token, _ := svc.Mint(userID, "cookie@example.com")
@@ -202,7 +202,7 @@ func TestMiddleware_Authenticated_AcceptsValidCookie(t *testing.T) {
 func TestMiddleware_Authenticated_AcceptsBearerHeader(t *testing.T) {
 	svc, _ := NewJWTService(testKey, time.Hour)
 	store := newMockSessionStore()
-	mw := Middleware(ModeAuthenticated, svc, store)
+	mw := Middleware(ModeAuthenticated, svc, store, nil)
 
 	userID := uuid.New()
 	token, _ := svc.Mint(userID, "bearer@example.com")
@@ -230,7 +230,7 @@ func TestMiddleware_Authenticated_RejectsExpiredToken(t *testing.T) {
 	// Create a service with very short TTL, mint a token, then wait for expiry
 	svc, _ := NewJWTService(testKey, 1*time.Millisecond)
 	store := newMockSessionStore()
-	mw := Middleware(ModeAuthenticated, svc, store)
+	mw := Middleware(ModeAuthenticated, svc, store, nil)
 
 	userID := uuid.New()
 	token, _ := svc.Mint(userID, "expired@example.com")
@@ -254,7 +254,7 @@ func TestMiddleware_Authenticated_RejectsExpiredToken(t *testing.T) {
 func TestMiddleware_Authenticated_RejectsRevokedSession(t *testing.T) {
 	svc, _ := NewJWTService(testKey, time.Hour)
 	store := newMockSessionStore()
-	mw := Middleware(ModeAuthenticated, svc, store)
+	mw := Middleware(ModeAuthenticated, svc, store, nil)
 
 	userID := uuid.New()
 	token, _ := svc.Mint(userID, "revoked@example.com")
@@ -271,5 +271,146 @@ func TestMiddleware_Authenticated_RejectsRevokedSession(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+// --- Run Token Middleware Tests ---
+
+func TestMiddleware_Authenticated_AcceptsRunToken(t *testing.T) {
+	// Setup: user JWT service + run token service with same key
+	svc, _ := NewJWTService(testKey, time.Hour)
+	store := newMockSessionStore()
+	rtSvc, _ := NewRunTokenService(testKey)
+
+	mw := Middleware(ModeAuthenticated, svc, store, rtSvc)
+
+	agentID := uuid.New()
+	squadID := uuid.New()
+	runID := uuid.New()
+	token, err := rtSvc.Mint(agentID, squadID, runID, "member")
+	if err != nil {
+		t.Fatalf("failed to mint run token: %v", err)
+	}
+
+	var gotAgent AgentIdentity
+	var gotOk bool
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAgent, gotOk = AgentFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	if !gotOk {
+		t.Fatal("expected AgentIdentity in context")
+	}
+	if gotAgent.AgentID != agentID {
+		t.Errorf("expected agentID %s, got %s", agentID, gotAgent.AgentID)
+	}
+	if gotAgent.SquadID != squadID {
+		t.Errorf("expected squadID %s, got %s", squadID, gotAgent.SquadID)
+	}
+	if gotAgent.RunID != runID {
+		t.Errorf("expected runID %s, got %s", runID, gotAgent.RunID)
+	}
+	if gotAgent.Role != "member" {
+		t.Errorf("expected role 'member', got %q", gotAgent.Role)
+	}
+}
+
+func TestMiddleware_Authenticated_RunTokenDoesNotSetUserIdentity(t *testing.T) {
+	svc, _ := NewJWTService(testKey, time.Hour)
+	store := newMockSessionStore()
+	rtSvc, _ := NewRunTokenService(testKey)
+
+	mw := Middleware(ModeAuthenticated, svc, store, rtSvc)
+
+	token, _ := rtSvc.Mint(uuid.New(), uuid.New(), uuid.New(), "captain")
+
+	var userOk bool
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, userOk = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if userOk {
+		t.Error("run token should NOT set user identity — only agent identity")
+	}
+}
+
+func TestMiddleware_Authenticated_RevokedRunTokenFallsToUserAuth(t *testing.T) {
+	svc, _ := NewJWTService(testKey, time.Hour)
+	store := newMockSessionStore()
+	rtSvc, _ := NewRunTokenService(testKey)
+
+	mw := Middleware(ModeAuthenticated, svc, store, rtSvc)
+
+	runID := uuid.New()
+	token, _ := rtSvc.Mint(uuid.New(), uuid.New(), runID, "member")
+	rtSvc.Revoke(runID)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called — revoked run token should fall through to user auth which also fails (no session)")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestMiddleware_LocalTrusted_RunTokenStillInjectsAgentIdentity(t *testing.T) {
+	rtSvc, _ := NewRunTokenService(testKey)
+	mw := Middleware(ModeLocalTrusted, nil, nil, rtSvc)
+
+	agentID := uuid.New()
+	squadID := uuid.New()
+	runID := uuid.New()
+	token, _ := rtSvc.Mint(agentID, squadID, runID, "lead")
+
+	var gotAgent AgentIdentity
+	var agentOk bool
+	var userOk bool
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAgent, agentOk = AgentFromContext(r.Context())
+		_, userOk = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !agentOk {
+		t.Fatal("expected AgentIdentity in context even in local_trusted mode")
+	}
+	if gotAgent.AgentID != agentID {
+		t.Errorf("expected agentID %s, got %s", agentID, gotAgent.AgentID)
+	}
+	// In local_trusted mode with a run token, we expect agent identity but NOT user identity
+	if userOk {
+		t.Error("run token in local_trusted mode should inject agent identity, not user identity")
 	}
 }

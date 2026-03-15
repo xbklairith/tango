@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link, useBlocker } from "react-router";
+import { useParams, Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
@@ -36,7 +36,7 @@ export default function IssueDetailPage() {
   const [form, setForm] = useState<Partial<UpdateIssueRequest>>({});
   const updateIssue = useUpdateIssue();
   const statusIssue = useUpdateIssue({ successMessage: "Issue status updated" });
-  useBlocker(() => isEditing);
+
 
   // Linked metadata queries
   const { data: parentIssue } = useQuery({

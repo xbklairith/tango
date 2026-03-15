@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import { formatDateTime } from "@/lib/utils";
+import type { PaginatedResponse } from "@/types/api";
 import type { IssueComment } from "@/types/issue";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,10 +17,11 @@ export function IssueComments({ issueId }: IssueCommentsProps) {
   const [body, setBody] = useState("");
   const addComment = useAddComment();
 
-  const { data: comments } = useQuery({
+  const { data: commentsResp } = useQuery({
     queryKey: queryKeys.issues.comments(issueId),
-    queryFn: () => api.get<IssueComment[]>(`/issues/${issueId}/comments`),
+    queryFn: () => api.get<PaginatedResponse<IssueComment>>(`/issues/${issueId}/comments`),
   });
+  const comments = commentsResp?.data;
 
   function handleSubmit() {
     addComment.mutate(

@@ -233,6 +233,56 @@ func (q *Queries) IncrementSquadIssueCounter(ctx context.Context, id uuid.UUID) 
 	return i, err
 }
 
+const listIssuesByAssigneeAgent = `-- name: ListIssuesByAssigneeAgent :many
+SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
+WHERE assignee_agent_id = $1
+  AND status NOT IN ('done', 'cancelled')
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListIssuesByAssigneeAgent(ctx context.Context, agentID uuid.NullUUID) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listIssuesByAssigneeAgent, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.Identifier,
+			&i.Type,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.ParentID,
+			&i.ProjectID,
+			&i.GoalID,
+			&i.AssigneeAgentID,
+			&i.AssigneeUserID,
+			&i.BillingCode,
+			&i.RequestDepth,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CheckoutRunID,
+			&i.ExecutionLockedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssuesBySquad = `-- name: ListIssuesBySquad :many
 SELECT id, squad_id, identifier, type, title, description, status, priority, parent_id, project_id, goal_id, assignee_agent_id, assignee_user_id, billing_code, request_depth, created_at, updated_at, checkout_run_id, execution_locked_at FROM issues
 WHERE squad_id = $1

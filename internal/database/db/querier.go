@@ -91,6 +91,7 @@ type Querier interface {
 	ListHeartbeatRunsByAgent(ctx context.Context, arg ListHeartbeatRunsByAgentParams) ([]HeartbeatRun, error)
 	ListHeartbeatRunsBySquad(ctx context.Context, arg ListHeartbeatRunsBySquadParams) ([]HeartbeatRun, error)
 	ListIssueComments(ctx context.Context, arg ListIssueCommentsParams) ([]IssueComment, error)
+	ListIssuesByAssigneeAgent(ctx context.Context, agentID uuid.NullUUID) ([]Issue, error)
 	ListIssuesBySquad(ctx context.Context, arg ListIssuesBySquadParams) ([]Issue, error)
 	ListPendingWakeupsBySquad(ctx context.Context, squadID uuid.UUID) ([]WakeupRequest, error)
 	ListProjectsBySquad(ctx context.Context, squadID uuid.UUID) ([]Project, error)

@@ -47,6 +47,7 @@ func Middleware(
 	mode DeploymentMode,
 	jwtSvc *JWTService,
 	sessions SessionStore,
+	runTokenSvc *RunTokenService,
 ) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,20 +63,39 @@ func Middleware(
 				return
 			}
 
-			// In local_trusted mode, inject synthetic identity
+			// Check for run token first — applies in ALL modes.
+			// Agents authenticate via run tokens regardless of deployment mode.
+			tokenString := ExtractToken(r)
+			if tokenString != "" && runTokenSvc != nil {
+				if rtClaims, rtErr := runTokenSvc.Validate(tokenString); rtErr == nil {
+					agentID, _ := uuid.Parse(rtClaims.Subject)
+					squadID, _ := uuid.Parse(rtClaims.SquadID)
+					runID, _ := uuid.Parse(rtClaims.RunID)
+					ctx := WithAgent(r.Context(), AgentIdentity{
+						AgentID: agentID,
+						SquadID: squadID,
+						RunID:   runID,
+						Role:    rtClaims.Role,
+					})
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			// In local_trusted mode, inject synthetic user identity
 			if mode == ModeLocalTrusted {
 				ctx := withUser(r.Context(), LocalOperatorIdentity)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			// Authenticated mode: extract and validate token
-			tokenString := ExtractToken(r)
+			// Authenticated mode: require token
 			if tokenString == "" {
 				writeAuthError(w, http.StatusUnauthorized, "Authentication required", "UNAUTHENTICATED")
 				return
 			}
 
+			// Fall through to user JWT + session flow
 			claims, err := jwtSvc.Validate(tokenString)
 			if err != nil {
 				if errors.Is(err, ErrTokenExpired) {

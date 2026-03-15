@@ -71,6 +71,12 @@ WHERE squad_id = @squad_id
   AND (sqlc.narg('filter_goal_id')::UUID IS NULL                  OR goal_id = sqlc.narg('filter_goal_id'))
   AND (sqlc.narg('filter_parent_id')::UUID IS NULL                OR parent_id = sqlc.narg('filter_parent_id'));
 
+-- name: ListIssuesByAssigneeAgent :many
+SELECT * FROM issues
+WHERE assignee_agent_id = @agent_id
+  AND status NOT IN ('done', 'cancelled')
+ORDER BY created_at DESC;
+
 -- name: IncrementSquadIssueCounter :one
 UPDATE squads
 SET issue_counter = issue_counter + 1,

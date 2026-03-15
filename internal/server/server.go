@@ -29,7 +29,7 @@ type RouteRegistrar interface {
 }
 
 // New creates a new Server with routes and middleware configured.
-func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMode, jwtSvc *auth.JWTService, sessions auth.SessionStore, webFS fs.FS, extra ...RouteRegistrar) *Server {
+func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMode, jwtSvc *auth.JWTService, sessions auth.SessionStore, runTokenSvc *auth.RunTokenService, webFS fs.FS, extra ...RouteRegistrar) *Server {
 	s := &Server{
 		cfg:     cfg,
 		db:      db,
@@ -55,9 +55,9 @@ func New(cfg *config.Config, db *sql.DB, version string, mode auth.DeploymentMod
 	// Apply auth middleware before the main middleware chain
 	var handler http.Handler = mux
 	if mode == auth.ModeAuthenticated && jwtSvc != nil && sessions != nil {
-		handler = auth.Middleware(mode, jwtSvc, sessions)(handler)
+		handler = auth.Middleware(mode, jwtSvc, sessions, runTokenSvc)(handler)
 	} else if mode == auth.ModeLocalTrusted {
-		handler = auth.Middleware(mode, nil, nil)(handler)
+		handler = auth.Middleware(mode, nil, nil, runTokenSvc)(handler)
 	}
 
 	handler = s.middleware(handler)

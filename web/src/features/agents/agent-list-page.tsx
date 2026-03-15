@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import { humanize } from "@/lib/utils";
+import { useSquadEvents } from "@/lib/use-squad-events";
 import type { Agent } from "@/types/agent";
 import type { Squad } from "@/types/squad";
 import { agentStatusColors } from "@/types/agent";
@@ -14,6 +15,7 @@ import { CreateAgentDialog } from "./create-agent-dialog";
 export default function AgentListPage() {
   const { id: squadId } = useParams<{ id: string }>();
   const [createOpen, setCreateOpen] = useState(false);
+  useSquadEvents(squadId);
   const { data: agents, isLoading } = useQuery({
     queryKey: queryKeys.agents.list(squadId!),
     queryFn: () => api.get<Agent[]>(`/agents?squadId=${squadId}`),
@@ -60,7 +62,19 @@ export default function AgentListPage() {
                 </td>
                 <td className="px-4 py-3 text-sm">{humanize(agent.role)}</td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${agentStatusColors[agent.status]}`}>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${agentStatusColors[agent.status]}`}>
+                    {agent.status === "running" && (
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+                      </span>
+                    )}
+                    {agent.status === "idle" && (
+                      <span className="inline-flex h-2 w-2 rounded-full bg-green-500" />
+                    )}
+                    {agent.status === "error" && (
+                      <span className="inline-flex h-2 w-2 rounded-full bg-red-500" />
+                    )}
                     {humanize(agent.status)}
                   </span>
                 </td>

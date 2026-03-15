@@ -22,12 +22,18 @@ import (
 var identifierPattern = regexp.MustCompile(`^[A-Z]{2,10}-\d+$`)
 
 type IssueHandler struct {
-	queries *db.Queries
-	dbConn  *sql.DB
+	queries   *db.Queries
+	dbConn    *sql.DB
+	wakeupSvc *WakeupService
 }
 
 func NewIssueHandler(q *db.Queries, dbConn *sql.DB) *IssueHandler {
 	return &IssueHandler{queries: q, dbConn: dbConn}
+}
+
+// SetWakeupService sets the wakeup service for auto-wake on assignment.
+func (h *IssueHandler) SetWakeupService(ws *WakeupService) {
+	h.wakeupSvc = ws
 }
 
 func (h *IssueHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -345,6 +351,14 @@ func (h *IssueHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
+	}
+
+	// Auto-wake: if issue was created with an agent assignee, enqueue wakeup
+	if h.wakeupSvc != nil && req.AssigneeAgentID != nil {
+		ctxMap := map[string]any{"ARI_TASK_ID": issue.ID.String()}
+		if _, err := h.wakeupSvc.Enqueue(r.Context(), *req.AssigneeAgentID, squadID, "assignment", ctxMap); err != nil {
+			slog.Warn("auto-wake enqueue failed on create", "agent_id", *req.AssigneeAgentID, "error", err)
+		}
 	}
 
 	slog.Info("issue created", "issue_id", issue.ID, "identifier", issue.Identifier, "squad_id", squadID)
@@ -776,6 +790,14 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 		return
+	}
+
+	// Auto-wake: if assignee agent was set (not cleared), enqueue wakeup
+	if h.wakeupSvc != nil && req.SetAssigneeAgent && req.AssigneeAgentID != nil {
+		ctxMap := map[string]any{"ARI_TASK_ID": issueID.String()}
+		if _, err := h.wakeupSvc.Enqueue(r.Context(), *req.AssigneeAgentID, existing.SquadID, "assignment", ctxMap); err != nil {
+			slog.Warn("auto-wake enqueue failed", "agent_id", *req.AssigneeAgentID, "error", err)
+		}
 	}
 
 	slog.Info("issue updated", "issue_id", issueID)

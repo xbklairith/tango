@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useParams, useBlocker } from "react-router";
+import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import { humanize } from "@/lib/utils";
+import { useSquadEvents } from "@/lib/use-squad-events";
 import type { Agent, AgentRole, AgentStatus, UpdateAgentRequest } from "@/types/agent";
 import { agentStatusColors } from "@/types/agent";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,7 @@ export default function AgentDetailPage() {
     queryFn: () => api.get<Agent>(`/agents/${id}`),
     enabled: !!id,
   });
+  useSquadEvents(agent?.squadId);
 
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState<Partial<UpdateAgentRequest>>({});
@@ -61,7 +63,7 @@ export default function AgentDetailPage() {
   const [runtimeConfigText, setRuntimeConfigText] = useState("");
   const updateAgent = useUpdateAgent();
   const statusAgent = useUpdateAgent({ successMessage: "Agent status updated" });
-  useBlocker(() => isEditing);
+
 
   if (isLoading) {
     return <div className="animate-pulse space-y-4"><div className="h-8 w-48 rounded bg-muted" /><div className="h-32 rounded bg-muted" /></div>;
@@ -168,7 +170,13 @@ export default function AgentDetailPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-semibold">{agent.name}</h2>
-          <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${agentStatusColors[agent.status]}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${agentStatusColors[agent.status]}`}>
+            {agent.status === "running" && (
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+              </span>
+            )}
             {humanize(agent.status)}
           </span>
         </div>

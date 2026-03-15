@@ -160,9 +160,9 @@ func makeEnv(t *testing.T, mode auth.DeploymentMode, disableSignUp bool) *testEn
 
 	var handler http.Handler = mux
 	if mode == auth.ModeAuthenticated {
-		handler = auth.Middleware(mode, jwtSvc, sessionStore)(handler)
+		handler = auth.Middleware(mode, jwtSvc, sessionStore, nil)(handler)
 	} else {
-		handler = auth.Middleware(mode, nil, nil)(handler)
+		handler = auth.Middleware(mode, nil, nil, nil)(handler)
 	}
 
 	return &testEnv{handler: handler}

@@ -138,6 +138,9 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	squadHandler.SetBudgetService(budgetService)
 	costHandler := handlers.NewCostHandler(queries, db, budgetService)
 
+	// Wire wakeup service into issue handler for auto-wake on assignment
+	// (initialized below after wakeupSvc creation — forward reference)
+
 	// Runtime services
 	sseHub := sse.NewHub()
 	adapterRegistry := adapter.NewRegistry()
@@ -154,9 +157,12 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 
 	apiURL := fmt.Sprintf("http://localhost:%d", cfg.Port)
 	wakeupSvc := handlers.NewWakeupService(queries, db)
+	issueHandler.SetWakeupService(wakeupSvc)
 	runSvc := handlers.NewRunService(db, queries, adapterRegistry, runTokenSvc, sseHub, apiURL)
 	taskHandler := handlers.NewTaskHandler(queries, db, sseHub)
 	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc)
+
+	agentSelfHandler := handlers.NewAgentSelfHandler(queries, db, sseHub)
 
 	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
 	go wakeupProcessor.Start(ctx)
@@ -167,7 +173,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	}
 
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

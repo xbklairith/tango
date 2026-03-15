@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -332,11 +333,11 @@ func (s *RunService) buildInvokeInput(
 	sessionBefore string,
 ) adapter.InvokeInput {
 	envVars := map[string]string{
-		"ARI_API_URL":   s.apiURL,
-		"ARI_API_KEY":   token,
-		"ARI_AGENT_ID":  agent.ID.String(),
-		"ARI_SQUAD_ID":  wakeup.SquadID.String(),
-		"ARI_RUN_ID":    run.ID.String(),
+		"ARI_API_URL":     s.apiURL,
+		"ARI_API_KEY":     token,
+		"ARI_AGENT_ID":    agent.ID.String(),
+		"ARI_SQUAD_ID":    wakeup.SquadID.String(),
+		"ARI_RUN_ID":      run.ID.String(),
 		"ARI_WAKE_REASON": string(wakeup.InvocationSource),
 	}
 
@@ -361,6 +362,53 @@ func (s *RunService) buildInvokeInput(
 	var model string
 	if agent.Model.Valid {
 		model = agent.Model.String
+	}
+
+	// Enrich with issue details when a task is assigned
+	if taskID != nil {
+		issue, err := s.queries.GetIssueByID(context.Background(), *taskID)
+		if err == nil {
+			envVars["ARI_ISSUE_TITLE"] = issue.Title
+			if issue.Description.Valid {
+				envVars["ARI_ISSUE_DESCRIPTION"] = issue.Description.String
+			}
+			envVars["ARI_ISSUE_IDENTIFIER"] = issue.Identifier
+
+			// Load squad name for prompt assembly
+			squadName := wakeup.SquadID.String()
+			if squad, err := s.queries.GetSquadByID(context.Background(), wakeup.SquadID); err == nil {
+				squadName = squad.Name
+			}
+
+			// Assemble full prompt
+			prompt := fmt.Sprintf(`You are %s, a %s in squad %s.
+
+%s
+
+Your current task: %s (%s)
+Description: %s
+
+API: %s
+Auth: Bearer %s
+
+When done, mark the task complete:
+PATCH %s/api/agent/me/task
+Body: {"issueId": "%s", "status": "done"}`,
+				agent.Name, string(agent.Role), squadName,
+				systemPrompt,
+				issue.Title, issue.Identifier,
+				envVars["ARI_ISSUE_DESCRIPTION"],
+				s.apiURL, token,
+				s.apiURL, taskID.String(),
+			)
+			envVars["ARI_PROMPT"] = prompt
+		} else {
+			slog.Warn("failed to load issue for invoke input", "task_id", taskID, "error", err)
+		}
+	}
+
+	if systemPrompt != "" {
+		envVars["ARI_SYSTEM_PROMPT"] = systemPrompt
 	}
 
 	return adapter.InvokeInput{

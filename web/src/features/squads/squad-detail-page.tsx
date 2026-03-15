@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useBlocker } from "react-router";
+import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
@@ -22,7 +22,7 @@ export default function SquadDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState<Partial<UpdateSquadRequest>>({});
   const updateSquad = useUpdateSquad();
-  useBlocker(() => isEditing);
+
 
   if (isLoading) {
     return <div className="animate-pulse space-y-4"><div className="h-8 w-48 rounded bg-muted" /><div className="h-32 rounded bg-muted" /></div>;
