@@ -26,6 +26,8 @@ const ConversationListPage = lazy(() => import("./features/conversations/convers
 const ConversationPage = lazy(() => import("./features/conversations/conversation-page"));
 const InboxListPage = lazy(() => import("./features/inbox/inbox-list-page"));
 const InboxDetailPage = lazy(() => import("./features/inbox/inbox-detail-page"));
+const PipelinesPage = lazy(() => import("./features/pipelines/pipelines-page"));
+const PipelineDetailPage = lazy(() => import("./features/pipelines/pipeline-detail-page"));
 const NotFoundPage = lazy(() => import("./features/not-found-page"));
 
 export function App() {
@@ -110,6 +112,16 @@ export function App() {
                   <Route path="inbox/:id" element={
                     <Suspense fallback={<LoadingScreen />}>
                       <InboxDetailPage />
+                    </Suspense>
+                  } />
+                  <Route path="pipelines" element={
+                    <Suspense fallback={<LoadingScreen />}>
+                      <PipelinesPage />
+                    </Suspense>
+                  } />
+                  <Route path="pipelines/:id" element={
+                    <Suspense fallback={<LoadingScreen />}>
+                      <PipelineDetailPage />
                     </Suspense>
                   } />
                   <Route path="squads/:id/goals" element={
