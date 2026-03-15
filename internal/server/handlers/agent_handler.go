@@ -177,6 +177,11 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: agent.create
+	if !requirePermission(w, r, req.SquadID, auth.ResourceAgent, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	// Determine initial status from squad settings
 	initialStatus := domain.AgentStatusActive
 	settingsRaw, err := h.queries.GetSquadSettings(r.Context(), req.SquadID)
@@ -344,6 +349,11 @@ func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: agent.read
+	if !requirePermission(w, r, squadID, auth.ResourceAgent, auth.ActionRead, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	agents, err := h.queries.ListAgentsBySquad(r.Context(), squadID)
 	if err != nil {
 		slog.Error("failed to list agents", "error", err)
@@ -376,6 +386,11 @@ func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, agent.SquadID); !ok {
+		return
+	}
+
+	// Permission check: agent.read
+	if !requirePermission(w, r, agent.SquadID, auth.ResourceAgent, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -440,6 +455,11 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+		return
+	}
+
+	// Permission check: agent.update
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceAgent, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -669,6 +689,11 @@ func (h *AgentHandler) TransitionAgentStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+		return
+	}
+
+	// Permission check: agent.update
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceAgent, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 

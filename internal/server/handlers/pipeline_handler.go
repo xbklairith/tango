@@ -141,6 +141,11 @@ func (h *PipelineHandler) CreatePipeline(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Permission check: pipeline.create
+	if !requirePermission(w, r, squadID, auth.ResourcePipeline, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	p, err := h.pipelineSvc.CreatePipeline(r.Context(), squadID, user.UserID, req)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error(), Code: "INTERNAL_ERROR"})
@@ -160,6 +165,11 @@ func (h *PipelineHandler) ListPipelines(w http.ResponseWriter, r *http.Request) 
 	squadID, err := uuid.Parse(r.PathValue("squadId"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid squad ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Permission check: pipeline.read
+	if !requirePermission(w, r, squadID, auth.ResourcePipeline, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -295,6 +305,22 @@ func (h *PipelineHandler) UpdatePipeline(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Look up pipeline to get squadID for permission check
+	existingPipeline, lookupErr := h.queries.GetPipelineByID(r.Context(), id)
+	if lookupErr != nil {
+		if lookupErr == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Pipeline not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: pipeline.update
+	if !requirePermission(w, r, existingPipeline.SquadID, auth.ResourcePipeline, auth.ActionUpdate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	p, err := h.pipelineSvc.UpdatePipeline(r.Context(), id, user.UserID, req)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error(), Code: "INTERNAL_ERROR"})
@@ -314,6 +340,22 @@ func (h *PipelineHandler) DeletePipeline(w http.ResponseWriter, r *http.Request)
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid pipeline ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Look up pipeline for squadID
+	delPipeline, delLookupErr := h.queries.GetPipelineByID(r.Context(), id)
+	if delLookupErr != nil {
+		if delLookupErr == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Pipeline not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: pipeline.delete
+	if !requirePermission(w, r, delPipeline.SquadID, auth.ResourcePipeline, auth.ActionDelete, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -468,6 +510,22 @@ func (h *PipelineHandler) AdvanceIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look up issue to get squadID for permission check
+	advIssue, advLookupErr := h.queries.GetIssueByID(r.Context(), issueID)
+	if advLookupErr != nil {
+		if advLookupErr == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Issue not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: issue.advance
+	if !requirePermission(w, r, advIssue.SquadID, auth.ResourceIssue, auth.ActionAdvance, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	updated, err := h.pipelineSvc.AdvanceStage(r.Context(), issueID, user.UserID)
 	if err != nil {
 		h.handlePipelineError(w, err)
@@ -487,6 +545,22 @@ func (h *PipelineHandler) RejectIssue(w http.ResponseWriter, r *http.Request) {
 	issueID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid issue ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Look up issue to get squadID for permission check
+	rejIssue, rejLookupErr := h.queries.GetIssueByID(r.Context(), issueID)
+	if rejLookupErr != nil {
+		if rejLookupErr == sql.ErrNoRows {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Issue not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: issue.reject
+	if !requirePermission(w, r, rejIssue.SquadID, auth.ResourceIssue, auth.ActionReject, makeRoleLookup(h.queries)) {
 		return
 	}
 

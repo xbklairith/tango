@@ -2,7 +2,7 @@
 
 **Feature:** 17-permission-grants
 **Created:** 2026-03-15
-**Status:** Pending
+**Status:** In Progress
 
 ## Requirement Traceability
 

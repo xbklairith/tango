@@ -195,6 +195,11 @@ func (h *IssueHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: issue.create
+	if !requirePermission(w, r, squadID, auth.ResourceIssue, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	var req domain.CreateIssueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
@@ -391,6 +396,11 @@ func (h *IssueHandler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: issue.read
+	if !requirePermission(w, r, squadID, auth.ResourceIssue, auth.ActionRead, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	params, err := parseIssueListParams(r, squadID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error(), Code: "VALIDATION_ERROR"})
@@ -531,6 +541,11 @@ func (h *IssueHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
 			return
 		}
+
+		// Permission check: issue.read
+		if !requirePermission(w, r, issue.SquadID, auth.ResourceIssue, auth.ActionRead, makeRoleLookup(h.queries)) {
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, dbIssueToResponse(issue))
@@ -602,6 +617,19 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
 		return
+	}
+
+	// Permission check: issue.update
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceIssue, auth.ActionUpdate, makeRoleLookup(h.queries)) {
+		return
+	}
+
+	// Agent role scoping: member agents can only update issues assigned to them (REQ-RBAC-054)
+	if agentIdentity, agentOk := auth.AgentFromContext(r.Context()); agentOk && agentIdentity.Role == "member" {
+		if !existing.AssigneeAgentID.Valid || existing.AssigneeAgentID.UUID != agentIdentity.AgentID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Members can only update their own assigned issues", Code: "FORBIDDEN"})
+			return
+		}
 	}
 
 	// Status transition validation
@@ -839,6 +867,11 @@ func (h *IssueHandler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: issue.delete
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceIssue, auth.ActionDelete, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	// Check for sub-tasks
 	subTaskCount, err := h.queries.CountSubTasks(r.Context(), uuid.NullUUID{UUID: issueID, Valid: true})
 	if err != nil {
@@ -882,6 +915,11 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
+		return
+	}
+
+	// Permission check: issue.update (comment creation maps to issue.update)
+	if !requirePermission(w, r, issue.SquadID, auth.ResourceIssue, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -1010,6 +1048,11 @@ func (h *IssueHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
+		return
+	}
+
+	// Permission check: issue.read
+	if !requirePermission(w, r, issue.SquadID, auth.ResourceIssue, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 

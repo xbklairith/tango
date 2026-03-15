@@ -411,9 +411,8 @@ func (h *SquadHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	role := domain.MemberRole(membership.Role)
-	if !role.CanEditSquad() {
-		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Insufficient permissions", Code: "FORBIDDEN"})
+	// Permission check: squad.update
+	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -610,8 +609,8 @@ func (h *SquadHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if domain.MemberRole(membership.Role) != domain.MemberRoleOwner {
-		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Only owners can delete squads", Code: "FORBIDDEN"})
+	// Permission check: squad.delete (only owner)
+	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionDelete, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -663,8 +662,8 @@ func (h *SquadHandler) UpdateBudget(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if domain.MemberRole(membership.Role) != domain.MemberRoleOwner {
-		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Only owners can update budgets", Code: "FORBIDDEN"})
+	// Permission check: squad.update for budget changes
+	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 

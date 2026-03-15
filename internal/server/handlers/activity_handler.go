@@ -100,6 +100,11 @@ func (h *ActivityHandler) ListActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: activity.read
+	if !requirePermission(w, r, squadID, auth.ResourceActivity, auth.ActionRead, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	// Parse pagination
 	q := r.URL.Query()
 	limit, offset := 50, 0

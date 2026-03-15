@@ -85,6 +85,11 @@ func (h *RuntimeHandler) WakeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: run.create
+	if !requirePermission(w, r, agent.SquadID, auth.ResourceRun, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	// Validate agent status (must be active, idle, or running)
 	switch domain.AgentStatus(agent.Status) {
 	case domain.AgentStatusActive, domain.AgentStatusIdle, domain.AgentStatusRunning:
@@ -182,6 +187,11 @@ func (h *RuntimeHandler) StopAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: run.update
+	if !requirePermission(w, r, agent.SquadID, auth.ResourceRun, auth.ActionUpdate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	if domain.AgentStatus(agent.Status) != domain.AgentStatusRunning {
 		writeJSON(w, http.StatusUnprocessableEntity, errorResponse{
 			Error: fmt.Sprintf("Agent is not running (current status: %s)", agent.Status),
@@ -221,6 +231,11 @@ func (h *RuntimeHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Verify access
 	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+		return
+	}
+
+	// Permission check: run.read
+	if !requirePermission(w, r, squadID, auth.ResourceRun, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -288,6 +303,11 @@ func (h *RuntimeHandler) ListAgentRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, agent.SquadID); !ok {
+		return
+	}
+
+	// Permission check: run.read
+	if !requirePermission(w, r, agent.SquadID, auth.ResourceRun, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 

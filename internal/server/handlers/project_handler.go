@@ -102,6 +102,11 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: project.create
+	if !requirePermission(w, r, squadID, auth.ResourceProject, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	var req domain.CreateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
@@ -188,6 +193,11 @@ func (h *ProjectHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+		return
+	}
+
+	// Permission check: project.read
+	if !requirePermission(w, r, squadID, auth.ResourceProject, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -299,6 +309,11 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := h.verifySquadMembership(w, r, existing.SquadID)
 	if !ok {
+		return
+	}
+
+	// Permission check: project.update
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceProject, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 

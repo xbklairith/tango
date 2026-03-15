@@ -96,6 +96,11 @@ func (h *ConversationHandler) StartConversation(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Permission check: conversation.create
+	if !requirePermission(w, r, squadID, auth.ResourceConversation, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	var req startConversationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
@@ -278,6 +283,11 @@ func (h *ConversationHandler) SendMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Permission check: conversation.update
+	if !requirePermission(w, r, issue.SquadID, auth.ResourceConversation, auth.ActionUpdate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	// Verify agent assigned
 	if !issue.AssigneeAgentID.Valid {
 		writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "No agent assigned to conversation", Code: "NO_AGENT_ASSIGNED"})
@@ -387,6 +397,11 @@ func (h *ConversationHandler) ListConversations(w http.ResponseWriter, r *http.R
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+		return
+	}
+
+	// Permission check: conversation.read
+	if !requirePermission(w, r, squadID, auth.ResourceConversation, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -568,6 +583,11 @@ func (h *ConversationHandler) CloseConversation(w http.ResponseWriter, r *http.R
 	// Verify squad membership
 	userID, ok := h.verifySquadMembership(w, r, issue.SquadID)
 	if !ok {
+		return
+	}
+
+	// Permission check: conversation.update
+	if !requirePermission(w, r, issue.SquadID, auth.ResourceConversation, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 

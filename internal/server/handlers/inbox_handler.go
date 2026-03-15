@@ -298,6 +298,11 @@ func (h *InboxHandler) CreateInboxItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: inbox.create
+	if !requirePermission(w, r, squadID, auth.ResourceInbox, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	item, err := h.inboxService.Create(r.Context(), params)
 	if err != nil {
 		slog.Error("inbox create: service error", "error", err)
@@ -334,6 +339,11 @@ func (h *InboxHandler) ListInboxItems(w http.ResponseWriter, r *http.Request) {
 		}
 		slog.Error("inbox list: failed to check squad membership", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: inbox.read
+	if !requirePermission(w, r, squadID, auth.ResourceInbox, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -556,6 +566,11 @@ func (h *InboxHandler) ResolveInboxItem(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Permission check: inbox.resolve
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceInbox, auth.ActionResolve, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	// Parse request body.
 	var req resolveInboxItemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -657,6 +672,11 @@ func (h *InboxHandler) AcknowledgeInboxItem(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Permission check: inbox.update
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceInbox, auth.ActionUpdate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	item, err := h.inboxService.Acknowledge(r.Context(), itemID, identity.UserID)
 	if err != nil {
 		if errors.Is(err, domain.ErrInboxNotFound) {
@@ -722,6 +742,11 @@ func (h *InboxHandler) DismissInboxItem(w http.ResponseWriter, r *http.Request) 
 		}
 		slog.Error("inbox dismiss: failed to check squad membership", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Permission check: inbox.resolve (dismiss is a form of resolution)
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceInbox, auth.ActionResolve, makeRoleLookup(h.queries)) {
 		return
 	}
 

@@ -163,6 +163,11 @@ func (h *CostHandler) RecordCostEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: cost.create
+	if !requirePermission(w, r, agent.SquadID, auth.ResourceCost, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	// Build params
 	params := db.InsertCostEventParams{
 		SquadID:     agent.SquadID,
@@ -212,6 +217,11 @@ func (h *CostHandler) GetSquadCostSummary(w http.ResponseWriter, r *http.Request
 	}
 
 	if !h.verifySquadMembershipForCost(w, r, squadID) {
+		return
+	}
+
+	// Permission check: cost.read
+	if !requirePermission(w, r, squadID, auth.ResourceCost, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -266,6 +276,11 @@ func (h *CostHandler) GetSquadCostBreakdown(w http.ResponseWriter, r *http.Reque
 	}
 
 	if !h.verifySquadMembershipForCost(w, r, squadID) {
+		return
+	}
+
+	// Permission check: cost.read
+	if !requirePermission(w, r, squadID, auth.ResourceCost, auth.ActionRead, makeRoleLookup(h.queries)) {
 		return
 	}
 

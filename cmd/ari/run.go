@@ -184,6 +184,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	runSvc.SetInboxService(inboxSvc)
 
 	agentSelfHandler := handlers.NewAgentSelfHandler(queries, db, sseHub, budgetService, inboxSvc)
+	permissionHandler := handlers.NewPermissionHandler()
 
 	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
 	go wakeupProcessor.Start(ctx)
@@ -198,7 +199,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	}
 
 	// 6. Start HTTP server
-	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler, pipelineHandler)
+	srv := server.New(cfg, db, version, mode, jwtSvc, sessionStore, runTokenSvc, ari.WebDist(), authHandler, squadHandler, membershipHandler, agentHandler, issueHandler, projectHandler, goalHandler, activityHandler, costHandler, runtimeHandler, taskHandler, agentSelfHandler, inboxHandler, conversationHandler, pipelineHandler, permissionHandler)
 
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

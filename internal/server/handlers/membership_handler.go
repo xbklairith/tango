@@ -128,8 +128,8 @@ func (h *MembershipHandler) Add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actorRole := domain.MemberRole(membership.Role)
-	if !actorRole.CanManageMembers() {
-		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Insufficient permissions", Code: "FORBIDDEN"})
+	// Permission check: squad.update for adding members
+	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -225,8 +225,8 @@ func (h *MembershipHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if domain.MemberRole(membership.Role) != domain.MemberRoleOwner {
-		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Only owners can change roles", Code: "FORBIDDEN"})
+	// Permission check: squad.update for role changes
+	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 
@@ -350,8 +350,8 @@ func (h *MembershipHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if domain.MemberRole(membership.Role) != domain.MemberRoleOwner {
-		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Only owners can remove members", Code: "FORBIDDEN"})
+	// Permission check: squad.update for removing members
+	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 

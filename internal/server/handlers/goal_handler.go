@@ -107,6 +107,11 @@ func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Permission check: goal.create
+	if !requirePermission(w, r, squadID, auth.ResourceGoal, auth.ActionCreate, makeRoleLookup(h.queries)) {
+		return
+	}
+
 	var req domain.CreateGoalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request body", Code: "VALIDATION_ERROR"})
@@ -350,6 +355,11 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := h.verifySquadMembership(w, r, existing.SquadID)
 	if !ok {
+		return
+	}
+
+	// Permission check: goal.update
+	if !requirePermission(w, r, existing.SquadID, auth.ResourceGoal, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
 	}
 
