@@ -8,7 +8,7 @@
 
 - Source requirements: [requirements.md](./requirements.md)
 - Design: [design.md](./design.md)
-- Requirement coverage: REQ-SEC-001 through REQ-SEC-051, REQ-SEC-NF-001 through REQ-SEC-NF-005
+- Requirement coverage: REQ-SEC-001 through REQ-SEC-051 (including 028a, 028b, 045, 046), REQ-SEC-NF-001 through REQ-SEC-NF-005
 
 ## Implementation Approach
 
@@ -41,9 +41,9 @@ Write `internal/domain/secret_test.go`:
 
 1. `TestValidateSecretName_Valid` — verify valid names accepted: `GITHUB_TOKEN`, `A`, `OPENAI_API_KEY`, `DB_PASSWORD_2`.
 2. `TestValidateSecretName_Invalid` — verify rejected: empty string, lowercase `github_token`, starts with digit `1TOKEN`, starts with underscore `_TOKEN`, contains spaces `MY TOKEN`, contains hyphen `MY-TOKEN`, 129 characters (too long).
-3. `TestValidateSecretValue_Valid` — verify non-empty string accepted.
-4. `TestValidateSecretValue_Invalid` — verify empty string rejected.
-5. `TestValidateCreateSecretInput` — verify combined validation (name + value).
+3. `TestValidateSecretValue_Valid` — verify non-empty string (>= 8 chars, <= 64KB) accepted.
+4. `TestValidateSecretValue_Invalid` — verify empty string rejected, string shorter than 8 characters rejected, string exceeding 64KB rejected.
+5. `TestValidateCreateSecretInput` — verify combined validation (name + value, including min/max size).
 
 #### GREEN — Implement
 
@@ -52,7 +52,7 @@ Create `internal/domain/secret.go`:
 - `Secret` struct with all fields (ID, SquadID, Name, EncryptedValue, Nonce, CreatedAt, UpdatedAt, LastRotatedAt)
 - `CreateSecretRequest` and `UpdateSecretRequest` DTOs
 - `ValidateSecretName(name string) error` — regex match against `^[A-Z][A-Z0-9_]{0,127}$`
-- `ValidateSecretValue(value string) error` — non-empty check
+- `ValidateSecretValue(value string) error` — non-empty check, minimum 8 characters, maximum 64KB (65,536 bytes)
 - `ValidateCreateSecretInput(req CreateSecretRequest) error` — calls both validators
 
 #### REFACTOR
@@ -79,23 +79,26 @@ The `MasterKeyManager` in `internal/secrets/` handles the full master key lifecy
 
 Write `internal/secrets/master_key_test.go`:
 
-1. `TestNewMasterKeyManager_FromEnvVar` — set env var, verify key derived via SHA-256.
-2. `TestNewMasterKeyManager_AutoGenerate` — no env var, no file, verify key generated and written to `{tempDir}/master.key` with 0600 permissions.
-3. `TestNewMasterKeyManager_LoadFromFile` — write a 32-byte key file, no env var, verify loaded correctly.
-4. `TestNewMasterKeyManager_InvalidFile` — write a file with wrong length (16 bytes), verify error.
-5. `TestEncryptDecrypt_Roundtrip` — encrypt a plaintext, decrypt it, verify match.
-6. `TestEncryptDecrypt_DifferentNonces` — encrypt same plaintext twice, verify nonces differ and ciphertexts differ.
-7. `TestDecrypt_WrongKey` — encrypt with one key, attempt decrypt with different key, verify error.
-8. `TestDecrypt_TamperedCiphertext` — modify ciphertext, verify decrypt fails with authentication error.
-9. `TestEncrypt_EmptyPlaintext` — verify empty plaintext encrypts/decrypts correctly.
-10. `TestKeyDerivation_Deterministic` — same env var value produces same key.
+1. `TestNewMasterKeyManager_FromEnvVar_HKDF` — set env var (non-hex), verify key derived via HKDF(SHA-256, salt="ari-master-key-v1", info="ari-secrets-encryption").
+2. `TestNewMasterKeyManager_FromEnvVar_RawHex` — set env var to exactly 64 hex characters, verify key decoded directly (not HKDF).
+3. `TestNewMasterKeyManager_FromEnvVar_EmptyRejected` — set env var to empty string, verify error.
+4. `TestNewMasterKeyManager_AutoGenerate` — no env var, no file, verify key generated and written to `{tempDir}/master.key` with 0600 permissions.
+5. `TestNewMasterKeyManager_LoadFromFile` — write a 32-byte key file, no env var, verify loaded correctly.
+6. `TestNewMasterKeyManager_LoadFromFile_PermissionsWarning` — write key file with 0644 permissions, verify warning logged about permissive permissions.
+7. `TestNewMasterKeyManager_InvalidFile` — write a file with wrong length (16 bytes), verify error.
+8. `TestEncryptDecrypt_Roundtrip` — encrypt a plaintext, decrypt it, verify match.
+9. `TestEncryptDecrypt_DifferentNonces` — encrypt same plaintext twice, verify nonces differ and ciphertexts differ.
+10. `TestDecrypt_WrongKey` — encrypt with one key, attempt decrypt with different key, verify error.
+11. `TestDecrypt_TamperedCiphertext` — modify ciphertext, verify decrypt fails with authentication error.
+12. `TestEncrypt_EmptyPlaintext` — verify empty plaintext encrypts/decrypts correctly.
+13. `TestKeyDerivation_Deterministic` — same env var value produces same HKDF-derived key.
 
 #### GREEN — Implement
 
 Create `internal/secrets/master_key.go`:
 
 - `MasterKeyManager` struct with `key [32]byte`, `dataDir string`, `mu sync.RWMutex`
-- `NewMasterKeyManager(masterKeyEnv string, dataDir string) (*MasterKeyManager, error)` — implements the initialization order from design.md section 4
+- `NewMasterKeyManager(masterKeyEnv string, dataDir string) (*MasterKeyManager, error)` — implements the initialization order from design.md section 4. Uses HKDF (golang.org/x/crypto/hkdf) for key derivation from env var, or hex.DecodeString for raw 64-char hex keys. Checks file permissions on master.key and warns if more permissive than 0600.
 - `Encrypt(plaintext []byte) (ciphertext, nonce []byte, err error)` — AES-256-GCM encrypt with random 12-byte nonce
 - `Decrypt(ciphertext, nonce []byte) (plaintext []byte, err error)` — AES-256-GCM decrypt
 - `RotateKey() ([32]byte, error)` — generate new random key, swap atomically, return old key for re-encryption
@@ -122,11 +125,12 @@ Create the `squad_secrets` table with all columns, constraints, indexes, and the
 
 Add assertions to migration smoke tests:
 
-1. After `RunMigrations()`, the table `squad_secrets` exists with expected columns.
+1. After `RunMigrations()`, the table `squad_secrets` exists with expected columns (including `masked_hint VARCHAR(12)`).
 2. Unique constraint `uq_squad_secrets_squad_name` on `(squad_id, name)` exists.
 3. Check constraint `chk_secret_name_format` exists.
 4. Index `idx_squad_secrets_squad_id` exists.
-5. Foreign key on `squad_id` references `squads(id)` with cascade delete.
+5. Foreign key on `squad_id` references `squads(id)` with ON DELETE RESTRICT (not CASCADE). Verify that deleting a squad with existing secrets fails.
+6. The `masked_hint` column exists and has a default value of empty string.
 
 #### GREEN — Implement
 
@@ -165,7 +169,7 @@ Write `internal/database/db/squad_secrets_test.go`:
 
 #### GREEN — Implement
 
-Create `internal/database/queries/squad_secrets.sql` with queries from design.md section 3. Run `make sqlc`.
+Create `internal/database/queries/squad_secrets.sql` with queries from design.md section 3 (note: CreateSquadSecret includes `masked_hint` param, ListSquadSecrets returns `masked_hint` instead of encrypted_value/nonce, UpdateSquadSecretValue includes `masked_hint` param). Run `make sqlc`.
 
 #### Files
 
@@ -192,8 +196,10 @@ Write `internal/server/handlers/secrets_service_test.go`:
 2. `TestSecretsService_Create_DuplicateName` — verify 409 error with `SECRET_NAME_CONFLICT`.
 3. `TestSecretsService_Create_InvalidName` — verify 400 error with `VALIDATION_ERROR` for lowercase name.
 4. `TestSecretsService_Create_EmptyValue` — verify 400 error with `VALIDATION_ERROR`.
-5. `TestSecretsService_List` — create multiple secrets, verify list returns masked values with correct last-4-char hint.
-6. `TestSecretsService_List_MaskedValue` — verify masking logic: `"ghp_abcdefghij1234"` → `"••••••••1234"`, short value `"abcd"` → `"••••"`.
+4a. `TestSecretsService_Create_ShortValue` — verify 400 error with `VALIDATION_ERROR` for value shorter than 8 characters.
+4b. `TestSecretsService_Create_OversizedValue` — verify 400 error with `VALIDATION_ERROR` for value exceeding 64KB.
+5. `TestSecretsService_List` — create multiple secrets, verify list returns pre-computed `masked_hint` values from DB (no decryption performed).
+6. `TestSecretsService_List_MaskedValue` — verify masking logic: `"ghp_abcdefghij1234"` → `"••••••••1234"` (computed at create time, stored in `masked_hint` column).
 7. `TestSecretsService_Update` — verify re-encrypted with new nonce, `last_rotated_at` set, activity log `secret.updated`.
 8. `TestSecretsService_Update_NotFound` — verify 404 for non-existent secret name.
 9. `TestSecretsService_Delete` — verify deleted, activity log `secret.deleted`.
@@ -208,8 +214,8 @@ Create `internal/server/handlers/secrets_service.go`:
 
 - `SecretsService` struct with `queries`, `dbConn`, `keyMgr` fields
 - `NewSecretsService(q, dbConn, keyMgr)` constructor
-- `Create(ctx, squadID, req)` — validate name/value, encrypt, insert, activity log
-- `List(ctx, squadID)` — list all, decrypt each, mask, return response DTOs
+- `Create(ctx, squadID, req)` — validate name/value (including min 8 chars, max 64KB), compute masked_hint, encrypt, insert with masked_hint, activity log
+- `List(ctx, squadID)` — list all from DB, return response DTOs using pre-computed `masked_hint` (NO decryption)
 - `Update(ctx, squadID, name, req)` — validate value, encrypt with new nonce, update, activity log
 - `Delete(ctx, squadID, name)` — delete, activity log
 - `GetDecryptedSecrets(ctx, squadID)` — list all, decrypt each, return `map[string]string`, log+skip failures
@@ -243,7 +249,7 @@ Extend `internal/server/handlers/secrets_service_test.go`:
 
 Add to `internal/server/handlers/secrets_service.go`:
 
-- `RotateMasterKey(ctx) (int, error)` — begin transaction, list all secrets, decrypt with old key, generate new key via `keyMgr.RotateKey()`, re-encrypt each with new key + fresh nonce, update all rows, commit, persist new key to file, log activity. On failure: rollback, restore old key.
+- `RotateMasterKey(ctx) (int, error)` — (1) generate new key via `keyMgr.RotateKey()`, (2) write new key to `{dataDir}/master.key.tmp` temp file, (3) begin transaction, list all secrets, decrypt with old key, re-encrypt each with new key + fresh nonce, update all rows, (4) commit transaction, (5) rename `master.key.tmp` to `master.key`. On transaction failure: delete temp file, restore old key in memory, rollback. This ordering eliminates the crash window where the new key is persisted but secrets are not yet re-encrypted. Log activity on success.
 
 #### Files
 
@@ -268,6 +274,8 @@ Write `internal/server/handlers/secret_handler_test.go`:
 1. `TestCreateSecret` — POST with valid body, verify 201 and response shape (id, name, maskedValue, no plaintext).
 2. `TestCreateSecret_InvalidName` — lowercase name, verify 400 with `VALIDATION_ERROR`.
 3. `TestCreateSecret_EmptyValue` — empty value, verify 400 with `VALIDATION_ERROR`.
+3a. `TestCreateSecret_ShortValue` — value shorter than 8 chars, verify 400 with `VALIDATION_ERROR`.
+3b. `TestCreateSecret_OversizedValue` — value exceeding 64KB, verify 400 with `VALIDATION_ERROR`.
 4. `TestCreateSecret_DuplicateName` — verify 409 with `SECRET_NAME_CONFLICT`.
 5. `TestListSecrets` — GET, verify response with masked values, ordered by name.
 6. `TestListSecrets_SquadIsolation` — verify 403 for non-squad-member.
@@ -277,7 +285,10 @@ Write `internal/server/handlers/secret_handler_test.go`:
 10. `TestDeleteSecret` — DELETE, verify 204.
 11. `TestDeleteSecret_NotFound` — verify 404.
 12. `TestRotateMasterKey` — POST, verify 200 with rotated count.
+12a. `TestRotateMasterKey_NonAdmin` — POST as non-admin user (`is_admin=false`), verify 403.
+12b. `TestRotateMasterKey_Admin` — POST as admin user (`is_admin=true`), verify 200.
 13. `TestAllEndpoints_RequireAuth` — verify 401 for unauthenticated requests.
+13a. `TestSecretEndpoints_ViewerDenied` — verify all CRUD endpoints return 403 for users with viewer role.
 
 #### GREEN — Implement
 
@@ -312,7 +323,7 @@ Modify `RunService` to accept `SecretsService` and inject decrypted secrets into
 
 Extend `internal/server/handlers/run_handler_test.go` (or create a new test file):
 
-1. `TestBuildInvokeInput_SecretsInjected` — create secrets for a squad, build invoke input, verify `ARI_SECRET_{NAME}` keys present in envVars with correct decrypted values.
+1. `TestBuildInvokeInput_SecretsInjected` — create secrets for a squad, build invoke input, verify `ARI_SECRET_{NAME}` keys present in envVars with correct decrypted values. Verify info log line listing injected secret names (not values).
 2. `TestBuildInvokeInput_SecretsNoOverrideCoreVars` — create a secret named `API_URL` (which would become `ARI_SECRET_API_URL`), verify it does NOT override `ARI_API_URL`.
 3. `TestBuildInvokeInput_SecretsDecryptionFailure` — simulate a corrupt secret, verify warning logged, other secrets still injected, run not aborted.
 4. `TestBuildInvokeInput_NoSecrets` — squad with no secrets, verify envVars has no `ARI_SECRET_*` keys and no errors.
@@ -350,7 +361,7 @@ Write integration tests:
 1. `TestFullSecretLifecycle` — end-to-end: create squad, create secret, list (verify masked), update, delete, verify activity log entries.
 2. `TestSecretInjectionE2E` — create secret, trigger agent invocation, verify secret appears in InvokeInput envVars.
 3. `TestMasterKeyRotationE2E` — create secrets, rotate master key, verify secrets still accessible.
-4. `TestSquadDeletion_CascadeDeletesSecrets` — delete squad, verify all secrets deleted via cascade.
+4. `TestSquadDeletion_BlockedBySecrets` — attempt to delete squad with existing secrets, verify deletion fails (ON DELETE RESTRICT). Then delete all secrets, verify squad deletion succeeds.
 
 Frontend tests (verify component rendering):
 
@@ -362,15 +373,12 @@ Frontend tests (verify component rendering):
 
 **Server wiring** — Modify `cmd/ari/run.go` or `internal/server/server.go`:
 
-- Initialize `MasterKeyManager` with `config.MasterKey` and `config.DataDir`
+- Initialize `MasterKeyManager` with `os.Getenv("ARI_MASTER_KEY")` and `config.DataDir` (do NOT store master key in Config struct)
 - Create `SecretsService` with dependencies
 - Create `SecretHandler` and call `RegisterRoutes(mux)`
 - Pass `SecretsService` to `RunService` via constructor or setter
 
-**Config** — Modify `internal/config/config.go`:
-
-- Add `MasterKey string` field
-- Add `cfg.MasterKey = os.Getenv("ARI_MASTER_KEY")` in `Load()`
+**Config** — `internal/config/config.go` is NOT modified. The master key is read directly from `os.Getenv("ARI_MASTER_KEY")` during `MasterKeyManager` initialization, not stored in any config struct.
 
 **React UI** — Create components:
 
@@ -383,8 +391,7 @@ Frontend tests (verify component rendering):
 
 #### Files
 
-- Modify: `cmd/ari/run.go` or `internal/server/server.go` (server initialization)
-- Modify: `internal/config/config.go` (add MasterKey field)
+- Modify: `cmd/ari/run.go` or `internal/server/server.go` (server initialization, read ARI_MASTER_KEY directly from env)
 - Create: `web/src/pages/SecretsPage.tsx`
 - Create: `web/src/components/secrets/SecretsList.tsx`
 - Create: `web/src/components/secrets/CreateSecretDialog.tsx`
@@ -430,6 +437,10 @@ Frontend tests (verify component rendering):
 | REQ-SEC-043 | Task 05, Task 08 |
 | REQ-SEC-050 | Task 05, Task 06 |
 | REQ-SEC-051 | Task 06 |
+| REQ-SEC-028a | Task 01, Task 05, Task 07 |
+| REQ-SEC-028b | Task 01, Task 05, Task 07 |
+| REQ-SEC-045 | Task 07 |
+| REQ-SEC-046 | Task 07 |
 | REQ-SEC-NF-001 | Task 03 (indexes), Task 09 |
 | REQ-SEC-NF-002 | Task 08, Task 09 |
 | REQ-SEC-NF-003 | Task 06 |

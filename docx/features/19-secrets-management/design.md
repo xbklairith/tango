@@ -73,10 +73,11 @@ All secrets are scoped to a single squad via `squad_id` foreign key. Cross-squad
 -- Squad secrets vault (AES-256-GCM encrypted)
 CREATE TABLE squad_secrets (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    squad_id        UUID NOT NULL REFERENCES squads(id) ON DELETE CASCADE,
+    squad_id        UUID NOT NULL REFERENCES squads(id) ON DELETE RESTRICT,
     name            TEXT NOT NULL,
     encrypted_value BYTEA NOT NULL,
     nonce           BYTEA NOT NULL,
+    masked_hint     VARCHAR(12) NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_rotated_at TIMESTAMPTZ,
@@ -104,10 +105,11 @@ DROP TABLE IF EXISTS squad_secrets;
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID | Primary key, auto-generated |
-| `squad_id` | UUID FK | References `squads(id)`, cascade delete |
+| `squad_id` | UUID FK | References `squads(id)` with ON DELETE RESTRICT. Secrets must be explicitly deleted before a squad can be deleted. |
 | `name` | TEXT | Unique per squad, validated pattern `^[A-Z][A-Z0-9_]{0,127}$` |
 | `encrypted_value` | BYTEA | AES-256-GCM ciphertext (includes auth tag) |
 | `nonce` | BYTEA | 12-byte GCM nonce, unique per encryption |
+| `masked_hint` | VARCHAR(12) | Pre-computed masked hint (e.g., `••••••••3abc`). Computed at create/update time so the List endpoint can return it without decryption. |
 | `created_at` | TIMESTAMPTZ | Auto-set on insert |
 | `updated_at` | TIMESTAMPTZ | Auto-set on update via trigger |
 | `last_rotated_at` | TIMESTAMPTZ | Set when value is rotated (update or key rotation) |
@@ -120,8 +122,8 @@ DROP TABLE IF EXISTS squad_secrets;
 
 ```sql
 -- name: CreateSquadSecret :one
-INSERT INTO squad_secrets (squad_id, name, encrypted_value, nonce)
-VALUES ($1, $2, $3, $4)
+INSERT INTO squad_secrets (squad_id, name, encrypted_value, nonce, masked_hint)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: GetSquadSecretByName :one
@@ -129,7 +131,7 @@ SELECT * FROM squad_secrets
 WHERE squad_id = $1 AND name = $2;
 
 -- name: ListSquadSecrets :many
-SELECT id, squad_id, name, encrypted_value, nonce, created_at, updated_at, last_rotated_at
+SELECT id, squad_id, name, masked_hint, created_at, updated_at, last_rotated_at
 FROM squad_secrets
 WHERE squad_id = $1
 ORDER BY name ASC;
@@ -138,8 +140,9 @@ ORDER BY name ASC;
 UPDATE squad_secrets
 SET encrypted_value = $1,
     nonce = $2,
+    masked_hint = $3,
     last_rotated_at = now()
-WHERE squad_id = $3 AND name = $4
+WHERE squad_id = $4 AND name = $5
 RETURNING *;
 
 -- name: DeleteSquadSecret :exec
@@ -179,20 +182,39 @@ type MasterKeyManager struct {
 
 ### Key Derivation
 
-- **From env var:** `sha256.Sum256([]byte(os.Getenv("ARI_MASTER_KEY")))` produces a deterministic 32-byte key.
+- **From env var (HKDF — preferred):** Use `golang.org/x/crypto/hkdf` with SHA-256 to derive the 32-byte key:
+  ```go
+  import "golang.org/x/crypto/hkdf"
+
+  salt := []byte("ari-master-key-v1")
+  info := []byte("ari-secrets-encryption")
+  reader := hkdf.New(sha256.New, []byte(envValue), salt, info)
+  key := make([]byte, 32)
+  io.ReadFull(reader, key)
+  ```
+  This is the default derivation path for any `ARI_MASTER_KEY` value that is not exactly 64 hex characters.
+- **From env var (raw hex):** If `ARI_MASTER_KEY` is exactly 64 hex characters, decode it directly to a 32-byte key via `hex.DecodeString()`. This allows operators to supply a pre-generated raw key.
 - **Auto-generated:** `crypto/rand.Read(key[:])` produces a random 32-byte key, written to `{dataDir}/master.key` with `os.WriteFile(path, key[:], 0600)`.
+
+**Important:** The old `sha256.Sum256()` approach is NOT used. SHA-256 is a hash, not a KDF; HKDF provides proper key stretching with domain separation.
 
 ### Key File Path
 
 `{ARI_DATA_DIR}/master.key` (default: `./data/master.key`)
 
+**Security:**
+- The `master.key` file MUST be excluded from backup procedures. Document this requirement in operator guides.
+- At startup, the system SHALL check file permissions and log a warning if they are more permissive than `0600` (e.g., `"master.key has permissions 0644, expected 0600; this is a security risk"`).
+
 ### Initialization Order
 
 ```
 1. Check ARI_MASTER_KEY env var
-   → If set: derive key via SHA-256, done
+   → If set and exactly 64 hex chars: decode as raw 256-bit key, done
+   → If set (other format): derive key via HKDF(SHA-256, salt="ari-master-key-v1", info="ari-secrets-encryption"), done
+   → If empty string: reject with error
 2. Check {dataDir}/master.key file
-   → If exists: read 32 bytes, validate length, done
+   → If exists: read 32 bytes, validate length, check permissions (warn if > 0600), done
 3. Generate new random key
    → Write to {dataDir}/master.key (0600)
    → Log warning: "Auto-generated master key. Set ARI_MASTER_KEY for production."
@@ -226,7 +248,7 @@ type SecretsService struct {
 | Method | Description |
 |--------|-------------|
 | `Create(ctx, squadID, name, plainValue)` | Validate name, encrypt, insert, log activity |
-| `List(ctx, squadID)` | List secrets with masked values (last 4 chars) |
+| `List(ctx, squadID)` | List secrets with pre-computed masked hints from DB (no decryption needed) |
 | `Update(ctx, squadID, name, plainValue)` | Re-encrypt with new nonce, update row, log activity |
 | `Delete(ctx, squadID, name)` | Delete row, log activity |
 | `GetDecryptedSecrets(ctx, squadID)` | Decrypt all secrets for injection — returns `map[string]string` |
@@ -236,14 +258,14 @@ type SecretsService struct {
 
 ```go
 func maskValue(plaintext string) string {
-    if len(plaintext) <= 4 {
-        return "••••"
-    }
+    // Note: secrets must be at least 8 characters (enforced by validation)
     return strings.Repeat("•", 8) + plaintext[len(plaintext)-4:]
 }
 ```
 
-The mask is computed at list time by decrypting, masking, then discarding the plaintext. This ensures the mask is always current.
+The masked hint is pre-computed at **create** and **update** time and stored in the `masked_hint` column. The `List` endpoint reads `masked_hint` directly from the database — **no decryption is performed**. This avoids the performance and security cost of decrypting all secret values just to display masks.
+
+The `maskValue()` function is only called during `Create` and `Update` operations, where the plaintext is already in memory for encryption.
 
 ---
 
@@ -259,7 +281,7 @@ The mask is computed at list time by decrypting, masking, then discarding the pl
 | GET | `/api/squads/{squadId}/secrets` | `ListSecrets` | List secrets (masked) |
 | PUT | `/api/squads/{squadId}/secrets/{name}` | `UpdateSecret` | Update secret value |
 | DELETE | `/api/squads/{squadId}/secrets/{name}` | `DeleteSecret` | Delete a secret |
-| POST | `/api/secrets/rotate-master-key` | `RotateMasterKey` | Re-encrypt all secrets |
+| POST | `/api/secrets/rotate-master-key` | `RotateMasterKey` | Re-encrypt all secrets (admin only via `users.is_admin`) |
 
 ### Request/Response DTOs
 
@@ -306,12 +328,22 @@ secrets, err := s.secretsSvc.GetDecryptedSecrets(ctx, wakeup.SquadID)
 if err != nil {
     slog.Warn("failed to load secrets for injection", "squad_id", wakeup.SquadID, "error", err)
 } else {
+    injectedNames := make([]string, 0, len(secrets))
     for name, value := range secrets {
         envKey := "ARI_SECRET_" + name
         // Don't override core ARI_* vars
         if _, exists := envVars[envKey]; !exists {
             envVars[envKey] = value
+            injectedNames = append(injectedNames, name)
         }
+    }
+    if len(injectedNames) > 0 {
+        sort.Strings(injectedNames)
+        slog.Info("injecting secrets into agent run",
+            "squad_id", wakeup.SquadID,
+            "agent_id", wakeup.AgentID,
+            "secret_names", strings.Join(injectedNames, ", "),
+            "count", len(injectedNames))
     }
 }
 ```
@@ -333,21 +365,16 @@ if err != nil {
 
 ## 8. Config Changes
 
-### New config field in `Config` struct:
+**The master key is NOT stored in the `Config` struct.** Storing sensitive key material in a config struct risks accidental logging, serialization, or exposure via debug endpoints.
+
+Instead, `MasterKeyManager` reads `os.Getenv("ARI_MASTER_KEY")` directly during initialization:
 
 ```go
-// MasterKey is the AES-256 master encryption key for secrets.
-// Set via ARI_MASTER_KEY env var. If empty, auto-generated.
-MasterKey string
+// In server initialization (cmd/ari/run.go or internal/server/server.go):
+keyMgr, err := secrets.NewMasterKeyManager(os.Getenv("ARI_MASTER_KEY"), config.DataDir)
 ```
 
-### Loading in `config.Load()`:
-
-```go
-cfg.MasterKey = os.Getenv("ARI_MASTER_KEY")
-```
-
-No validation at config level — the `MasterKeyManager` handles derivation/generation.
+The `Config` struct is not modified. The env var value exists only transiently in the `NewMasterKeyManager` call and is not persisted in any struct field.
 
 ---
 
@@ -381,7 +408,8 @@ type UpdateSecretRequest struct {
 
 // ValidateSecretName validates that a secret name matches the required pattern.
 func ValidateSecretName(name string) error
-// ValidateSecretValue validates that a secret value is non-empty.
+// ValidateSecretValue validates that a secret value is non-empty, at least 8 characters,
+// and no more than 64KB (65,536 bytes).
 func ValidateSecretValue(value string) error
 ```
 
@@ -441,8 +469,8 @@ All secret operations emit activity log entries using the existing `logActivity(
 ### Initialization Order (in `cmd/ari/run.go`):
 
 ```
-1. Load config (includes MasterKey from env)
-2. Initialize MasterKeyManager(config.MasterKey, config.DataDir)
+1. Load config (does NOT include MasterKey — see section 8)
+2. Initialize MasterKeyManager(os.Getenv("ARI_MASTER_KEY"), config.DataDir)
 3. Create SecretsService(queries, dbConn, keyMgr)
 4. Create SecretHandler(queries, secretsSvc)
 5. Register secret routes on mux
@@ -471,7 +499,7 @@ func NewRunService(
 
 ```
 1. Operator starts Ari with ARI_MASTER_KEY=my-production-key-here
-   → MasterKeyManager derives key via SHA-256
+   → MasterKeyManager derives key via HKDF(SHA-256, salt="ari-master-key-v1", info="ari-secrets-encryption")
 
 2. User creates squad "DevTeam" and agent "Coder" (claude_local adapter)
 
@@ -500,3 +528,35 @@ func NewRunService(
 
 9. Next agent run picks up the new token automatically
 ```
+
+---
+
+## 14. RBAC Integration
+
+Secret operations require the following RBAC permissions:
+
+| Role | Create | List | Update | Delete | Rotate Master Key |
+|------|--------|------|--------|--------|--------------------|
+| Owner | Yes | Yes | Yes | Yes | If `is_admin` |
+| Admin | Yes | Yes | Yes | Yes | If `is_admin` |
+| Viewer | No (403) | No (403) | No (403) | No (403) | No (403) |
+
+A new `ResourceSecret` resource type must be added to the RBAC permission matrix. **Note:** Feature 17 (RBAC) must be updated to recognize `ResourceSecret` as a valid resource type.
+
+Master key rotation is a **system-level operation** controlled by `users.is_admin`, separate from squad-level RBAC roles. A user can be an Owner of a squad but still not be allowed to rotate the master key if they are not a system admin.
+
+---
+
+## 15. Cross-Cutting Concerns
+
+### Dual Encryption Systems
+
+Feature 21 (OAuth Integration) will need to store encrypted tokens. **It MUST reuse `MasterKeyManager` from this feature** for token encryption rather than deriving encryption keys from the JWT secret or introducing a separate encryption system. This ensures:
+- Single master key to manage and rotate
+- Consistent encryption primitives (AES-256-GCM)
+- Unified key rotation path
+
+### Known Limitations
+
+1. **All secrets injected to every run:** Per-agent secret filtering is a future enhancement. Currently all squad secrets are injected into every agent run within that squad. Injected secret names are logged for auditability.
+2. **Squad deletion blocked by secrets:** ON DELETE RESTRICT requires explicit cleanup of secrets before a squad can be deleted. This is intentional to prevent silent data loss.

@@ -94,7 +94,7 @@ Dashboard Observability provides a single-pane-of-glass metrics dashboard for sq
 
 **REQ-OBS-031:** Issue creation date SHALL be derived from the `created_at` column of the `issues` table.
 
-**REQ-OBS-032:** Issue closure date SHALL be derived from the `updated_at` column of issues with `status=done`, representing the day the issue was marked done.
+**REQ-OBS-032:** Issue closure date SHALL be derived from the `updated_at` column of issues with `status=done`, representing the day the issue was marked done. **Caveat:** `updated_at` is used as a proxy for close date because the `issues` table has no dedicated `closed_at` column. If an issue is reopened and re-closed, or updated after closure for other reasons, the closure date may be inaccurate. This is a known limitation accepted for v0.1.
 
 **REQ-OBS-033:** The `issueVelocity` array SHALL cover every day in the time range, including days with zero created and zero closed (dense representation).
 

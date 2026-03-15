@@ -60,9 +60,9 @@ Secrets Management provides a secure, squad-scoped vault for storing API keys, t
 
 ### Master Key Management
 
-**REQ-SEC-010:** IF the environment variable `ARI_MASTER_KEY` is set, THEN the system SHALL derive the AES-256 master key from it using SHA-256 hashing.
+**REQ-SEC-010:** IF the environment variable `ARI_MASTER_KEY` is set, THEN the system SHALL derive the AES-256 master key from it using HKDF (RFC 5869) with SHA-256, a fixed salt `[]byte("ari-master-key-v1")`, and info string `[]byte("ari-secrets-encryption")`. The env var value is treated as raw keying material. Alternatively, operators MAY provide exactly 64 hex characters (representing a raw 256-bit key), in which case the system SHALL decode the hex directly and skip HKDF. The system SHALL reject values that are neither valid hex(64) nor usable as HKDF input (empty string). HKDF derivation is the preferred and default path.
 
-**REQ-SEC-011:** IF `ARI_MASTER_KEY` is not set, THEN the system SHALL auto-generate a cryptographically random 256-bit master key at first startup and persist it to `{ARI_DATA_DIR}/master.key` (file permissions 0600).
+**REQ-SEC-011:** IF `ARI_MASTER_KEY` is not set, THEN the system SHALL auto-generate a cryptographically random 256-bit master key at first startup and persist it to `{ARI_DATA_DIR}/master.key` (file permissions 0600). The `master.key` file MUST be excluded from any backup procedures. The system SHALL log a warning at startup if the file permissions are more permissive than 0600.
 
 **REQ-SEC-012:** WHEN the system starts, IF a persisted master key file exists AND `ARI_MASTER_KEY` is not set, THEN the system SHALL load the master key from the file.
 
@@ -90,25 +90,35 @@ Secrets Management provides a secure, squad-scoped vault for storing API keys, t
 
 **REQ-SEC-028:** WHEN a secret value is empty, THEN the system SHALL return HTTP 400 with code `VALIDATION_ERROR`.
 
+**REQ-SEC-028a:** WHEN a secret value exceeds 64KB (65,536 bytes), THEN the system SHALL return HTTP 400 with code `VALIDATION_ERROR` and message "secret value exceeds maximum size of 64KB".
+
+**REQ-SEC-028b:** WHEN a secret plaintext value is shorter than 8 characters, THEN the system SHALL return HTTP 400 with code `VALIDATION_ERROR` and message "secret value must be at least 8 characters for security". This minimum length ensures meaningful masked display.
+
 ### Key Rotation
 
 **REQ-SEC-030:** The system SHALL expose `POST /api/secrets/rotate-master-key` to re-encrypt all secrets across all squads with a new master key.
 
-**REQ-SEC-031:** WHEN master key rotation is triggered, the system SHALL: (1) generate a new master key, (2) decrypt each secret with the old key, (3) re-encrypt with the new key and a fresh nonce, (4) persist the new master key, (5) update all secrets in a single database transaction.
+**REQ-SEC-031:** WHEN master key rotation is triggered, the system SHALL: (1) generate a new master key, (2) write the new key to a temporary file `{dataDir}/master.key.tmp`, (3) decrypt each secret with the old key and re-encrypt with the new key and a fresh nonce, (4) update all secrets in a single database transaction and commit, (5) rename the temporary key file to `{dataDir}/master.key`. IF the transaction commit fails, the system SHALL delete the temporary key file and restore the old key in memory. This ordering ensures no crash window where the new key is persisted but secrets are not yet re-encrypted.
 
 **REQ-SEC-032:** IF master key rotation fails mid-way, the system SHALL rollback the transaction and preserve the old master key. No secrets SHALL be left in an inconsistent state.
 
-**REQ-SEC-033:** The master key rotation endpoint SHALL require authentication and SHALL be restricted to users with admin privileges.
+**REQ-SEC-033:** The master key rotation endpoint SHALL require authentication and SHALL be restricted to users with admin privileges (checked via `users.is_admin` column). Master key rotation is a system-level operation separate from squad RBAC; squad roles do not grant rotation permission.
 
 ### Secret Injection into Agent Runs
 
-**REQ-SEC-040:** WHEN an agent is invoked (via `RunService.Invoke`), the system SHALL decrypt all secrets for the agent's squad and inject them into `InvokeInput.EnvVars` with the prefix `ARI_SECRET_` (e.g., secret named `GITHUB_TOKEN` becomes env var `ARI_SECRET_GITHUB_TOKEN`).
+**REQ-SEC-040:** WHEN an agent is invoked (via `RunService.Invoke`), the system SHALL decrypt all secrets for the agent's squad and inject them into `InvokeInput.EnvVars` with the prefix `ARI_SECRET_` (e.g., secret named `GITHUB_TOKEN` becomes env var `ARI_SECRET_GITHUB_TOKEN`). The system SHALL log an info-level message listing the injected secret NAMES (not values) for auditability (e.g., `"injecting secrets: GITHUB_TOKEN, OPENAI_API_KEY"`). **Known limitation:** All squad secrets are injected into every agent run. Per-agent secret filtering is a future enhancement.
 
 **REQ-SEC-041:** Secret injection SHALL occur after the base env vars (ARI_API_URL, ARI_API_KEY, etc.) are set but before the adapter receives the input, ensuring secrets do not override core Ari env vars.
 
 **REQ-SEC-042:** IF secret decryption fails for any secret during injection, the system SHALL log a warning and skip the failed secret rather than aborting the entire run.
 
 **REQ-SEC-043:** The system SHALL NOT include secret values in any log output, SSE events, or API responses. Secret values SHALL only exist in memory during injection and in the agent subprocess environment.
+
+### RBAC and Permissions
+
+**REQ-SEC-045:** The system SHALL add `ResourceSecret` to the RBAC permission matrix. Owner and admin roles SHALL have full CRUD access to secrets. Viewer role SHALL be denied all secret operations (HTTP 403). **Note:** Feature 17 (RBAC) must add `ResourceSecret` as a recognized resource type.
+
+**REQ-SEC-046:** Master key rotation SHALL require `users.is_admin = true`, independent of squad-level RBAC roles.
 
 ### Activity Logging
 
@@ -126,6 +136,9 @@ Secrets Management provides a secure, squad-scoped vault for storing API keys, t
 | Secret name already exists in squad | 409 | `SECRET_NAME_CONFLICT` |
 | Invalid secret name (pattern mismatch) | 400 | `VALIDATION_ERROR` |
 | Empty secret value | 400 | `VALIDATION_ERROR` |
+| Secret value too short (< 8 chars) | 400 | `VALIDATION_ERROR` |
+| Secret value too large (> 64KB) | 400 | `VALIDATION_ERROR` |
+| Viewer role attempting secret access | 403 | `FORBIDDEN` |
 | Squad not found | 404 | `NOT_FOUND` |
 | Unauthorized access | 403 | `FORBIDDEN` |
 | Master key not initialized | 500 | `MASTER_KEY_ERROR` |
@@ -153,8 +166,8 @@ Secrets Management provides a secure, squad-scoped vault for storing API keys, t
 2. Secret values are encrypted with AES-256-GCM before storage; plaintext never touches the database
 3. GET endpoint returns masked values (last 4 chars) but never plaintext
 4. Secrets can be updated (re-encrypted with new nonce) and deleted
-5. Master key is loaded from `ARI_MASTER_KEY` env var or auto-generated and persisted to file
-6. Master key rotation re-encrypts all secrets atomically within a transaction
+5. Master key is derived from `ARI_MASTER_KEY` env var via HKDF (or decoded from 64-char hex), or auto-generated and persisted to file
+6. Master key rotation re-encrypts all secrets atomically: new key written to temp file, transaction committed, then temp file renamed to final path
 7. Secrets are injected as `ARI_SECRET_{NAME}` env vars when agents are spawned
 8. Secret injection does not override core Ari env vars (ARI_API_URL, etc.)
 9. Failed decryption during injection is logged and skipped, not fatal
@@ -162,6 +175,12 @@ Secrets Management provides a secure, squad-scoped vault for storing API keys, t
 11. All endpoints enforce JWT auth and squad-scoped isolation
 12. React UI shows secret names with masked values and supports create, update, delete
 13. Secret names are validated against `^[A-Z][A-Z0-9_]{0,127}$`
+14. Secret values must be at least 8 characters and no more than 64KB
+15. RBAC enforced: owner+admin=full CRUD, viewer=denied all secret operations
+16. Master key rotation requires `users.is_admin` (system-level, not squad RBAC)
+17. Auto-generated master.key file has 0600 permissions; startup warns if more permissive
+18. Injected secret names (not values) are logged at info level for auditability
+19. Squad deletion requires explicit secret cleanup (ON DELETE RESTRICT)
 
 ---
 

@@ -39,12 +39,12 @@ Write sqlc query definitions for the three metric categories. These queries read
 
 Write `internal/database/db/metrics_test.go`:
 
-1. `TestGetCostTrends_Daily` — insert cost events across 3 days, verify daily bucketing returns correct totals and event counts per day.
-2. `TestGetCostTrends_Weekly` — insert cost events across 3 weeks, verify weekly bucketing aggregates correctly.
-3. `TestGetCostTrends_Monthly` — insert cost events across 2 months, verify monthly bucketing.
-4. `TestGetCostTrends_Empty` — no cost events in range, verify empty result set.
-5. `TestGetCostTrends_SquadIsolation` — insert events for two squads, verify only target squad's events returned.
-6. `TestGetAgentRunStatsBySquad` — insert heartbeat_runs with mixed statuses (success, failed, cancelled) for 3 agents, verify correct total/success/failed counts per agent.
+1. `TestGetCostTrendsDaily` — insert cost events across 3 days, call `GetCostTrendsDaily`, verify daily bucketing returns correct totals and event counts per day.
+2. `TestGetCostTrendsWeekly` — insert cost events across 3 weeks, call `GetCostTrendsWeekly`, verify weekly bucketing aggregates correctly.
+3. `TestGetCostTrendsMonthly` — insert cost events across 2 months, call `GetCostTrendsMonthly`, verify monthly bucketing.
+4. `TestGetCostTrendsDaily_Empty` — no cost events in range, verify empty result set.
+5. `TestGetCostTrendsDaily_SquadIsolation` — insert events for two squads, verify only target squad's events returned.
+6. `TestGetAgentRunStatsBySquad` — insert heartbeat_runs with mixed statuses (succeeded, failed, cancelled) for 3 agents, verify correct total/succeeded/failed counts per agent. Also verify agents with zero runs in the range still appear (LEFT JOIN).
 7. `TestGetAgentRunStatsBySquad_OrderByErrorRate` — verify agents with highest error rate appear first, agents with zero runs appear last.
 8. `TestGetAgentLastRun` — insert multiple runs per agent, verify only the most recent run per agent is returned.
 9. `TestGetIssuesCreatedPerDay` — insert issues across 5 days, verify daily creation counts.
@@ -55,8 +55,10 @@ Write `internal/database/db/metrics_test.go`:
 
 Create `internal/database/queries/metrics.sql` with these queries from design.md section 2:
 
-- `GetCostTrends` — aggregate cost_events by date_trunc granularity
-- `GetAgentRunStatsBySquad` — aggregate heartbeat_runs per agent with success/failed counts
+- `GetCostTrendsDaily` — aggregate cost_events by `date_trunc('day', ...)`
+- `GetCostTrendsWeekly` — aggregate cost_events by `date_trunc('week', ...)`
+- `GetCostTrendsMonthly` — aggregate cost_events by `date_trunc('month', ...)`
+- `GetAgentRunStatsBySquad` — LEFT JOIN agents to heartbeat_runs, aggregate per agent with succeeded/failed counts (uses `'succeeded'` enum value, not `'success'`)
 - `GetAgentLastRun` — DISTINCT ON to get most recent run per agent
 - `GetIssuesCreatedPerDay` — count issues by created_at day
 - `GetIssuesClosedPerDay` — count done issues by updated_at day
@@ -65,7 +67,7 @@ Run `make sqlc`.
 
 #### REFACTOR
 
-Verify query plans use indexes on `squad_id` and `created_at` columns. Add index hints in comments if needed.
+Verify query plans use indexes on `squad_id` and `created_at` columns. Add index hints in comments if needed. **M4 — Index note:** The `GetIssuesClosedPerDay` query filters on `(squad_id, status, updated_at)`. Run `EXPLAIN ANALYZE` during implementation to confirm performance. If the query is slow, add a partial index: `CREATE INDEX idx_issues_done_updated ON issues (squad_id, updated_at) WHERE status = 'done';` — defer creating the index until profiling confirms it is needed.
 
 #### Files
 
@@ -114,9 +116,9 @@ Create `internal/server/handlers/metrics_service.go`:
 - `MetricsService` struct with `queries *db.Queries`
 - `NewMetricsService(q)` constructor
 - `GetDashboardMetrics(ctx, squadID, timeRange, granularity)` — concurrent execution with WaitGroup
-- `computeTimeRange(rangeParam)` — returns start, end times
-- `getCostTrends(ctx, squadID, start, end, granularity)` — query + assemble
-- `getAgentHealth(ctx, squadID, start, end)` — run stats query + last run query + merge
+- `computeTimeRange(now time.Time, rangeParam string)` — accepts a `now` parameter (not `time.Now()` internally) for testability; returns start, end times
+- `getCostTrends(ctx, squadID, start, end, granularity)` — dispatches to `GetCostTrendsDaily`, `GetCostTrendsWeekly`, or `GetCostTrendsMonthly` based on validated granularity + assemble
+- `getAgentHealth(ctx, squadID, start, end)` — run stats query (LEFT JOIN, includes zero-run agents) + last run query + merge
 - `getIssueVelocity(ctx, squadID, start, end)` — created + closed queries + dense fill
 - `assembleIssueVelocity(created, closed, start, end)` — dense date array generation
 
@@ -223,6 +225,7 @@ Enhance the existing dashboard page with three new chart/table widgets and a tim
 5. `DashboardPage` shows skeleton state when metrics are loading.
 6. `DashboardPage` shows error state with retry button when metrics fail.
 7. Changing time range triggers re-fetch of metrics data.
+8. Granularity is auto-derived from range: `7d` → `day`, `30d` → `day`, `90d` → `week`. Verify the API call uses the correct granularity parameter for each range selection.
 
 #### GREEN — Implement
 
@@ -233,12 +236,12 @@ cd web && npm install recharts
 
 Create React components:
 
-- `web/src/features/dashboard/time-range-selector.tsx` — button group (7d / 30d / 90d)
+- `web/src/features/dashboard/time-range-selector.tsx` — button group (7d / 30d / 90d). **Auto-select granularity:** The UI does not expose a separate granularity selector. Instead, granularity is derived automatically from the selected range: `7d` → `day`, `30d` → `day`, `90d` → `week`. This keeps the UI simple while ensuring chart readability at wider ranges.
 - `web/src/features/dashboard/cost-trend-chart.tsx` — recharts AreaChart with gradient fill, tooltip, formatted Y-axis (dollars)
 - `web/src/features/dashboard/issue-velocity-chart.tsx` — recharts BarChart with dual series (created=green, closed=blue), tooltip, legend
 - `web/src/features/dashboard/agent-health-table.tsx` — table with status badge, run counts, error rate bar (color-coded), relative last-run time
 - `web/src/features/dashboard/metrics-skeleton.tsx` — skeleton loading placeholders for all three widgets
-- `web/src/hooks/use-metrics.ts` — `useMetrics(squadId, range, granularity)` hook with react-query, 60s auto-refresh, 30s stale time
+- `web/src/hooks/use-metrics.ts` — `useMetrics(squadId, range)` hook with react-query, 60s auto-refresh, 30s stale time. Granularity is derived from range internally: `7d` → `day`, `30d` → `day`, `90d` → `week`.
 - `web/src/types/metrics.ts` — TypeScript types for DashboardMetrics response
 
 Modify existing:

@@ -45,6 +45,8 @@ Write `internal/config/config_hardening_test.go`:
 4. `TestConfig_TLSValidation` — verify error when `ARI_TLS_CERT` is set without `ARI_TLS_KEY` (and vice versa).
 5. `TestConfig_RateLimitValidation` — verify error when RPS or burst is zero or negative.
 6. `TestConfig_TLSRedirectPortDefault` — verify default is 80 when not set.
+7. `TestConfig_TrustedProxies` — verify `ARI_TRUSTED_PROXIES` is parsed correctly (comma-separated CIDRs).
+8. `TestConfig_LoadFromYAML` — verify config file (`ari.yaml`) is loaded and env vars override file values.
 
 #### GREEN — Implement
 
@@ -55,8 +57,10 @@ Modify `internal/config/config.go`:
 - Add `TLSCert`, `TLSKey`, `TLSDomain` (string), `TLSRedirectPort` (int, default 80) to `Config`
 - Add `RateLimitRPS` (int, default 100), `RateLimitBurst` (int, default 200) to `Config`
 - Add parsing logic in `Load()` for all new env vars
+- Add `TrustedProxies` (string, from `ARI_TRUSTED_PROXIES`) to `Config`
 - Add cross-field validation: TLS cert and key must both be set or both empty
 - Add helper `OAuthGoogleEnabled()`, `OAuthGitHubEnabled()` methods
+- Add config file loading: `Load()` reads `ari.yaml` (from CWD or `--config` flag path) using `gopkg.in/yaml.v3`, then overlays environment variables on top. If no config file exists, env-only loading continues as before.
 
 #### Files
 
@@ -72,7 +76,7 @@ Modify `internal/config/config.go`:
 
 #### Context
 
-Implement per-IP token-bucket rate limiting as HTTP middleware using `golang.org/x/time/rate`. The middleware sits before auth in the chain, protecting against brute-force attacks. Auth endpoints get stricter limits. Replaces the existing `auth.NewRateLimiter()` used in `AuthHandler`.
+Implement per-IP token-bucket rate limiting as HTTP middleware using `golang.org/x/time/rate`. The middleware sits before auth in the chain, protecting against brute-force attacks. Auth endpoints get stricter limits. This is a **new global middleware** that coexists with the existing `auth.NewRateLimiter()` in `AuthHandler` (which is kept for defense-in-depth on login endpoints).
 
 #### RED — Write Failing Tests
 
@@ -82,10 +86,11 @@ Write `internal/server/ratelimit_test.go`:
 2. `TestRateLimiter_BlocksExcessTraffic` — burst+1 request returns 429 with `Retry-After` header and `RATE_LIMITED` error code.
 3. `TestRateLimiter_PerIPIsolation` — different IPs have independent limits; IP-A exhausted does not affect IP-B.
 4. `TestRateLimiter_AuthEndpointStricterLimits` — `/api/auth/login` returns 429 after 20 requests (auth burst), while `/api/squads` still succeeds at the same count.
-5. `TestRateLimiter_XForwardedFor` — uses first IP from `X-Forwarded-For` header.
-6. `TestRateLimiter_FallbackToRemoteAddr` — uses `RemoteAddr` when no `X-Forwarded-For`.
-7. `TestRateLimiter_StaleEviction` — after cleanup interval, stale entries are removed (mock time or short interval).
-8. `TestRateLimiter_OAuthCallbackStricterLimits` — `/api/auth/oauth/google/callback` uses auth-tier limits.
+5. `TestRateLimiter_XForwardedFor_TrustedProxy` — uses first IP from `X-Forwarded-For` header only when RemoteAddr is in `ARI_TRUSTED_PROXIES` CIDR list.
+6. `TestRateLimiter_XForwardedFor_UntrustedProxy` — ignores `X-Forwarded-For` when RemoteAddr is NOT in trusted list, falls back to RemoteAddr.
+7. `TestRateLimiter_FallbackToRemoteAddr` — uses `RemoteAddr` when no `X-Forwarded-For` or no trusted proxies configured.
+8. `TestRateLimiter_StaleEviction` — after cleanup interval, stale entries are removed (mock time or short interval).
+9. `TestRateLimiter_OAuthCallbackStricterLimits` — `/api/auth/oauth/google/callback` uses auth-tier limits.
 
 #### GREEN — Implement
 
@@ -96,22 +101,23 @@ Create `internal/server/ratelimit.go`:
 - `NewRateLimitMiddleware(cfg RateLimitConfig) *RateLimitMiddleware`
 - `Middleware() func(http.Handler) http.Handler` — extracts IP, selects limiter tier, checks `Allow()`, returns 429 with `Retry-After`
 - `StartCleanup(ctx context.Context)` — goroutine that evicts stale entries
-- `extractIP(r *http.Request) string` — X-Forwarded-For or RemoteAddr
+- `extractIP(r *http.Request, trustedProxies []*net.IPNet) string` — X-Forwarded-For (only if RemoteAddr in trusted proxies) or RemoteAddr
+- `parseTrustedProxies(cidrs string) ([]*net.IPNet, error)` — parse comma-separated CIDRs from config
 - `isAuthEndpoint(path string) bool` — detects auth-tier paths
 
 Wire into `server.go`:
 
 - Add `rateLimiter *RateLimitMiddleware` to `New()` parameters
 - Insert `rateLimiter.Middleware()` into middleware chain before `maxBodySize`
-- Remove `rateLimiter` parameter from `NewAuthHandler` (old login rate limiter replaced)
+- **Keep** existing `rateLimiter` parameter on `NewAuthHandler` (old login rate limiter retained for defense-in-depth)
 
 #### Files
 
 - Create: `internal/server/ratelimit.go`
 - Create: `internal/server/ratelimit_test.go`
-- Modify: `internal/server/server.go` (middleware chain)
-- Modify: `cmd/ari/run.go` (create RateLimitMiddleware, remove old rate limiter)
-- Modify: `internal/server/handlers/auth_handler.go` (remove old rateLimiter field)
+- Modify: `internal/server/server.go` (middleware chain: add global RPS limiter as separate middleware before maxBodySize)
+- Modify: `cmd/ari/run.go` (create RateLimitMiddleware, pass to server.New; keep existing login rate limiter for AuthHandler unchanged)
+- **Do NOT modify:** `internal/server/handlers/auth_handler.go` — existing brute-force login rate limiter stays as defense-in-depth
 
 ---
 
@@ -177,7 +183,7 @@ Create `internal/server/tls.go`:
 
 - `resolveTLSConfig(cfg *config.Config) (*tls.Config, error)` — handles all three modes
 - `hstsMiddleware(enabled bool) func(http.Handler) http.Handler`
-- `startRedirectServer(ctx context.Context, port int)` — HTTP-to-HTTPS redirect listener
+- `startRedirectServer(ctx context.Context, port int)` — HTTP-to-HTTPS redirect listener; uses `context.WithTimeout(context.Background(), 5*time.Second)` for graceful shutdown
 
 Modify `internal/server/server.go`:
 
@@ -206,7 +212,7 @@ Modify `cmd/ari/run.go`:
 
 #### Context
 
-Create the `oauth_connections` table with unique constraints, indexes, and the `update_updated_at` trigger. This migration must run after all existing migrations.
+Create the `oauth_connections` table with unique constraints, indexes, and a per-table `update_oauth_connections_updated_at()` trigger function (matching the existing pattern used by agents, issues, projects, goals, pipelines). This migration must run after all existing migrations (current latest: 000018).
 
 #### RED — Write Failing Tests
 
@@ -220,11 +226,11 @@ Add assertions to migration smoke tests:
 
 #### GREEN — Implement
 
-Create `internal/database/migrations/20260316000017_create_oauth_connections.sql` with schema from design.md section 2.
+Create `internal/database/migrations/20260316000020_create_oauth_connections.sql` with schema from design.md section 2.
 
 #### Files
 
-- Create: `internal/database/migrations/20260316000017_create_oauth_connections.sql`
+- Create: `internal/database/migrations/20260316000020_create_oauth_connections.sql`
 - Modify: `internal/database/database_test.go` (add migration assertions)
 
 ---
@@ -236,7 +242,7 @@ Create `internal/database/migrations/20260316000017_create_oauth_connections.sql
 
 #### Context
 
-Write sqlc query definitions for OAuth connection CRUD: create, get by provider identity, list by user, delete. Also add a `GetUserByEmail` query if not already present. Run `make sqlc` to generate Go code.
+Write sqlc query definitions for OAuth connection CRUD: create, get by provider identity, list by user, delete. **Note:** `GetUserByEmail` already exists in `internal/database/queries/users.sql` -- do NOT duplicate it. The OAuth service will use the existing query. Run `make sqlc` to generate Go code.
 
 #### RED — Write Failing Tests
 
@@ -280,10 +286,11 @@ Write `internal/auth/oauth_test.go`:
 4. `TestOAuthService_Callback_ExistingConnection` — mock token exchange, verify user found via oauth_connections, JWT issued.
 5. `TestOAuthService_Callback_EmailMatch` — mock token exchange, no connection exists but email matches existing user, verify connection created and JWT issued.
 6. `TestOAuthService_Callback_NewUser` — mock token exchange, no connection and no email match, verify user and connection created, JWT issued.
-7. `TestOAuthService_Callback_SignupDisabled` — no existing match + signup disabled, verify 403 error.
-8. `TestOAuthService_Callback_StateMismatch` — verify 400 error when state param doesn't match cookie.
-9. `TestOAuthService_TokenEncryption` — verify tokens encrypted at rest and can be decrypted with same key.
-10. `TestOAuthService_KeyDerivation` — verify HKDF produces deterministic key from JWT secret.
+7. `TestOAuthService_Callback_SignupDisabled_NewUser` — no existing match + signup disabled, verify 403 error.
+8. `TestOAuthService_Callback_SignupDisabled_EmailMatch` — existing user email match + signup disabled, verify connection created and login succeeds (linking is always allowed).
+9. `TestOAuthService_Callback_StateMismatch` — verify 400 error when state param doesn't match cookie.
+10. `TestOAuthService_TokenEncryption` — verify tokens encrypted at rest and can be decrypted with same key.
+11. `TestOAuthService_KeyDerivation` — verify HKDF produces deterministic key from JWT secret (fallback) and from master key (preferred).
 
 #### GREEN — Implement
 
@@ -297,7 +304,7 @@ Create `internal/auth/oauth.go`:
 - `fetchGitHubUserInfo(ctx, token) (email, name, sub string, err error)` — calls GitHub user + emails API
 - `encryptToken(plaintext []byte) ([]byte, error)` — AES-256-GCM encrypt
 - `decryptToken(ciphertext []byte) ([]byte, error)` — AES-256-GCM decrypt
-- `deriveEncryptionKey(jwtSecret []byte) ([]byte, error)` — HKDF-SHA256
+- `deriveEncryptionKey(masterKey, jwtSecret []byte) ([]byte, error)` — Uses `ARI_MASTER_KEY` (Feature 19) if available; falls back to HKDF-SHA256 from JWT secret with salt `[]byte("ari-oauth-v1")` and info `"ari-oauth-token-encryption"`
 
 #### Files
 
@@ -333,14 +340,14 @@ Write `internal/auth/oauth_handler_test.go` (or extend `internal/server/handlers
 
 Create OAuth handler (in `internal/auth/oauth_handler.go` or extend `internal/server/handlers/auth_handler.go`):
 
-- `HandleOAuthStart(w, r)` — extract provider from URL, call `oauthSvc.StartFlow()`, set state cookie, redirect
-- `HandleOAuthCallback(w, r)` — extract provider/code/state, read state cookie, call `oauthSvc.HandleCallback()`, set session cookie, redirect to SPA
+- `HandleOAuthStart(w, r)` — extract provider from URL, call `oauthSvc.StartFlow()`, set state cookie (Secure flag only when TLS is active: check `r.TLS != nil` or config), redirect
+- `HandleOAuthCallback(w, r)` — extract provider/code/state, read state cookie, call `oauthSvc.HandleCallback()`, set session cookie, redirect to SPA (URL derived from: `ARI_DOMAIN` if set, else request Host header, else `localhost:3100`)
 - `HandleProviders(w, r)` — return list of enabled providers
 
 Modify `internal/auth/middleware.go`:
 
 - Add `/api/auth/providers` to `publicEndpoints`
-- Add `/api/auth/oauth/` prefix handling for start and callback endpoints
+- Add `/api/auth/oauth/` prefix handling for start and callback endpoints (all OAuth routes are unauthenticated by design)
 
 Wire in `cmd/ari/run.go`:
 
@@ -385,7 +392,7 @@ Create `cmd/ari/backup.go`:
 - `newBackupCmd() *cobra.Command` with flags
 - `runBackup(cmd, args) error` — load config, find pg_dump, execute with connection args, stream to file
 - `findPgDump(cfg *config.Config) (string, error)` — embedded or system binary
-- `buildPgDumpArgs(cfg *config.Config, output, format string) []string`
+- `buildPgDumpArgs(cfg *config.Config, output, format string) []string` — includes `--clean` flag to add DROP statements, so `ari restore` works without manual cleanup
 
 Create `cmd/ari/restore.go`:
 
@@ -414,7 +421,7 @@ Modify `cmd/ari/main.go`:
 
 #### Context
 
-Create a multi-stage Dockerfile and Docker Compose configuration. The Dockerfile builds Go binary and React UI in separate stages, then copies into a minimal Alpine runtime. Docker Compose supports two profiles: embedded (default) and external (with PostgreSQL container).
+Create a multi-stage Dockerfile and Docker Compose configuration. The Dockerfile builds Go binary and React UI in separate stages, then copies into a minimal Alpine runtime. Runs as non-root user (`ari`, UID 1000). Docker Compose defaults to external PostgreSQL profile (recommended for Docker). The embedded profile is available but requires internet access (or pre-downloaded binaries) since embedded-postgres-go downloads PG binaries on first run.
 
 #### RED — Write Failing Tests
 

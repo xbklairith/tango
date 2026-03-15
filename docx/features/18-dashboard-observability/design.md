@@ -41,7 +41,7 @@ MetricsHandler            ← HTTP layer: parse params, auth, squad check
        v
 MetricsService            ← Orchestration: concurrent queries, assembly
        |
-       +--→ sqlc Queries: GetCostTrends (cost_events)
+       +--→ sqlc Queries: GetCostTrendsDaily/Weekly/Monthly (cost_events)
        +--→ sqlc Queries: GetAgentHealthBySquad (heartbeat_runs + agents)
        +--→ sqlc Queries: GetIssueVelocity (issues)
        |
@@ -59,12 +59,14 @@ All queries filter by `squad_id`. The handler validates squad membership before 
 
 All metrics are computed from existing tables. No schema changes are required.
 
-### 2.1 Cost Trends Query
+### 2.1 Cost Trends Queries
+
+sqlc does not support parameterized `date_trunc(@granularity)` — the argument must be a literal string. Instead, define three separate named queries, one per granularity. The Go service layer calls the appropriate query based on the validated granularity parameter.
 
 ```sql
--- name: GetCostTrends :many
+-- name: GetCostTrendsDaily :many
 SELECT
-    date_trunc(@granularity::TEXT, created_at)::TIMESTAMPTZ AS bucket,
+    date_trunc('day', created_at)::TIMESTAMPTZ AS bucket,
     COALESCE(SUM(amount_cents), 0)::BIGINT AS total_cents,
     COUNT(*)::BIGINT AS event_count
 FROM cost_events
@@ -75,7 +77,35 @@ GROUP BY bucket
 ORDER BY bucket ASC;
 ```
 
-Note: `@granularity` is one of `'day'`, `'week'`, `'month'`. The Go layer validates and passes it as a literal string — not user-controlled SQL injection risk since the handler enforces the enum.
+```sql
+-- name: GetCostTrendsWeekly :many
+SELECT
+    date_trunc('week', created_at)::TIMESTAMPTZ AS bucket,
+    COALESCE(SUM(amount_cents), 0)::BIGINT AS total_cents,
+    COUNT(*)::BIGINT AS event_count
+FROM cost_events
+WHERE squad_id = @squad_id
+  AND created_at >= @period_start
+  AND created_at < @period_end
+GROUP BY bucket
+ORDER BY bucket ASC;
+```
+
+```sql
+-- name: GetCostTrendsMonthly :many
+SELECT
+    date_trunc('month', created_at)::TIMESTAMPTZ AS bucket,
+    COALESCE(SUM(amount_cents), 0)::BIGINT AS total_cents,
+    COUNT(*)::BIGINT AS event_count
+FROM cost_events
+WHERE squad_id = @squad_id
+  AND created_at >= @period_start
+  AND created_at < @period_end
+GROUP BY bucket
+ORDER BY bucket ASC;
+```
+
+The Go handler validates `granularity` is one of `day`, `week`, `month` and dispatches to the matching query.
 
 ### 2.2 Agent Health Query
 
@@ -84,23 +114,25 @@ Two queries are needed:
 ```sql
 -- name: GetAgentRunStatsBySquad :many
 -- Aggregates heartbeat_runs per agent within the time range.
+-- Uses LEFT JOIN from agents so that agents with zero runs in the range still appear.
 SELECT
-    hr.agent_id,
+    a.id AS agent_id,
     a.name AS agent_name,
     a.short_name AS agent_short_name,
     a.status AS agent_status,
-    COUNT(*)::BIGINT AS total_runs,
-    COUNT(*) FILTER (WHERE hr.status = 'success')::BIGINT AS successful_runs,
-    COUNT(*) FILTER (WHERE hr.status = 'failed')::BIGINT AS failed_runs
-FROM heartbeat_runs hr
-JOIN agents a ON a.id = hr.agent_id
-WHERE hr.squad_id = @squad_id
-  AND hr.created_at >= @period_start
-  AND hr.created_at < @period_end
-GROUP BY hr.agent_id, a.name, a.short_name, a.status
+    COUNT(hr.id)::BIGINT AS total_runs,
+    COUNT(hr.id) FILTER (WHERE hr.status = 'succeeded')::BIGINT AS successful_runs,
+    COUNT(hr.id) FILTER (WHERE hr.status = 'failed')::BIGINT AS failed_runs
+FROM agents a
+LEFT JOIN heartbeat_runs hr
+    ON hr.agent_id = a.id
+    AND hr.created_at >= @period_start
+    AND hr.created_at < @period_end
+WHERE a.squad_id = @squad_id
+GROUP BY a.id, a.name, a.short_name, a.status
 ORDER BY
-    CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END,
-    COUNT(*) FILTER (WHERE hr.status = 'failed')::FLOAT / GREATEST(COUNT(*), 1) DESC;
+    CASE WHEN COUNT(hr.id) = 0 THEN 1 ELSE 0 END,
+    COUNT(hr.id) FILTER (WHERE hr.status = 'failed')::FLOAT / GREATEST(COUNT(hr.id), 1) DESC;
 ```
 
 ```sql
@@ -115,7 +147,7 @@ WHERE squad_id = @squad_id
 ORDER BY agent_id, created_at DESC;
 ```
 
-The Go layer joins these two result sets in memory by `agent_id`. Agents with no runs in the time range are included from the agents table with zero counts.
+The Go layer joins these two result sets in memory by `agent_id`. The LEFT JOIN in `GetAgentRunStatsBySquad` ensures agents with zero runs in the time range are included with zero counts — no separate agent fetch is needed.
 
 ### 2.3 Issue Velocity Query
 
@@ -136,6 +168,9 @@ ORDER BY date ASC;
 
 ```sql
 -- name: GetIssuesClosedPerDay :many
+-- NOTE: updated_at is used as a proxy for close date because there is no
+-- dedicated closed_at column. This means re-opened/re-closed or otherwise
+-- updated issues may report an inaccurate closure date (known limitation).
 SELECT
     date_trunc('day', updated_at)::DATE AS date,
     COUNT(*)::BIGINT AS count
@@ -149,6 +184,8 @@ ORDER BY date ASC;
 ```
 
 The Go layer merges these sparse results into a dense daily array covering every day in the range, filling missing dates with zero.
+
+**Index note (M4):** The `GetIssuesClosedPerDay` query filters on `(squad_id, status, updated_at)`. If `EXPLAIN ANALYZE` shows a sequential scan during implementation, add a partial index: `CREATE INDEX idx_issues_done_updated ON issues (squad_id, updated_at) WHERE status = 'done';`. Defer creating the index until profiling confirms it is needed.
 
 ---
 
@@ -180,7 +217,7 @@ The Go layer merges these sparse results into a dense daily array covering every
       "failedRuns": 4,
       "errorRate": 0.095,
       "lastRunAt": "2026-03-15T10:30:00Z",
-      "lastRunStatus": "success"
+      "lastRunStatus": "succeeded"
     }
   ],
   "issueVelocity": {
@@ -207,8 +244,10 @@ The Go layer merges these sparse results into a dense daily array covering every
 ### Time Range Computation (Go)
 
 ```go
-func computeTimeRange(rangeParam string) (start, end time.Time) {
-    end = time.Now().UTC()
+// computeTimeRange accepts a `now` parameter instead of calling time.Now()
+// internally, making it deterministic and easy to test.
+func computeTimeRange(now time.Time, rangeParam string) (start, end time.Time) {
+    end = now.UTC()
     switch rangeParam {
     case "7d":
         start = end.AddDate(0, 0, -7)
@@ -222,6 +261,8 @@ func computeTimeRange(rangeParam string) (start, end time.Time) {
     return start, end
 }
 ```
+
+The handler passes `time.Now()` as `now`; tests inject a fixed time for deterministic assertions.
 
 ---
 
@@ -244,7 +285,7 @@ func (s *MetricsService) GetDashboardMetrics(
     timeRange string,
     granularity string,
 ) (*DashboardMetricsResponse, error) {
-    start, end := computeTimeRange(timeRange)
+    start, end := computeTimeRange(time.Now(), timeRange)
 
     // Run all three queries concurrently
     var (
@@ -417,6 +458,7 @@ DashboardPage (enhanced)
 - **Implementation:** Button group with three options (7d, 30d, 90d)
 - **State:** Controls `range` param passed to useMetrics hook
 - **Default:** 30d
+- **Auto-granularity:** No separate granularity selector is exposed in the UI. Granularity is derived automatically from the selected range: `7d` → `day`, `30d` → `day`, `90d` → `week`. This keeps the UI simple while ensuring chart readability at wider ranges.
 
 ### Skeleton Loading
 
@@ -432,7 +474,18 @@ Each widget has a corresponding skeleton component:
 ### useMetrics Hook
 
 ```typescript
-function useMetrics(squadId: string, range: string = "30d", granularity: string = "day") {
+// Granularity is derived from range — no separate selector in the UI.
+function rangeToGranularity(range: string): string {
+    switch (range) {
+        case "7d": return "day";
+        case "30d": return "day";
+        case "90d": return "week";
+        default: return "day";
+    }
+}
+
+function useMetrics(squadId: string, range: string = "30d") {
+    const granularity = rangeToGranularity(range);
     return useQuery({
         queryKey: ["metrics", squadId, range, granularity],
         queryFn: () => api.get<DashboardMetrics>(
@@ -472,4 +525,4 @@ No changes to existing handlers or services are required. The metrics feature is
 | recharts library | Already available in the React ecosystem with Tailwind-friendly styling. Lightweight and composable. |
 | 60s auto-refresh | Dashboard stays reasonably current without creating excessive server load. SSE handles inbox count in real-time. |
 | Error rate sorting | Surfaces problematic agents at the top of the health table for quick triage. |
-| date_trunc for granularity | PostgreSQL built-in function, well-indexed, handles timezone-aware truncation correctly. |
+| Three separate cost-trend queries | sqlc cannot parameterize `date_trunc` granularity, so we use `GetCostTrendsDaily`, `GetCostTrendsWeekly`, `GetCostTrendsMonthly` with hardcoded literals. The Go layer dispatches based on the validated granularity param. |

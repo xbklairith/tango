@@ -8,7 +8,7 @@
 
 - Source requirements: [requirements.md](./requirements.md)
 - Design: [design.md](./design.md)
-- Requirement coverage: REQ-RBAC-001 through REQ-RBAC-073, REQ-RBAC-NF-001 through REQ-RBAC-NF-004
+- Requirement coverage: REQ-RBAC-001 through REQ-RBAC-073, REQ-RBAC-NF-001 through REQ-RBAC-NF-004, REQ-RBAC-014, REQ-RBAC-015, REQ-RBAC-016
 
 ## Implementation Approach
 
@@ -55,7 +55,7 @@ Write `internal/auth/permission_matrix_test.go`:
 
 Create `internal/auth/permission_matrix.go`:
 
-- `Resource` type and constants: `ResourceSquad`, `ResourceAgent`, `ResourceIssue`, `ResourceProject`, `ResourceGoal`, `ResourcePipeline`, `ResourceInbox`, `ResourceConversation`
+- `Resource` type and constants: `ResourceSquad`, `ResourceAgent`, `ResourceIssue`, `ResourceProject`, `ResourceGoal`, `ResourcePipeline`, `ResourceInbox`, `ResourceConversation`, `ResourceActivity`, `ResourceCost`, `ResourceTask`, `ResourceRun`, `ResourceWakeup`
 - `Action` type and constants: `ActionCreate`, `ActionRead`, `ActionUpdate`, `ActionDelete`, `ActionAssign`, `ActionAdvance`, `ActionReject`, `ActionResolve`
 - `PermissionSet` type: `map[Resource]map[Action]bool`
 - `RolePermissions` type: `map[string]PermissionSet`
@@ -84,6 +84,16 @@ Ensure constants are exported, maps are immutable (populated at init, never modi
 
 Implement the `RequirePermission` function that extracts the caller from context, determines their role, and checks the permission matrix. This function is the single enforcement point called by all handlers. It uses a `SquadRoleLookup` function type to decouple from the database package. Also implement `PermissionDeniedError` for structured error reporting.
 
+#### Prerequisite: Refactor `verifySquadMembership` for Dual Identity (C1)
+
+Before implementing `RequirePermission`, refactor the `verifySquadMembership` helper used across all handlers to support both `Identity` (human) and `AgentIdentity` (agent) callers:
+
+1. Update `verifySquadMembership` to first check `auth.AgentFromContext(ctx)`. If present, verify `AgentIdentity.SquadID == squadID` for squad scoping (agents do not have squad_memberships rows).
+2. If no agent identity, fall back to `auth.UserFromContext(ctx)` and look up `squad_memberships` as before.
+3. Return the caller type so handlers can adapt behavior.
+
+This is required because the current `verifySquadMembership` only calls `auth.UserFromContext`, which means any handler called by an agent (via run token) would return 401 instead of properly checking the agent's squad scope.
+
 #### RED — Write Failing Tests
 
 Write `internal/auth/permissions_test.go`:
@@ -109,7 +119,8 @@ Create `internal/auth/permissions.go`:
 - `SquadRoleLookup` function type: `func(ctx context.Context, userID, squadID uuid.UUID) (string, error)`
 - `PermissionDeniedError` struct with `Resource` and `Action` fields, implementing `error` interface
 - `IsPermissionDenied(err error) bool` helper
-- `RequirePermission(ctx, squadID, resource, action, roleLookup) error` — the main enforcement function per design section 3.1
+- `RequirePermission(ctx, squadID, resource, action, roleLookup) error` — the main enforcement function per design section 3.1. MUST include nil check on `roleLookup` before calling it (H5). If `roleLookup` is nil and caller is a human user, return an internal error.
+- `RequirePermissionWithRole(ctx, role, resource, action) error` — convenience function when the caller's role is already known (avoids redundant DB lookup per M12)
 - `checkUserPermission(role, resource, action) error` — internal helper
 - `checkAgentPermission(role, resource, action) error` — internal helper
 
@@ -154,6 +165,8 @@ Modify `internal/server/handlers/squad_handler.go`:
 - Add `auth.RequirePermission(ctx, squadID, auth.ResourceSquad, auth.ActionUpdate, h.roleLookup)` to UpdateSquad
 - Add `auth.RequirePermission(ctx, squadID, auth.ResourceSquad, auth.ActionDelete, h.roleLookup)` to DeleteSquad
 - Add `auth.RequirePermission(ctx, squadID, auth.ResourceSquad, auth.ActionRead, h.roleLookup)` to GetSquad/ListSquads
+- **Do NOT add `requirePermission` to CreateSquad** — `squad.create` is excluded from enforcement (C2: no squad scope exists at creation time, any authenticated user can create a squad)
+- **REMOVE** all existing manual role checks (e.g., `CanEditSquad`, owner-only guards) and replace with `requirePermission` calls. The permission matrix is the single source of truth (H3).
 
 Modify `internal/server/handlers/membership_handler.go`:
 - Add `roleLookup` method
@@ -196,6 +209,8 @@ Extend handler tests:
 Modify `internal/server/handlers/issue_handler.go`:
 - Add `roleLookup` method
 - Add permission checks: CreateIssue → `issue.create`, GetIssue/ListIssues → `issue.read`, UpdateIssue → `issue.update`, DeleteIssue → `issue.delete`, AdvanceIssue → `issue.advance`, RejectIssue → `issue.reject`
+- CreateComment → `issue.update` permission (M8: comment creation maps to issue.update, no separate comment resource)
+- **REMOVE** all existing manual role checks and replace with `requirePermission` calls (H3)
 
 Modify `internal/server/handlers/pipeline_handler.go`:
 - Add `roleLookup` method
@@ -240,10 +255,15 @@ Modify each handler file:
 - `internal/server/handlers/agent_handler.go` — agent.create/read/update/delete
 - `internal/server/handlers/project_handler.go` — project.create/read/update/delete
 - `internal/server/handlers/goal_handler.go` — goal.create/read/update/delete
-- `internal/server/handlers/inbox_handler.go` — inbox.create/read/update/resolve
-- `internal/server/handlers/conversation_handler.go` — conversation.create/read/update
+- `internal/server/handlers/inbox_handler.go` — inbox.create/read/update/resolve (note: inbox.delete is intentionally absent, append-only semantics per M9)
+- `internal/server/handlers/conversation_handler.go` — conversation.create/read/update (note: conversation.delete is intentionally absent, append-only semantics per M9)
+- `internal/server/handlers/activity_handler.go` — activity.read (H4: read permission for activity feed endpoint)
+- `internal/server/handlers/cost_handler.go` — cost.read (H4: read permission for cost data endpoints)
+- `internal/server/handlers/task_handler.go` — task.read/update (H4: permission checks for task checkout and updates)
+- `internal/server/handlers/run_handler.go` — run.create/read (H4: permission checks for run management)
+- `internal/server/handlers/wakeup_handler.go` — wakeup.create (H4: permission checks for wakeup enqueue)
 
-Each handler: add `roleLookup` method, add `auth.RequirePermission(...)` call before each operation.
+Each handler: add `roleLookup` method, add `auth.RequirePermission(...)` call before each operation. **REMOVE** all existing manual role checks and replace with `requirePermission` calls (H3).
 
 #### Files
 
@@ -252,6 +272,11 @@ Each handler: add `roleLookup` method, add `auth.RequirePermission(...)` call be
 - Modify: `internal/server/handlers/goal_handler.go`
 - Modify: `internal/server/handlers/inbox_handler.go`
 - Modify: `internal/server/handlers/conversation_handler.go`
+- Modify: `internal/server/handlers/activity_handler.go`
+- Modify: `internal/server/handlers/cost_handler.go`
+- Modify: `internal/server/handlers/task_handler.go`
+- Modify: `internal/server/handlers/run_handler.go`
+- Modify: `internal/server/handlers/wakeup_handler.go`
 - Modify: corresponding `*_test.go` files
 
 ---
@@ -490,3 +515,6 @@ Review test coverage, add edge cases if needed, ensure all requirements are exer
 | REQ-RBAC-NF-002 | Task 01 |
 | REQ-RBAC-NF-003 | Task 02 |
 | REQ-RBAC-NF-004 | Task 01 |
+| REQ-RBAC-014 | Task 03 |
+| REQ-RBAC-015 | Task 04 |
+| REQ-RBAC-016 | Task 01 |

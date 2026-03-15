@@ -13,12 +13,13 @@ Permission Grants add fine-grained role-based access control (RBAC) to Ari. Curr
 
 **In Scope:**
 - Static permission matrix in Go code mapping (role, resource, action) to allow/deny
-- Permission resources: squad, agent, issue, project, goal, pipeline, inbox, conversation
+- Permission resources: squad, agent, issue, project, goal, pipeline, inbox, conversation, activity, cost, task, run, wakeup
 - Permission actions: create, read, update, delete, assign, advance, reject, resolve
 - User role enforcement: owner (all), admin (all except squad delete), viewer (read only)
 - Agent role scoping: captain (broad), lead (team-scoped), member (self-scoped)
 - `requirePermission(ctx, resource, action) error` helper function
-- Middleware/handler integration for all existing endpoints
+- Refactor `verifySquadMembership` to handle both `Identity` (human) and `AgentIdentity` (agent) callers. For agents, squad scoping uses `AgentIdentity.SquadID`.
+- Middleware/handler integration for all existing endpoints (including activity_handler, cost_handler, task_handler, run_handler, wakeup_handler)
 - React UI: Role management page showing permission matrix per role
 - API endpoint to retrieve the permission matrix (read-only)
 
@@ -36,7 +37,7 @@ Permission Grants add fine-grained role-based access control (RBAC) to Ari. Curr
 |------|------------|
 | Permission | A (resource, action) tuple representing a specific capability. |
 | Permission Matrix | A static map of (role, resource, action) to boolean allow/deny. |
-| Resource | A top-level entity type in Ari: squad, agent, issue, project, goal, pipeline, inbox, conversation. |
+| Resource | A top-level entity type in Ari: squad, agent, issue, project, goal, pipeline, inbox, conversation, activity, cost, task, run, wakeup. |
 | Action | An operation on a resource: create, read, update, delete, assign, advance, reject, resolve. |
 | User Role | The squad membership role: owner, admin, or viewer. Stored in `squad_memberships.role`. |
 | Agent Role | The agent hierarchy role: captain, lead, or member. Stored in `agents.role` and in `AgentIdentity.Role`. |
@@ -51,7 +52,7 @@ Permission Grants add fine-grained role-based access control (RBAC) to Ari. Curr
 
 **REQ-RBAC-002:** The system SHALL define a static permission matrix in Go code that maps each combination of (agent role, resource, action) to an allow or deny decision.
 
-**REQ-RBAC-003:** The permission matrix SHALL cover the following resources: `squad`, `agent`, `issue`, `project`, `goal`, `pipeline`, `inbox`, `conversation`.
+**REQ-RBAC-003:** The permission matrix SHALL cover the following resources: `squad`, `agent`, `issue`, `project`, `goal`, `pipeline`, `inbox`, `conversation`, `activity`, `cost`, `task`, `run`, `wakeup`.
 
 **REQ-RBAC-004:** The permission matrix SHALL cover the following actions: `create`, `read`, `update`, `delete`, `assign`, `advance`, `reject`, `resolve`.
 
@@ -75,11 +76,11 @@ Permission Grants add fine-grained role-based access control (RBAC) to Ari. Curr
 
 **REQ-RBAC-022:** The `captain` agent role SHALL be denied `delete` on all resources and any action on the `squad` resource.
 
-**REQ-RBAC-023:** The `lead` agent role SHALL be allowed `create`, `read`, `update`, `assign`, and `resolve` actions on `issue` and `inbox` resources.
+**REQ-RBAC-023:** The `lead` agent role SHALL be allowed `create`, `read`, `update`, `assign`, `advance`, `reject`, and `resolve` actions on `issue` and `inbox` resources.
 
 **REQ-RBAC-024:** The `lead` agent role SHALL be allowed `read` on `agent`, `project`, `goal`, `pipeline`, and `conversation` resources.
 
-**REQ-RBAC-025:** The `lead` agent role SHALL be denied `advance`, `reject`, and `delete` actions on `pipeline` resources, and any action on the `squad` resource.
+**REQ-RBAC-025:** The `lead` agent role SHALL be denied `delete` actions on all resources, and any action on the `squad` resource.
 
 **REQ-RBAC-026:** The `member` agent role SHALL be allowed `read` and `update` on `issue` resources (only issues assigned to itself).
 
@@ -88,6 +89,14 @@ Permission Grants add fine-grained role-based access control (RBAC) to Ari. Curr
 **REQ-RBAC-028:** The `member` agent role SHALL be denied `create`, `delete`, `assign`, `advance`, and `reject` actions on `issue` resources.
 
 **REQ-RBAC-029:** The `member` agent role SHALL be allowed `create` and `read` on `inbox` resources (to ask humans for help) and `read` and `create` on `conversation` resources (to reply).
+
+### Permission Exceptions and Special Cases
+
+**REQ-RBAC-014:** The `squad.create` action SHALL be excluded from `requirePermission` enforcement. Squad creation is allowed for any authenticated user (current behavior preserved), since squad scope does not yet exist at creation time.
+
+**REQ-RBAC-015:** Comment creation (`POST /api/issues/{id}/comments`) SHALL map to the `issue.update` permission. There is no separate `comment` resource in the permission matrix; comments are considered part of the issue resource.
+
+**REQ-RBAC-016:** The `inbox.delete` and `conversation.delete` actions are intentionally absent from the permission matrix. Both inbox items and conversations follow append-only semantics — deletion is not supported by the API.
 
 ### Permission Enforcement Helper
 

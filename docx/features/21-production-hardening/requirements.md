@@ -3,7 +3,7 @@
 **Created:** 2026-03-15
 **Status:** Draft
 **Feature:** 21-production-hardening
-**Dependencies:** 02-user-authentication, 01-go-scaffold
+**Dependencies:** 02-user-authentication, 01-go-scaffold, 19-master-key (for ARI_MASTER_KEY; falls back to HKDF from JWT secret if not available)
 
 ## Overview
 
@@ -73,11 +73,11 @@ Production Hardening prepares Ari for real-world deployment by adding OAuth/SSO 
 
 **REQ-HARD-014:** WHEN the OAuth callback resolves a provider identity with no existing connection AND no matching email, the system SHALL create a new Ari user (using provider email and display name), create the `oauth_connections` row, issue a JWT session, and redirect to the SPA.
 
-**REQ-HARD-015:** IF `ARI_DISABLE_SIGNUP` is true AND no existing user matches the OAuth identity, THEN the system SHALL reject the login with HTTP 403 and code `SIGNUP_DISABLED`.
+**REQ-HARD-015:** IF `ARI_DISABLE_SIGNUP` is true AND no existing user matches the OAuth identity, THEN the system SHALL reject the login with HTTP 403 and code `SIGNUP_DISABLED`. Note: linking an OAuth provider to an existing user (matched by email) is always allowed regardless of `ARI_DISABLE_SIGNUP` -- only creating a brand new user is blocked.
 
 **REQ-HARD-016:** The OAuth flow SHALL only be available when `ARI_DEPLOYMENT_MODE=authenticated`.
 
-**REQ-HARD-017:** The system SHALL encrypt `access_token` and `refresh_token` at rest using AES-256-GCM with a key derived from `ARI_JWT_SECRET`.
+**REQ-HARD-017:** The system SHALL encrypt `access_token` and `refresh_token` at rest using AES-256-GCM with a key derived from `ARI_MASTER_KEY` (via Feature 19's MasterKeyManager). IF `ARI_MASTER_KEY` is not available (Feature 19 not yet implemented), the system SHALL fall back to HKDF-SHA256 from `ARI_JWT_SECRET` with salt `[]byte("ari-oauth-v1")` and info `"ari-oauth-token-encryption"`.
 
 #### OAuth Configuration
 
@@ -147,11 +147,11 @@ Production Hardening prepares Ari for real-world deployment by adding OAuth/SSO 
 
 **REQ-HARD-063:** WHEN a request exceeds the rate limit, the system SHALL return HTTP 429 with a `Retry-After` header indicating seconds until the next available token.
 
-**REQ-HARD-064:** The system SHALL use the `X-Forwarded-For` header (first IP) when present, falling back to `RemoteAddr` for IP extraction.
+**REQ-HARD-064:** The system SHALL use the `X-Forwarded-For` header (first IP) ONLY when `RemoteAddr` is within the `ARI_TRUSTED_PROXIES` CIDR list, falling back to `RemoteAddr` otherwise. Default: empty (trust direct connection only).
 
 **REQ-HARD-065:** The rate limiter SHALL evict stale entries (no requests in 10 minutes) to prevent memory growth.
 
-**REQ-HARD-066:** The existing login rate limiter in `auth_handler.go` SHALL be replaced by the global rate limiter with auth-specific limits.
+**REQ-HARD-066:** The system SHALL add a global per-IP RPS rate limiter as a new middleware layer. The existing brute-force login rate limiter in `auth_handler.go` SHALL be kept as-is for login endpoints, providing defense-in-depth alongside the global limiter.
 
 ### 21.6 — Request Size Limits
 
@@ -176,6 +176,8 @@ Production Hardening prepares Ari for real-world deployment by adding OAuth/SSO 
 **REQ-HARD-085:** WHEN no TLS configuration is provided, the system SHALL fall back to plain HTTP (current behavior).
 
 **REQ-HARD-086:** The system SHALL read TLS configuration from environment variables: `ARI_TLS_CERT`, `ARI_TLS_KEY`, `ARI_DOMAIN`, `ARI_TLS_REDIRECT_PORT`.
+
+**REQ-HARD-087:** The system SHALL read `ARI_TRUSTED_PROXIES` (comma-separated CIDR list) to determine which proxy IPs are trusted for `X-Forwarded-For` parsing. Default: empty (trust direct connection only).
 
 ---
 

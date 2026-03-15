@@ -3,7 +3,7 @@
 **Created:** 2026-03-15
 **Status:** Ready for Implementation
 **Feature:** 21-production-hardening
-**Dependencies:** 02-user-authentication, 01-go-scaffold
+**Dependencies:** 02-user-authentication, 01-go-scaffold, 19-master-key (for ARI_MASTER_KEY; falls back to HKDF from JWT secret if not available)
 
 ---
 
@@ -49,7 +49,7 @@ Client → [TLS Termination] → [Rate Limiter] → [Max Body Size] → [Auth Mi
 
 ## 2. Database Schema
 
-### Migration: `20260316000017_create_oauth_connections.sql`
+### Migration: `20260316000020_create_oauth_connections.sql`
 
 ```sql
 -- +goose Up
@@ -75,14 +75,25 @@ CREATE UNIQUE INDEX uq_oauth_provider_identity ON oauth_connections (provider, p
 -- Lookup by provider email (for auto-link on first OAuth login)
 CREATE INDEX idx_oauth_provider_email ON oauth_connections (provider_email);
 
--- Auto-update updated_at
-CREATE TRIGGER set_oauth_connections_updated_at
+-- Auto-update updated_at (per-table trigger function, matching existing pattern)
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION update_oauth_connections_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+CREATE TRIGGER trg_oauth_connections_updated_at
     BEFORE UPDATE ON oauth_connections
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION update_oauth_connections_updated_at();
 
 -- +goose Down
 
-DROP TRIGGER IF EXISTS set_oauth_connections_updated_at ON oauth_connections;
+DROP TRIGGER IF EXISTS trg_oauth_connections_updated_at ON oauth_connections;
+DROP FUNCTION IF EXISTS update_oauth_connections_updated_at;
 DROP TABLE IF EXISTS oauth_connections;
 ```
 
@@ -111,8 +122,8 @@ ORDER BY provider;
 DELETE FROM oauth_connections
 WHERE id = $1;
 
--- name: GetUserByEmail :one
-SELECT * FROM users WHERE email = $1;
+-- NOTE: GetUserByEmail already exists in internal/database/queries/users.sql.
+-- Do NOT duplicate it here. The OAuth service uses the existing query.
 ```
 
 ---
@@ -137,8 +148,9 @@ type Config struct {
     TLSKey       string
     TLSDomain    string
     TLSRedirectPort int
-    RateLimitRPS   int
-    RateLimitBurst int
+    RateLimitRPS    int
+    RateLimitBurst  int
+    TrustedProxies  string // comma-separated CIDRs, e.g. "10.0.0.0/8,172.16.0.0/12"
 }
 ```
 
@@ -146,7 +158,7 @@ Environment variables:
 - `ARI_OAUTH_GOOGLE_CLIENT_ID`, `ARI_OAUTH_GOOGLE_CLIENT_SECRET`
 - `ARI_OAUTH_GITHUB_CLIENT_ID`, `ARI_OAUTH_GITHUB_CLIENT_SECRET`
 - `ARI_TLS_CERT`, `ARI_TLS_KEY`, `ARI_DOMAIN`, `ARI_TLS_REDIRECT_PORT`
-- `ARI_RATE_LIMIT_RPS`, `ARI_RATE_LIMIT_BURST`
+- `ARI_RATE_LIMIT_RPS`, `ARI_RATE_LIMIT_BURST`, `ARI_TRUSTED_PROXIES`
 
 ### 4.2 OAuth Service
 
@@ -159,7 +171,7 @@ type OAuthService struct {
     dbConn    *sql.DB
     jwtSvc    *JWTService
     sessions  SessionStore
-    encKey    []byte // derived from JWT secret for token encryption
+    encKey    []byte // derived from ARI_MASTER_KEY (preferred) or HKDF from JWT secret (fallback)
 }
 
 func NewOAuthService(
@@ -167,7 +179,8 @@ func NewOAuthService(
     dbConn *sql.DB,
     jwtSvc *JWTService,
     sessions SessionStore,
-    jwtSecret []byte,
+    masterKey []byte,   // from ARI_MASTER_KEY (Feature 19); may be nil
+    jwtSecret []byte,   // fallback key material when masterKey is nil
     baseURL string,
     google, github OAuthProviderConfig,
 ) *OAuthService
@@ -201,6 +214,11 @@ Browser                    Ari Server                  Google/GitHub
   |<-- 302 Redirect to SPA with session cookie             |
 ```
 
+**SPA redirect URL resolution:** The callback handler redirects to the SPA after successful authentication. The SPA URL is determined in this order:
+1. `ARI_DOMAIN` if set (e.g., `https://ari.example.com/`)
+2. Request `Host` header (e.g., `https://{Host}/` or `http://{Host}/` based on TLS)
+3. Fallback: `http://localhost:3100/`
+
 ### 4.4 Provider Endpoints
 
 Google:
@@ -217,13 +235,23 @@ GitHub:
 
 ### 4.5 Token Encryption
 
-Encrypt OAuth tokens at rest using AES-256-GCM. The encryption key is derived from `ARI_JWT_SECRET` using HKDF-SHA256 with a fixed info string `"ari-oauth-token-encryption"`.
+Encrypt OAuth tokens at rest using AES-256-GCM. The encryption key is sourced from `ARI_MASTER_KEY` (via Feature 19's MasterKeyManager) when available. If Feature 19 is not yet implemented, the key is derived from `ARI_JWT_SECRET` using HKDF-SHA256 with a fixed salt `[]byte("ari-oauth-v1")` and info string `"ari-oauth-token-encryption"`.
+
+**Dependency:** Feature 19 (MasterKeyManager) provides `ARI_MASTER_KEY`. If unavailable, the HKDF fallback is used. When Feature 19 is implemented, migration to `ARI_MASTER_KEY` is transparent (re-encrypt tokens on first access or provide a migration script).
 
 ```go
-func deriveEncryptionKey(jwtSecret []byte) ([]byte, error) {
-    hkdf := hkdf.New(sha256.New, jwtSecret, nil, []byte("ari-oauth-token-encryption"))
+func deriveEncryptionKey(masterKey []byte, jwtSecret []byte) ([]byte, error) {
+    // Prefer ARI_MASTER_KEY from Feature 19's MasterKeyManager
+    if len(masterKey) > 0 {
+        h := hkdf.New(sha256.New, masterKey, []byte("ari-oauth-v1"), []byte("ari-oauth-token-encryption"))
+        key := make([]byte, 32)
+        _, err := io.ReadFull(h, key)
+        return key, err
+    }
+    // Fallback: derive from JWT secret with fixed salt (never nil)
+    h := hkdf.New(sha256.New, jwtSecret, []byte("ari-oauth-v1"), []byte("ari-oauth-token-encryption"))
     key := make([]byte, 32)
-    _, err := io.ReadFull(hkdf, key)
+    _, err := io.ReadFull(h, key)
     return key, err
 }
 ```
@@ -242,6 +270,9 @@ func deriveEncryptionKey(jwtSecret []byte) ([]byte, error) {
 ```
 
 Add `/api/auth/providers` to `publicEndpoints` in `middleware.go`.
+Add `/api/auth/oauth/` prefix to `publicEndpoints` in `middleware.go` (start and callback endpoints are unauthenticated).
+
+**OAuth vs DisableSignUp behavior:** When `ARI_DISABLE_SIGNUP` is true, linking an OAuth provider to an existing user (matched by email) is always allowed. Only creating a brand new user (no existing email match) is blocked with HTTP 403 `SIGNUP_DISABLED`.
 
 ---
 
@@ -268,7 +299,7 @@ func newBackupCmd() *cobra.Command {
 1. Load config to determine embedded vs external PostgreSQL.
 2. For embedded PG: locate `pg_dump` in the embedded-postgres cache directory (`~/.embedded-postgres-go/`).
 3. For external PG: use `exec.LookPath("pg_dump")` to find system binary.
-4. Execute `pg_dump` with appropriate connection args.
+4. Execute `pg_dump --clean` (includes DROP statements so `ari restore` works without manual cleanup) with appropriate connection args.
 5. Stream output to the specified file.
 
 ### 5.2 `ari restore`
@@ -339,14 +370,19 @@ WORKDIR /app
 COPY --from=go-builder /ari /usr/local/bin/ari
 COPY --from=ui-builder /app/web/dist /app/web/dist
 
-# Embedded PG will download binaries on first run to /data
+# Run as non-root user
+RUN adduser -D -u 1000 ari && chown -R ari:ari /app
+
+# Data volume (must be writable by ari user)
 VOLUME /data
+RUN mkdir -p /data && chown -R ari:ari /data
 ENV ARI_DATA_DIR=/data
 EXPOSE 3100
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:3100/api/health || exit 1
 
+USER ari
 ENTRYPOINT ["ari"]
 CMD ["run"]
 ```
@@ -354,21 +390,15 @@ CMD ["run"]
 ### 6.2 Docker Compose
 
 ```yaml
-version: "3.9"
+# Note: No top-level "version" key (deprecated in modern Docker Compose).
+# Default profile uses external PostgreSQL (recommended for Docker).
+# Embedded mode requires internet access (or pre-downloaded binaries) to fetch
+# embedded-postgres-go binaries on first run -- use "embedded" profile only for
+# quick local testing outside Docker.
 
 services:
+  # Default: Ari with external PostgreSQL (recommended for Docker deployments)
   ari:
-    build: .
-    ports:
-      - "3100:3100"
-    volumes:
-      - ari-data:/data
-    environment:
-      - ARI_ENV=production
-      - ARI_DEPLOYMENT_MODE=authenticated
-    profiles: ["embedded", "default"]
-
-  ari-external:
     build: .
     ports:
       - "3100:3100"
@@ -379,7 +409,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    profiles: ["external"]
+    profiles: ["external", "default"]
 
   postgres:
     image: postgres:16-alpine
@@ -394,7 +424,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    profiles: ["external"]
+    profiles: ["external", "default"]
+
+  # Embedded mode: single container with embedded PG.
+  # WARNING: Requires internet to download PG binaries on first start,
+  # or pre-downloaded binaries volume-mounted into the container.
+  ari-embedded:
+    build: .
+    ports:
+      - "3100:3100"
+    volumes:
+      - ari-data:/data
+    environment:
+      - ARI_ENV=production
+      - ARI_DEPLOYMENT_MODE=authenticated
+    profiles: ["embedded"]
 
 volumes:
   ari-data:
@@ -492,7 +536,7 @@ log_level: info
 #     client_secret: "..."
 ```
 
-**Config Loading Priority:** Environment variables > config file > defaults. The `config.Load()` function is extended to optionally read from a YAML file first, then overlay environment variables.
+**Config Loading Priority:** Environment variables > config file > defaults. The `config.Load()` function is extended to optionally read from a YAML file first (`ari.yaml` in CWD or path from `--config` flag), then overlay environment variables. Uses `gopkg.in/yaml.v3` for parsing. This config file loading is implemented in Task 01 as part of the config foundation work.
 
 ---
 
@@ -529,15 +573,31 @@ func (rl *RateLimitMiddleware) Middleware() func(http.Handler) http.Handler
 
 ### 8.2 IP Extraction
 
+The `X-Forwarded-For` header is only trusted when `RemoteAddr` falls within the configured `ARI_TRUSTED_PROXIES` CIDR list. Default: empty (trust direct connection only, ignore `X-Forwarded-For`).
+
 ```go
-func extractIP(r *http.Request) string {
-    // Check X-Forwarded-For (first IP)
-    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-        parts := strings.SplitN(xff, ",", 2)
-        return strings.TrimSpace(parts[0])
+type RateLimitMiddleware struct {
+    // ... (existing fields)
+    trustedProxies []*net.IPNet // parsed from ARI_TRUSTED_PROXIES
+}
+
+func extractIP(r *http.Request, trustedProxies []*net.IPNet) string {
+    host, _, _ := net.SplitHostPort(r.RemoteAddr)
+    remoteIP := net.ParseIP(host)
+
+    // Only parse X-Forwarded-For if RemoteAddr is a trusted proxy
+    if remoteIP != nil && len(trustedProxies) > 0 {
+        for _, cidr := range trustedProxies {
+            if cidr.Contains(remoteIP) {
+                if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+                    parts := strings.SplitN(xff, ",", 2)
+                    return strings.TrimSpace(parts[0])
+                }
+                break
+            }
+        }
     }
     // Fall back to RemoteAddr
-    host, _, _ := net.SplitHostPort(r.RemoteAddr)
     return host
 }
 ```
@@ -569,9 +629,13 @@ handler = hstsMiddleware(tlsEnabled)(handler) // NEW: HSTS when TLS
 handler = s.middleware(handler)
 ```
 
-### 8.5 Replacing Existing Rate Limiter
+### 8.5 Coexistence with Existing Login Rate Limiter
 
-The existing `auth.NewRateLimiter()` used in `run.go` (line 97) is replaced by the global `RateLimitMiddleware`. The `AuthHandler` no longer needs its own rate limiter field. The per-IP approach in the new middleware subsumes the old per-IP login limiter.
+The existing `auth.NewRateLimiter()` brute-force login rate limiter in `auth_handler.go` is **kept as-is**. It provides defense-in-depth: the global `RateLimitMiddleware` enforces per-IP RPS across all endpoints (with stricter auth-tier limits), while the existing login limiter provides additional brute-force protection specifically for login attempts (e.g., failed-attempt counting, lockout). Both layers operate independently.
+
+**Changes to `auth_handler.go`:** None -- keep the existing `rateLimiter` field and logic.
+
+**Changes to `server.go`:** Add the new global `RateLimitMiddleware` as a separate middleware layer in the chain (before `maxBodySize`). The `AuthHandler` constructor signature remains unchanged.
 
 ---
 
@@ -652,7 +716,9 @@ func (s *Server) startRedirectServer(ctx context.Context) {
     }
     go redirect.ListenAndServe()
     <-ctx.Done()
-    redirect.Shutdown(context.Background())
+    shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    redirect.Shutdown(shutdownCtx)
 }
 ```
 
@@ -670,13 +736,28 @@ type BodySizeConfig struct {
     Overrides map[string]int64 // path prefix → max bytes
 }
 
+type bodySizeOverride struct {
+    Prefix string
+    Size   int64
+}
+
 func maxBodySizeWithOverrides(cfg BodySizeConfig) func(http.Handler) http.Handler {
+    // Pre-sort overrides by prefix length (longest first) to ensure
+    // the most specific prefix matches before shorter ones.
+    sorted := make([]bodySizeOverride, 0, len(cfg.Overrides))
+    for prefix, size := range cfg.Overrides {
+        sorted = append(sorted, bodySizeOverride{Prefix: prefix, Size: size})
+    }
+    sort.Slice(sorted, func(i, j int) bool {
+        return len(sorted[i].Prefix) > len(sorted[j].Prefix)
+    })
+
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
             maxBytes := cfg.Default
-            for prefix, size := range cfg.Overrides {
-                if strings.HasPrefix(r.URL.Path, prefix) {
-                    maxBytes = size
+            for _, override := range sorted {
+                if strings.HasPrefix(r.URL.Path, override.Prefix) {
+                    maxBytes = override.Size
                     break
                 }
             }
@@ -709,6 +790,7 @@ New fields added to `config.Config`:
 | `TLSRedirectPort` | `ARI_TLS_REDIRECT_PORT` | `80` | `int` |
 | `RateLimitRPS` | `ARI_RATE_LIMIT_RPS` | `100` | `int` |
 | `RateLimitBurst` | `ARI_RATE_LIMIT_BURST` | `200` | `int` |
+| `TrustedProxies` | `ARI_TRUSTED_PROXIES` | `""` | `string` (comma-separated CIDRs) |
 
 ---
 
@@ -730,7 +812,7 @@ New dependencies:
 
 ## 13. Security Considerations
 
-1. **OAuth state parameter:** Use `crypto/rand` to generate 32-byte state, stored in a short-lived (5-minute) HttpOnly, Secure, SameSite=Lax cookie. Validated on callback.
+1. **OAuth state parameter:** Use `crypto/rand` to generate 32-byte state, stored in a short-lived (5-minute) HttpOnly, SameSite=Lax cookie. The `Secure` flag is set only when TLS is active (check `r.TLS != nil` or config `TLSCert`/`TLSDomain` is set). Validated on callback.
 2. **Token encryption:** OAuth access/refresh tokens encrypted at rest with AES-256-GCM. Key derived from JWT secret via HKDF so no additional secret management.
 3. **Rate limiting:** Applied before auth middleware to protect against brute-force attacks on login endpoints.
 4. **HSTS:** Prevents protocol downgrade attacks when TLS is active.

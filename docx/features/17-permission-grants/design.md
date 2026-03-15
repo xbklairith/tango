@@ -83,6 +83,11 @@ const (
     ResourcePipeline     Resource = "pipeline"
     ResourceInbox        Resource = "inbox"
     ResourceConversation Resource = "conversation"
+    ResourceActivity     Resource = "activity"
+    ResourceCost         Resource = "cost"
+    ResourceTask         Resource = "task"
+    ResourceRun          Resource = "run"
+    ResourceWakeup       Resource = "wakeup"
 )
 
 // Action represents an operation on a resource.
@@ -145,6 +150,13 @@ type RolePermissions map[string]PermissionSet
 | conversation.create  | Y | Y | - |
 | conversation.read    | Y | Y | Y |
 | conversation.update  | Y | Y | - |
+| activity.read  | Y | Y | Y |
+| cost.read      | Y | Y | Y |
+| task.read      | Y | Y | Y |
+| task.update    | Y | Y | - |
+| run.create     | Y | Y | - |
+| run.read       | Y | Y | Y |
+| wakeup.create  | Y | Y | - |
 
 ### 2.3 Agent Role Matrix
 
@@ -167,6 +179,12 @@ type RolePermissions map[string]PermissionSet
 | conversation.create | Y | Y | Y |
 | conversation.read   | Y | Y | Y |
 | conversation.update | Y | Y | - |
+| activity.read | Y | Y | Y |
+| cost.read     | Y | Y | Y |
+| task.read     | Y | Y | Y |
+| task.update   | Y | Y | Y |
+| run.read      | Y | Y | Y |
+| wakeup.create | Y | Y | - |
 
 `Y*` = member can only update issues assigned to itself (enforced at handler level via `REQ-RBAC-054`).
 
@@ -223,7 +241,10 @@ func RequirePermission(
         return nil // owner has all permissions
     }
 
-    // 4. Look up squad membership role
+    // 4. Look up squad membership role (nil safety check)
+    if roleLookup == nil {
+        return fmt.Errorf("internal error: roleLookup is nil for user identity")
+    }
     role, err := roleLookup(ctx, user.UserID, squadID)
     if err != nil {
         return fmt.Errorf("squad membership required")
@@ -325,6 +346,37 @@ var AgentPermissions = RolePermissions{
 }
 ```
 
+## 3.3 Prerequisite: Refactor `verifySquadMembership` for Dual Identity
+
+The existing `verifySquadMembership` helper in handlers only handles `Identity` (human users via `auth.UserFromContext`). It does not handle `AgentIdentity`. This must be refactored before RBAC integration.
+
+**Current behavior:** `verifySquadMembership` calls `auth.UserFromContext(ctx)` and looks up `squad_memberships`. If the caller is an agent (authenticated via run token), `UserFromContext` returns `false` and the handler returns 401.
+
+**Required refactor:** `verifySquadMembership` must be updated to:
+1. First check `auth.AgentFromContext(ctx)` — if present, verify `AgentIdentity.SquadID == squadID` (agents are inherently scoped to a squad via their run token).
+2. If no agent identity, fall back to `auth.UserFromContext(ctx)` and look up `squad_memberships` as before.
+3. Return the caller type (user or agent) so the handler can adapt behavior accordingly.
+
+This refactor is a prerequisite for Tasks 03-06 and must be completed at the start of Task 02 or Task 03.
+
+## 3.4 `roleLookup` Nil Safety and Caching
+
+The `roleLookup` parameter to `RequirePermission` may be `nil` when called from agent-only code paths (since agents get their role from `AgentIdentity.Role`, not from a DB lookup). The implementation MUST add a nil check on `roleLookup` before calling it. If `roleLookup` is nil and the caller is a human user, return an error indicating misconfiguration.
+
+Additionally, when the caller's squad membership role has already been fetched (e.g., by `verifySquadMembership`), the `roleLookup` function SHOULD accept an optional pre-fetched role to avoid redundant DB queries. Design the `SquadRoleLookup` type or provide an alternative `RequirePermissionWithRole(ctx, role, resource, action)` function that accepts a cached role string directly.
+
+```go
+// RequirePermissionWithRole is a convenience for when the caller's role is already known.
+// Avoids a redundant DB lookup when verifySquadMembership has already fetched the role.
+func RequirePermissionWithRole(ctx context.Context, role string, resource Resource, action Action) error {
+    // Check for AgentIdentity first (takes precedence)
+    if agent, ok := AgentFromContext(ctx); ok {
+        return checkAgentPermission(agent.Role, resource, action)
+    }
+    return checkUserPermission(role, resource, action)
+}
+```
+
 ## 4. Handler Integration Pattern
 
 ### 4.1 Before (Current Pattern)
@@ -378,6 +430,20 @@ func (h *IssueHandler) roleLookup(ctx context.Context, userID, squadID uuid.UUID
 ```
 
 This keeps the permission package decoupled from the database package.
+
+**Optimization (M12):** When `verifySquadMembership` has already fetched the membership role, use `RequirePermissionWithRole(ctx, role, resource, action)` instead of `RequirePermission` with a `roleLookup` to avoid a redundant DB query. The `roleLookup` adapter is only needed when the role has not been fetched yet.
+
+### 4.4 Special Cases
+
+**`squad.create` exclusion:** The `squad.create` action is explicitly excluded from `requirePermission` enforcement. Squad creation occurs before a squad exists, so there is no squad scope to check against. Any authenticated user can create a squad (preserving current behavior). The `CreateSquad` handler must NOT call `requirePermission`.
+
+**Comment creation maps to `issue.update`:** The `CreateComment` handler (`POST /api/issues/{id}/comments`) must call `requirePermission(ctx, squadID, ResourceIssue, ActionUpdate, ...)` since comments are part of the issue resource. There is no separate `comment` resource.
+
+**Append-only resources:** `inbox.delete` and `conversation.delete` are intentionally absent from the matrix. The API does not support deleting inbox items or conversations (append-only semantics).
+
+### 4.5 Replacing Existing Manual Role Checks
+
+During Tasks 03-05, all existing manual role checks (e.g., `CanEditSquad`, owner-only guards, admin-only checks) in handlers MUST be REMOVED and replaced by `requirePermission` calls. The permission matrix is the single source of truth for authorization. Leaving manual checks alongside `requirePermission` would create conflicting enforcement paths and maintenance burden.
 
 ## 5. Agent Self-Scoping (Member Issue Guard)
 
@@ -525,6 +591,11 @@ This feature modifies no database schema. The rollout is:
 | `internal/server/handlers/inbox_handler.go` | Add requirePermission calls |
 | `internal/server/handlers/conversation_handler.go` | Add requirePermission calls |
 | `internal/server/handlers/membership_handler.go` | Add requirePermission calls |
+| `internal/server/handlers/activity_handler.go` | Add requirePermission calls (read permission for activity feed) |
+| `internal/server/handlers/cost_handler.go` | Add requirePermission calls (read permission for cost data) |
+| `internal/server/handlers/task_handler.go` | Add requirePermission calls (task checkout/update permissions) |
+| `internal/server/handlers/run_handler.go` | Add requirePermission calls (run read/create permissions) |
+| `internal/server/handlers/wakeup_handler.go` | Add requirePermission calls (wakeup enqueue permissions) |
 | `internal/server/handlers/runtime_handler.go` | Add requirePermission calls for agent endpoints |
 | `internal/server/handlers/agent_self_handler.go` | Add agent role scoping (member self-check) |
 | `cmd/ari/run.go` or `internal/server/server.go` | Wire PermissionHandler, register route |
