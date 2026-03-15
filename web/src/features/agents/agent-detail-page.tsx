@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useUpdateAgent } from "./use-update-agent";
+import { AgentConsole } from "./agent-console";
 
 const roles: AgentRole[] = ["captain", "lead", "member"];
 
@@ -213,6 +214,13 @@ export default function AgentDetailPage() {
           </div>
         )}
       </div>
+
+      <AgentConsole
+        agentId={agent.id}
+        squadId={agent.squadId}
+        agentName={agent.name}
+        agentStatus={agent.status}
+      />
     </div>
   );
 }

@@ -21,11 +21,13 @@ Agents are organized in a strict hierarchy: **Captain** leads the squad, **Leads
 
 ---
 
-## Agent Detail
+## Agent Detail — Live Console
 
 ![Agent Detail](03-agent-detail.png)
 
-Full agent profile with role, adapter configuration, and lifecycle controls. Agents can be paused, resumed, or terminated directly from the UI. The status badge updates in real-time as agents transition between states (active, running, idle, error, paused).
+See exactly what your agent is thinking and doing. The live console shows tool calls in real-time — reading files, writing code, running tests, searching the codebase, and calling APIs. Like watching Claude Code work, but for your autonomous agents.
+
+Agents can be paused, resumed, or terminated directly from the UI. Status updates flow via Server-Sent Events.
 
 ---
 
