@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/select";
 import {
   LayoutDashboard,
-  Users,
   Bot,
   CircleDot,
   FolderKanban,
@@ -26,9 +25,7 @@ interface SidebarProps {
   onNavigate?: () => void;
 }
 
-const staticNavItems = [
-  { to: "/squads", icon: Users, label: "Squads", end: false },
-];
+const staticNavItems: { to: string; icon: any; label: string; end?: boolean }[] = [];
 
 function SquadSelector() {
   const { user } = useAuth();
@@ -110,8 +107,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
         {squadNavItems.length > 0 && (
           <>
-            <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Squad
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Squad</span>
+              <NavLink to="/squads" onClick={onNavigate} className="text-xs text-muted-foreground hover:text-foreground">
+                Manage
+              </NavLink>
             </div>
             <SquadSelector />
             {squadNavItems.map((item) => (
