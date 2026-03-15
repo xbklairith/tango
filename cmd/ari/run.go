@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/xb/ari/internal/adapter"
+	"github.com/xb/ari/internal/adapter/claude"
 	"github.com/xb/ari/internal/adapter/process"
 	"github.com/xb/ari/internal/auth"
 	"github.com/xb/ari/internal/config"
@@ -145,6 +146,14 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	sseHub := sse.NewHub()
 	adapterRegistry := adapter.NewRegistry()
 	adapterRegistry.Register(process.New())
+
+	claudeAdapter := claude.New()
+	if result, err := claudeAdapter.TestEnvironment(adapter.TestLevelBasic); err == nil && result.Available {
+		adapterRegistry.Register(claudeAdapter)
+		slog.Info("claude adapter registered", "message", result.Message)
+	} else {
+		slog.Info("claude adapter not available", "message", result.Message)
+	}
 
 	runTokenKey := make([]byte, 32)
 	if _, err := rand.Read(runTokenKey); err != nil {

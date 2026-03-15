@@ -153,13 +153,17 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 	// 9. Execute adapter (blocks)
 	hooks := adapter.Hooks{
 		OnLogLine: func(line adapter.LogLine) {
-			s.sseHub.Publish(wakeup.SquadID, "heartbeat.run.log", map[string]any{
+			payload := map[string]any{
 				"runId":     run.ID,
 				"agentId":   agent.ID,
 				"level":     line.Level,
 				"message":   line.Message,
 				"timestamp": line.Timestamp.Format("2006-01-02T15:04:05Z"),
-			})
+			}
+			if line.Fields != nil {
+				payload["fields"] = line.Fields
+			}
+			s.sseHub.Publish(wakeup.SquadID, "heartbeat.run.log", payload)
 		},
 		OnStatusChange: func(detail string) {
 			slog.Debug("adapter status change", "run_id", run.ID, "detail", detail)
