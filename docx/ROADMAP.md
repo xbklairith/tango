@@ -21,8 +21,11 @@
 | 11 | Agent Runtime | Done | 6 | 10 |
 | — | Golden Agent Journey | Done | — | 1 E2E |
 | — | Agent Console (UI) | Done | — | — |
+| 12 | Inbox System | Done | 7 | — |
+| 13 | Conversations | Done | 5 | — |
+| 20 | Claude Adapter | Done | — | 12 |
 
-**Total: 49 API endpoints, 13 DB migrations, 86 React components**
+**Total: 61 API endpoints, 15 DB migrations, 86 React components**
 
 ---
 
@@ -32,17 +35,8 @@
 
 > Make agents actually useful. Conversations, multi-agent pipelines, richer self-service.
 
-#### Feature 12: Inbox System (Human-in-the-Loop Queue)
+#### Feature 12: Inbox System (Human-in-the-Loop Queue) — DONE
 **Priority: HIGH** | Complexity: L | Depends on: 09, 10, 11
-
-The primary governance interface. Agents create inbox items when they need human attention — budget warnings, approval requests, questions, error reports.
-
-```
-Spec needed:
-  docx/features/12-inbox-system/requirements.md
-  docx/features/12-inbox-system/design.md
-  docx/features/12-inbox-system/tasks.md
-```
 
 | Task | Description |
 |------|-------------|
@@ -59,17 +53,8 @@ Spec needed:
 
 ---
 
-#### Feature 13: Conversations (Agent Chat Interface)
+#### Feature 13: Conversations (Agent Chat Interface) — DONE
 **Priority: HIGH** | Complexity: XL | Depends on: 11, 12
-
-Transform Ari from project management to interactive control plane. Users chat with agents in real-time.
-
-```
-Spec needed:
-  docx/features/13-conversations/requirements.md
-  docx/features/13-conversations/design.md
-  docx/features/13-conversations/tasks.md
-```
 
 | Task | Description |
 |------|-------------|
@@ -87,15 +72,15 @@ Spec needed:
 ---
 
 #### Feature 14: Issue Pipelines (Multi-Agent Workflows)
-**Priority: MEDIUM** | Complexity: L | Depends on: 11, 13
+**Priority: MEDIUM** | Complexity: L | Depends on: 11, 13 | **Status: Spec'd**
 
 Enable multi-agent collaboration. An issue flows through stages, each handled by a different agent.
 
 ```
-Spec needed:
-  docx/features/14-issue-pipelines/requirements.md
-  docx/features/14-issue-pipelines/design.md
-  docx/features/14-issue-pipelines/tasks.md
+Spec ready:
+  docx/features/14-issue-pipelines/requirements.md  ✓
+  docx/features/14-issue-pipelines/design.md         ✓
+  docx/features/14-issue-pipelines/tasks.md          (pending)
 ```
 
 | Task | Description |
@@ -113,15 +98,15 @@ Spec needed:
 ---
 
 #### Feature 15: Agent Self-Service API (Extended)
-**Priority: MEDIUM** | Complexity: M | Depends on: 11, 12, 13
+**Priority: MEDIUM** | Complexity: M | Depends on: 11, 12, 13 | **Status: Spec'd**
 
 Expand what agents can query about themselves and their environment.
 
 ```
-Spec needed:
-  docx/features/15-agent-self-service/requirements.md
-  docx/features/15-agent-self-service/design.md
-  docx/features/15-agent-self-service/tasks.md
+Spec ready:
+  docx/features/15-agent-self-service-extended/requirements.md  ✓
+  docx/features/15-agent-self-service-extended/design.md         ✓
+  docx/features/15-agent-self-service-extended/tasks.md          (pending)
 ```
 
 | Task | Description |
@@ -142,10 +127,17 @@ Spec needed:
 
 > Make agents trustworthy. Full approval gates, permissions, override controls.
 
-#### Feature 16: Approval Gates
+#### Feature 16: Approval Gates — **Status: Spec'd**
 **Priority: HIGH** | Complexity: M | Depends on: 12
 
 Agents must request approval before taking critical actions. Configurable per squad.
+
+```
+Spec ready:
+  docx/features/16-approval-gates/requirements.md  ✓
+  docx/features/16-approval-gates/design.md         ✓
+  docx/features/16-approval-gates/tasks.md          (pending)
+```
 
 | Task | Description |
 |------|-------------|
@@ -281,11 +273,11 @@ Now          ──→  v0.2 Execution  ──→  v0.3 Governance  ──→  v
 
 | Feature | Impact | Effort | Why first |
 |---------|--------|--------|-----------|
-| **12: Inbox** | High | 3-4 days | Unlocks governance — agents can ask humans for help |
-| **13: Conversations** | High | 5-7 days | Flagship UX — users chat with agents directly |
-| **20: Claude Adapter** | High | 3-4 days | Makes agents real — Claude Code as the brain |
+| **14: Issue Pipelines** | High | 3-4 days | Multi-agent workflows — the core differentiator |
+| **15: Agent Self-Service** | Medium | 2-3 days | Smarter agents — they can query their own context |
+| **16: Approval Gates** | High | 2-3 days | Governance — agents must ask before critical actions |
 
-**My recommendation:** Start with **Feature 20 (Claude Adapter)** — it makes the golden journey actually useful with a real AI agent, not just a bash script. Then **Feature 12 (Inbox)** for governance, then **Feature 13 (Conversations)** for the interactive UX.
+**My recommendation:** Start with **Feature 14 (Issue Pipelines)** — multi-agent workflows are the flagship feature that distinguishes Ari. Then **Feature 16 (Approval Gates)** for governance, then **Feature 15 (Agent Self-Service)** for agent intelligence.
 
 ---
 
