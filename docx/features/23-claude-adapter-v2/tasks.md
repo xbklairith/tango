@@ -1,7 +1,7 @@
 # Tasks: Claude Adapter v2
 
 **Created:** 2026-03-17
-**Status:** In Progress
+**Status:** Complete
 
 ## Requirement Traceability
 
@@ -42,9 +42,9 @@
 ## Progress Summary
 
 - Total Tasks: 15
-- Completed: 13/15
-- In Progress: None (Tasks 4 session wiring + 12 workspace cwd in run_handler pending integration)
-- Test Coverage: 30+ new tests
+- Completed: 15/15
+- In Progress: None
+- Test Coverage: 40+ new tests
 
 ## Tasks (TDD: Red-Green-Refactor)
 
