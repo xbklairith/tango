@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import { humanize } from "@/lib/utils";
 import { useSquadEvents } from "@/lib/use-squad-events";
-import type { Agent, AgentRole, AgentStatus, UpdateAgentRequest } from "@/types/agent";
+import type { Agent, AgentRole, AgentStatus } from "@/types/agent";
 import { agentStatusColors } from "@/types/agent";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,7 +59,7 @@ export default function AgentDetailPage() {
   useSquadEvents(agent?.squadId);
 
   const [isEditing, setIsEditing] = useState(false);
-  const [form, setForm] = useState<Partial<UpdateAgentRequest>>({});
+  const [form, setForm] = useState<Record<string, string | undefined>>({});
   const [adapterConfigText, setAdapterConfigText] = useState("");
   const [runtimeConfigText, setRuntimeConfigText] = useState("");
   const updateAgent = useUpdateAgent();
@@ -101,8 +101,9 @@ export default function AgentDetailPage() {
       if (runtimeConfigText.trim()) runtimeConfig = JSON.parse(runtimeConfigText);
     } catch { /* keep undefined */ }
 
+    const { urlKey, ...rest } = form;
     updateAgent.mutate(
-      { id: agent!.id, data: { ...form, adapterConfig, runtimeConfig } },
+      { id: agent!.id, data: { ...rest, shortName: urlKey, adapterConfig, runtimeConfig } },
       { onSuccess: () => setIsEditing(false) },
     );
   }

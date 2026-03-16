@@ -23,7 +23,7 @@ interface CreateAgentDialogProps {
   squadId: string;
 }
 
-const roles: AgentRole[] = ["captain", "lead", "member"];
+const roles: AgentRole[] = ["lead", "member"];
 
 const initialForm = {
   name: "",
@@ -66,10 +66,10 @@ export function CreateAgentDialog({ open, onOpenChange, squadId }: CreateAgentDi
     }
     const data: CreateAgentRequest = {
       name: form.name.trim(),
-      urlKey: form.urlKey.trim(),
+      shortName: form.urlKey.trim(),
       role: form.role as AgentRole,
       title: form.title.trim() || undefined,
-      reportsTo: form.reportsTo || undefined,
+      parentAgentId: form.reportsTo || undefined,
       adapterType: form.adapterType.trim() || undefined,
       capabilities: form.capabilities.trim() || undefined,
     };

@@ -258,6 +258,97 @@ func (q *Queries) GetHeartbeatRunByID(ctx context.Context, id uuid.UUID) (Heartb
 	return i, err
 }
 
+const listAgentRunsWithContext = `-- name: ListAgentRunsWithContext :many
+SELECT
+    hr.id, hr.squad_id, hr.agent_id, hr.wakeup_request_id, hr.invocation_source, hr.status, hr.session_id_before, hr.session_id_after, hr.exit_code, hr.usage_json, hr.stdout_excerpt, hr.stderr_excerpt, hr.started_at, hr.finished_at, hr.created_at,
+    wr.context_json AS wakeup_context,
+    COALESCE(i.identifier, '') AS issue_identifier,
+    COALESCE(i.title, '') AS issue_title,
+    COALESCE(i.id::text, '') AS issue_id
+FROM heartbeat_runs hr
+LEFT JOIN wakeup_requests wr ON wr.id = hr.wakeup_request_id
+LEFT JOIN LATERAL (
+    SELECT id, identifier, title
+    FROM issues
+    WHERE id = (wr.context_json->>'ARI_TASK_ID')::uuid
+    LIMIT 1
+) i ON true
+WHERE hr.agent_id = $1
+ORDER BY hr.created_at DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListAgentRunsWithContextParams struct {
+	AgentID    uuid.UUID `json:"agent_id"`
+	PageOffset int32     `json:"page_offset"`
+	PageLimit  int32     `json:"page_limit"`
+}
+
+type ListAgentRunsWithContextRow struct {
+	ID               uuid.UUID              `json:"id"`
+	SquadID          uuid.UUID              `json:"squad_id"`
+	AgentID          uuid.UUID              `json:"agent_id"`
+	WakeupRequestID  uuid.NullUUID          `json:"wakeup_request_id"`
+	InvocationSource WakeupInvocationSource `json:"invocation_source"`
+	Status           HeartbeatRunStatus     `json:"status"`
+	SessionIDBefore  sql.NullString         `json:"session_id_before"`
+	SessionIDAfter   sql.NullString         `json:"session_id_after"`
+	ExitCode         sql.NullInt32          `json:"exit_code"`
+	UsageJson        pqtype.NullRawMessage  `json:"usage_json"`
+	StdoutExcerpt    sql.NullString         `json:"stdout_excerpt"`
+	StderrExcerpt    sql.NullString         `json:"stderr_excerpt"`
+	StartedAt        sql.NullTime           `json:"started_at"`
+	FinishedAt       sql.NullTime           `json:"finished_at"`
+	CreatedAt        time.Time              `json:"created_at"`
+	WakeupContext    pqtype.NullRawMessage  `json:"wakeup_context"`
+	IssueIdentifier  string                 `json:"issue_identifier"`
+	IssueTitle       string                 `json:"issue_title"`
+	IssueID          interface{}            `json:"issue_id"`
+}
+
+func (q *Queries) ListAgentRunsWithContext(ctx context.Context, arg ListAgentRunsWithContextParams) ([]ListAgentRunsWithContextRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentRunsWithContext, arg.AgentID, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentRunsWithContextRow{}
+	for rows.Next() {
+		var i ListAgentRunsWithContextRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.AgentID,
+			&i.WakeupRequestID,
+			&i.InvocationSource,
+			&i.Status,
+			&i.SessionIDBefore,
+			&i.SessionIDAfter,
+			&i.ExitCode,
+			&i.UsageJson,
+			&i.StdoutExcerpt,
+			&i.StderrExcerpt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.WakeupContext,
+			&i.IssueIdentifier,
+			&i.IssueTitle,
+			&i.IssueID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHeartbeatRunsByAgent = `-- name: ListHeartbeatRunsByAgent :many
 SELECT id, squad_id, agent_id, wakeup_request_id, invocation_source, status, session_id_before, session_id_after, exit_code, usage_json, stdout_excerpt, stderr_excerpt, started_at, finished_at, created_at FROM heartbeat_runs
 WHERE agent_id = $1

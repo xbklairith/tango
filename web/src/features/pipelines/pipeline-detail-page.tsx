@@ -73,8 +73,9 @@ export default function PipelineDetailPage() {
   function handleCreateStage() {
     const errors: Record<string, string> = {};
     if (!stageForm.name.trim()) errors.name = "Name is required";
-    const pos = Number(stageForm.position);
-    if (!stageForm.position || isNaN(pos) || pos < 1)
+    const posValue = stageForm.position || String(nextPosition);
+    const pos = Number(posValue);
+    if (isNaN(pos) || pos < 1)
       errors.position = "Position must be at least 1";
     if (Object.keys(errors).length > 0) {
       setStageErrors(errors);

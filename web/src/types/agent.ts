@@ -29,10 +29,10 @@ export interface Agent {
 
 export interface CreateAgentRequest {
   name: string;
-  urlKey: string;
+  shortName: string;
   role: AgentRole;
   title?: string;
-  reportsTo?: string;
+  parentAgentId?: string;
   capabilities?: string;
   adapterType?: string;
   adapterConfig?: Record<string, unknown>;
@@ -42,10 +42,10 @@ export interface CreateAgentRequest {
 
 export interface UpdateAgentRequest {
   name?: string;
-  urlKey?: string;
+  shortName?: string;
   role?: AgentRole;
   title?: string;
-  reportsTo?: string | null;
+  parentAgentId?: string | null;
   status?: AgentStatus;
   capabilities?: string;
   adapterType?: string;

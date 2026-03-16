@@ -37,7 +37,7 @@ function createWrapper() {
 
 import { useAddComment } from "./use-add-comment";
 
-const commentPayload = { issueId: "issue-1", body: "Great work!" };
+const commentPayload = { issueId: "issue-1", body: "Great work!", authorType: "user", authorId: "user-1" };
 
 describe("useAddComment", () => {
   beforeEach(() => {
@@ -61,6 +61,8 @@ describe("useAddComment", () => {
 
     expect(mockApiPost).toHaveBeenCalledWith("/issues/issue-1/comments", {
       body: "Great work!",
+      authorType: "user",
+      authorId: "user-1",
     });
   });
 

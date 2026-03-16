@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { queryKeys } from "@/lib/query";
 import { formatDateTime } from "@/lib/utils";
 import type { PaginatedResponse } from "@/types/api";
@@ -15,6 +16,7 @@ interface IssueCommentsProps {
 
 export function IssueComments({ issueId }: IssueCommentsProps) {
   const [body, setBody] = useState("");
+  const { user } = useAuth();
   const addComment = useAddComment();
 
   const { data: commentsResp } = useQuery({
@@ -24,8 +26,9 @@ export function IssueComments({ issueId }: IssueCommentsProps) {
   const comments = commentsResp?.data;
 
   function handleSubmit() {
+    if (!user) return;
     addComment.mutate(
-      { issueId, body: body.trim() },
+      { issueId, body: body.trim(), authorType: "user", authorId: user.id },
       { onSuccess: () => setBody("") },
     );
   }

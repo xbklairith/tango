@@ -37,7 +37,11 @@ export function ActiveSquadProvider({ children }: { children: ReactNode }) {
   // Auto-select first squad when user squads arrive asynchronously (e.g. after login)
   // Also clears stale squad IDs and redirects to home when no squads exist
   useEffect(() => {
-    const squads = user?.squads ?? [];
+    // Don't act until user data has actually loaded — squads array is empty
+    // during initial fetch, and redirecting then would break page refreshes.
+    if (!user) return;
+
+    const squads = user.squads ?? [];
 
     // If current selection is still valid, keep it
     if (activeSquadId && squads.some((s) => s.squadId === activeSquadId)) return;

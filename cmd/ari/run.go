@@ -171,9 +171,9 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	issueHandler.SetWakeupService(wakeupSvc)
 	issueHandler.SetPipelineService(pipelineSvc)
 	pipelineHandler := handlers.NewPipelineHandler(queries, pipelineSvc)
-	runSvc := handlers.NewRunService(db, queries, adapterRegistry, runTokenSvc, sseHub, apiURL)
+	runSvc := handlers.NewRunService(db, queries, adapterRegistry, runTokenSvc, sseHub, apiURL, cfg.DataDir)
 	taskHandler := handlers.NewTaskHandler(queries, db, sseHub)
-	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc)
+	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc, cfg.DataDir)
 
 	// Metrics (dashboard observability)
 	metricsSvc := handlers.NewMetricsService(queries)

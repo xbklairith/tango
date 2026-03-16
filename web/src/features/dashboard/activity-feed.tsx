@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { api } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
 import { relativeTime } from "@/lib/utils";
@@ -25,6 +26,20 @@ function entityLabel(entry: ActivityEntry): string {
   const name = entry.metadata?.name as string | undefined;
   const title = entry.metadata?.title as string | undefined;
   return identifier ?? name ?? title ?? entry.entityType;
+}
+
+const entityRoutes: Record<string, string> = {
+  issue: "/issues/",
+  agent: "/agents/",
+  conversation: "/conversations/",
+  project: "/projects/",
+  goal: "/goals/",
+};
+
+function entityLink(entry: ActivityEntry): string | null {
+  const prefix = entityRoutes[entry.entityType];
+  if (!prefix || !entry.entityId) return null;
+  return `${prefix}${entry.entityId}`;
 }
 
 export function ActivityFeed({ squadId }: ActivityFeedProps) {
@@ -59,25 +74,36 @@ export function ActivityFeed({ squadId }: ActivityFeedProps) {
 
         {!isLoading && data?.data && data.data.length > 0 && (
           <div className="space-y-2">
-            {data.data.map((entry) => (
-              <div
-                key={entry.id}
-                className="flex items-center gap-2 text-sm py-1"
-              >
-                <span
-                  className={`inline-flex rounded-full px-1.5 py-0.5 text-xs font-medium ${actorBadgeColors[entry.actorType] ?? actorBadgeColors.system}`}
+            {data.data.map((entry) => {
+              const href = entityLink(entry);
+              const row = (
+                <div className="flex items-center gap-2 text-sm py-1">
+                  <span
+                    className={`inline-flex rounded-full px-1.5 py-0.5 text-xs font-medium ${actorBadgeColors[entry.actorType] ?? actorBadgeColors.system}`}
+                  >
+                    {entry.actorType}
+                  </span>
+                  <span className="font-medium">{formatAction(entry.action)}</span>
+                  <span className="text-muted-foreground truncate">
+                    {entityLabel(entry)}
+                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground whitespace-nowrap">
+                    {relativeTime(entry.createdAt)}
+                  </span>
+                </div>
+              );
+              return href ? (
+                <Link
+                  key={entry.id}
+                  to={href}
+                  className="block rounded px-1 -mx-1 hover:bg-muted/50 transition-colors"
                 >
-                  {entry.actorType}
-                </span>
-                <span className="font-medium">{formatAction(entry.action)}</span>
-                <span className="text-muted-foreground truncate">
-                  {entityLabel(entry)}
-                </span>
-                <span className="ml-auto text-xs text-muted-foreground whitespace-nowrap">
-                  {relativeTime(entry.createdAt)}
-                </span>
-              </div>
-            ))}
+                  {row}
+                </Link>
+              ) : (
+                <div key={entry.id}>{row}</div>
+              );
+            })}
           </div>
         )}
       </CardContent>

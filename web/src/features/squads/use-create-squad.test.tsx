@@ -49,13 +49,15 @@ describe("useCreateSquad", () => {
       wrapper: createWrapper(),
     });
 
-    result.current.mutate({ name: "Alpha", issuePrefix: "ALP" });
+    result.current.mutate({ name: "Alpha", issuePrefix: "ALP", captainName: "Captain", captainShortName: "captain" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockApiPost).toHaveBeenCalledWith("/squads", {
       name: "Alpha",
       issuePrefix: "ALP",
+      captainName: "Captain",
+      captainShortName: "captain",
     });
   });
 
@@ -66,7 +68,7 @@ describe("useCreateSquad", () => {
       wrapper: createWrapper(),
     });
 
-    result.current.mutate({ name: "Alpha", issuePrefix: "ALP" });
+    result.current.mutate({ name: "Alpha", issuePrefix: "ALP", captainName: "Captain", captainShortName: "captain" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -80,7 +82,7 @@ describe("useCreateSquad", () => {
       wrapper: createWrapper(),
     });
 
-    result.current.mutate({ name: "Alpha", issuePrefix: "ALP" });
+    result.current.mutate({ name: "Alpha", issuePrefix: "ALP", captainName: "Captain", captainShortName: "captain" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -99,7 +101,7 @@ describe("useCreateSquad", () => {
       wrapper: createWrapper(),
     });
 
-    result.current.mutate({ name: "", issuePrefix: "ALP" });
+    result.current.mutate({ name: "", issuePrefix: "ALP", captainName: "Captain", captainShortName: "captain" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 

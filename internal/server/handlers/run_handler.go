@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +34,7 @@ type RunService struct {
 	tokenSvc     *auth.RunTokenService
 	sseHub       *sse.Hub
 	apiURL       string
+	dataDir      string // base data directory for run log files
 	inboxService *InboxService
 	secretsSvc   *SecretsService
 
@@ -58,6 +61,7 @@ func NewRunService(
 	tokenSvc *auth.RunTokenService,
 	sseHub *sse.Hub,
 	apiURL string,
+	dataDir string,
 ) *RunService {
 	return &RunService{
 		dbConn:   dbConn,
@@ -66,6 +70,7 @@ func NewRunService(
 		tokenSvc: tokenSvc,
 		sseHub:   sseHub,
 		apiURL:   apiURL,
+		dataDir:  dataDir,
 		active:   make(map[uuid.UUID]context.CancelFunc),
 	}
 }
@@ -189,7 +194,24 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 	s.active[run.ID] = cancelRun
 	s.mu.Unlock()
 
-	// 9. Execute adapter (blocks)
+	// 9. Open run log file for persistence
+	var logFile *os.File
+	if s.dataDir != "" {
+		logDir := filepath.Join(s.dataDir, "runs")
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
+			slog.Warn("failed to create run log directory", "error", err)
+		} else {
+			logFile, err = os.Create(filepath.Join(logDir, run.ID.String()+".jsonl"))
+			if err != nil {
+				slog.Warn("failed to create run log file", "error", err)
+			}
+		}
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	// Execute adapter (blocks)
 	hooks := adapter.Hooks{
 		OnLogLine: func(line adapter.LogLine) {
 			payload := map[string]any{
@@ -203,6 +225,16 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 				payload["fields"] = line.Fields
 			}
 			s.sseHub.Publish(wakeup.SquadID, "heartbeat.run.log", payload)
+
+			// Persist log line to file
+			if logFile != nil {
+				logEntry, _ := json.Marshal(map[string]any{
+					"ts":    line.Timestamp.Format(time.RFC3339),
+					"level": line.Level,
+					"msg":   line.Message,
+				})
+				logFile.Write(append(logEntry, '\n'))
+			}
 		},
 		OnStatusChange: func(detail string) {
 			slog.Debug("adapter status change", "run_id", run.ID, "detail", detail)
@@ -463,14 +495,30 @@ Description: %s
 API: %s
 Auth: Use the ARI_API_KEY environment variable (already set)
 
-When done, mark the task complete:
-PATCH %s/api/agent/me/task
-Body: {"issueId": "%s", "status": "done"}`,
+IMPORTANT: You MUST post a comment on the issue describing your work BEFORE marking the task complete.
+Use curl to post comments and update task status. Always include the Authorization header.
+
+Step 1 - Do the work described in the task.
+
+Step 2 - Post a comment summarizing what you did or your response to the task:
+curl -X POST %s/api/issues/%s/comments \
+  -H "Authorization: Bearer $ARI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"body": "<your detailed response>"}'
+
+Step 3 - Mark the task complete:
+curl -X PATCH %s/api/agent/me/task \
+  -H "Authorization: Bearer $ARI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"issueId": "%s", "status": "done"}'
+
+Do NOT mark the task done without posting a comment first.`,
 				agent.Name, string(agent.Role), squadName,
 				systemPrompt,
 				issue.Title, issue.Identifier,
 				envVars["ARI_ISSUE_DESCRIPTION"],
 				s.apiURL,
+				s.apiURL, taskID.String(),
 				s.apiURL, taskID.String(),
 			)
 			envVars["ARI_PROMPT"] = prompt

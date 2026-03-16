@@ -65,6 +65,25 @@ SET status = 'cancelled', finished_at = now()
 WHERE status IN ('queued', 'running')
   AND created_at < now() - interval '2 hours';
 
+-- name: ListAgentRunsWithContext :many
+SELECT
+    hr.*,
+    wr.context_json AS wakeup_context,
+    COALESCE(i.identifier, '') AS issue_identifier,
+    COALESCE(i.title, '') AS issue_title,
+    COALESCE(i.id::text, '') AS issue_id
+FROM heartbeat_runs hr
+LEFT JOIN wakeup_requests wr ON wr.id = hr.wakeup_request_id
+LEFT JOIN LATERAL (
+    SELECT id, identifier, title
+    FROM issues
+    WHERE id = (wr.context_json->>'ARI_TASK_ID')::uuid
+    LIMIT 1
+) i ON true
+WHERE hr.agent_id = @agent_id
+ORDER BY hr.created_at DESC
+LIMIT @page_limit OFFSET @page_offset;
+
 -- name: GetAgentRunStats :many
 SELECT a.id AS agent_id, a.name AS agent_name, a.status AS agent_status,
        COUNT(hr.id)::bigint AS total_runs,

@@ -39,7 +39,7 @@ import { useCreateAgent } from "./use-create-agent";
 
 const agentPayload = {
   name: "Agent 007",
-  urlKey: "agent-007",
+  shortName: "agent-007",
   role: "member" as const,
 };
 

@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 import type { ConsoleEntry } from "./use-agent-console";
@@ -14,6 +15,17 @@ interface AgentRun {
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
+  stdoutExcerpt?: string;
+  stderrExcerpt?: string;
+  issueIdentifier?: string;
+  issueTitle?: string;
+  issueId?: string;
+}
+
+interface RunLogEntry {
+  ts: string;
+  level: string;
+  msg: string;
 }
 
 const statusDot: Record<string, string> = {
@@ -119,6 +131,130 @@ function ConsoleEntryLine({ entry }: { entry: ConsoleEntry }) {
           {detail}
         </span>
       </div>
+    </div>
+  );
+}
+
+function RunRow({ run }: { run: AgentRun }) {
+  const [expanded, setExpanded] = useState(false);
+  const [logs, setLogs] = useState<RunLogEntry[] | null>(null);
+
+  function toggleExpand() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !logs && run.status !== "running" && run.status !== "queued") {
+      fetch(`/api/runs/${run.id}/logs`)
+        .then((res) => {
+          if (!res.ok) return null;
+          return res.text();
+        })
+        .then((text) => {
+          if (!text) {
+            setLogs([]);
+            return;
+          }
+          const parsed = text
+            .trim()
+            .split("\n")
+            .map((line) => {
+              try { return JSON.parse(line) as RunLogEntry; }
+              catch { return null; }
+            })
+            .filter(Boolean) as RunLogEntry[];
+          setLogs(parsed);
+        })
+        .catch(() => setLogs([]));
+    }
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={toggleExpand}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className={`w-2.5 h-2.5 rounded-full ${statusDot[run.status] ?? "bg-gray-400"} ${
+            run.status === "running" ? "animate-pulse" : ""
+          }`} />
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium">
+                {run.invocationSource === "assignment" ? "Task Assignment" :
+                 run.invocationSource === "on_demand" ? "Manual Wake" :
+                 run.invocationSource}
+              </p>
+              {run.issueIdentifier && (
+                <Link
+                  to={`/issues/${run.issueId}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-blue-600 hover:underline font-mono"
+                >
+                  {run.issueIdentifier}
+                </Link>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground font-mono">{run.id.slice(0, 8)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <p className={`text-xs font-medium ${
+              run.status === "succeeded" ? "text-green-600" :
+              run.status === "failed" ? "text-red-600" :
+              run.status === "running" ? "text-blue-600" :
+              "text-gray-500"
+            }`}>
+              {run.status === "succeeded" ? "Completed" :
+               run.status === "failed" ? `Failed (exit ${run.exitCode})` :
+               run.status === "running" ? "Running..." :
+               run.status}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {run.finishedAt ? formatDateTime(run.finishedAt) :
+               run.startedAt ? formatDateTime(run.startedAt) :
+               formatDateTime(run.createdAt)}
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground">{expanded ? "▲" : "▼"}</span>
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3">
+          <div className="rounded-lg bg-[#1a1a2e] p-3 font-mono text-xs max-h-[300px] overflow-y-auto">
+            {logs === null && <p className="text-gray-500">Loading logs...</p>}
+            {logs !== null && logs.length === 0 && !run.stdoutExcerpt && !run.stderrExcerpt && (
+              <p className="text-gray-500">No logs available for this run</p>
+            )}
+            {logs !== null && logs.length > 0 && logs.map((entry, i) => (
+              <div key={i} className="flex items-start gap-2 py-0.5">
+                <span className="shrink-0 w-[62px] text-[11px] text-gray-600">
+                  {new Date(entry.ts).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </span>
+                <ToolIcon type={parseLogMessage(entry.msg).tool} />
+                <span className={`break-all ${
+                  entry.level === "error" ? "text-red-400" :
+                  entry.level === "warn" ? "text-yellow-400" :
+                  "text-gray-300"
+                }`}>
+                  {entry.msg}
+                </span>
+              </div>
+            ))}
+            {logs !== null && logs.length === 0 && (run.stdoutExcerpt || run.stderrExcerpt) && (
+              <>
+                {run.stdoutExcerpt && (
+                  <pre className="text-gray-300 whitespace-pre-wrap">{run.stdoutExcerpt}</pre>
+                )}
+                {run.stderrExcerpt && (
+                  <pre className="text-red-400 whitespace-pre-wrap">{run.stderrExcerpt}</pre>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -236,39 +372,7 @@ export function AgentConsole({ agentId, squadId, agentName, agentStatus }: Agent
           <h3 className="text-sm font-medium">Recent Runs</h3>
           <div className="rounded-lg border divide-y">
             {runs.slice(0, 5).map((run) => (
-              <div key={run.id} className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2.5 h-2.5 rounded-full ${statusDot[run.status] ?? "bg-gray-400"} ${
-                    run.status === "running" ? "animate-pulse" : ""
-                  }`} />
-                  <div>
-                    <p className="text-sm font-medium">
-                      {run.invocationSource === "assignment" ? "Task Assignment" :
-                       run.invocationSource === "on_demand" ? "Manual Wake" :
-                       run.invocationSource}
-                    </p>
-                    <p className="text-xs text-muted-foreground font-mono">{run.id.slice(0, 8)}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className={`text-xs font-medium ${
-                    run.status === "succeeded" ? "text-green-600" :
-                    run.status === "failed" ? "text-red-600" :
-                    run.status === "running" ? "text-blue-600" :
-                    "text-gray-500"
-                  }`}>
-                    {run.status === "succeeded" ? "Completed" :
-                     run.status === "failed" ? `Failed (exit ${run.exitCode})` :
-                     run.status === "running" ? "Running..." :
-                     run.status}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {run.finishedAt ? formatDateTime(run.finishedAt) :
-                     run.startedAt ? formatDateTime(run.startedAt) :
-                     formatDateTime(run.createdAt)}
-                  </p>
-                </div>
-              </div>
+              <RunRow key={run.id} run={run} />
             ))}
           </div>
         </div>

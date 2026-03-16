@@ -133,6 +133,7 @@ type Querier interface {
 	ListActivityBySquad(ctx context.Context, arg ListActivityBySquadParams) ([]ActivityLog, error)
 	ListAgentChildren(ctx context.Context, parentAgentID uuid.NullUUID) ([]Agent, error)
 	ListAgentChildrenBySquad(ctx context.Context, arg ListAgentChildrenBySquadParams) ([]Agent, error)
+	ListAgentRunsWithContext(ctx context.Context, arg ListAgentRunsWithContextParams) ([]ListAgentRunsWithContextRow, error)
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
 	ListAllSecrets(ctx context.Context) ([]SquadSecret, error)
 	ListAllSecretsForUpdate(ctx context.Context) ([]SquadSecret, error)

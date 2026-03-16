@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +29,7 @@ type RuntimeHandler struct {
 	sseHub    *sse.Hub
 	wakeupSvc *WakeupService
 	runSvc    *RunService
+	dataDir   string
 }
 
 // NewRuntimeHandler creates a new RuntimeHandler.
@@ -34,6 +39,7 @@ func NewRuntimeHandler(
 	sseHub *sse.Hub,
 	wakeupSvc *WakeupService,
 	runSvc *RunService,
+	dataDir string,
 ) *RuntimeHandler {
 	return &RuntimeHandler{
 		queries:   q,
@@ -41,6 +47,7 @@ func NewRuntimeHandler(
 		sseHub:    sseHub,
 		wakeupSvc: wakeupSvc,
 		runSvc:    runSvc,
+		dataDir:   dataDir,
 	}
 }
 
@@ -50,6 +57,7 @@ func (h *RuntimeHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/agents/{id}/stop", h.StopAgent)
 	mux.HandleFunc("GET /api/squads/{id}/events/stream", h.StreamEvents)
 	mux.HandleFunc("GET /api/agents/{id}/runs", h.ListAgentRuns)
+	mux.HandleFunc("GET /api/runs/{id}/logs", h.GetRunLogs)
 }
 
 // --- Request/Response Types ---
@@ -311,7 +319,7 @@ func (h *RuntimeHandler) ListAgentRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runs, err := h.queries.ListHeartbeatRunsByAgent(r.Context(), db.ListHeartbeatRunsByAgentParams{
+	runs, err := h.queries.ListAgentRunsWithContext(r.Context(), db.ListAgentRunsWithContextParams{
 		AgentID:    agentID,
 		PageLimit:  50,
 		PageOffset: 0,
@@ -340,6 +348,17 @@ func (h *RuntimeHandler) ListAgentRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.FinishedAt.Valid {
 			entry["finishedAt"] = r.FinishedAt.Time.Format(time.RFC3339)
+		}
+		if r.StdoutExcerpt.Valid {
+			entry["stdoutExcerpt"] = r.StdoutExcerpt.String
+		}
+		if r.StderrExcerpt.Valid {
+			entry["stderrExcerpt"] = r.StderrExcerpt.String
+		}
+		if r.IssueIdentifier != "" {
+			entry["issueIdentifier"] = r.IssueIdentifier
+			entry["issueTitle"] = r.IssueTitle
+			entry["issueId"] = r.IssueID
 		}
 		result = append(result, entry)
 	}
@@ -409,4 +428,75 @@ func writeSSEEvent(w io.Writer, f http.Flusher, evt sse.Event) {
 	data, _ := json.Marshal(evt.Data)
 	fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", evt.ID, evt.Type, data)
 	f.Flush()
+}
+
+// GetRunLogs serves the JSONL log file for a run.
+func (h *RuntimeHandler) GetRunLogs(w http.ResponseWriter, r *http.Request) {
+	runIDStr := r.PathValue("id")
+	runID, err := uuid.Parse(runIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid run ID", Code: "VALIDATION_ERROR"})
+		return
+	}
+
+	// Verify the run exists and get squad for access check
+	run, err := h.queries.GetHeartbeatRunByID(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Run not found", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if _, ok := h.verifySquadMembership(w, r, run.SquadID); !ok {
+		return
+	}
+
+	if h.dataDir == "" {
+		writeJSON(w, http.StatusNotFound, errorResponse{Error: "Log storage not configured", Code: "NOT_FOUND"})
+		return
+	}
+
+	logPath := filepath.Join(h.dataDir, "runs", runID.String()+".jsonl")
+	f, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "No log file for this run", Code: "NOT_FOUND"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Failed to read log file", Code: "INTERNAL_ERROR"})
+		return
+	}
+	defer f.Close()
+
+	// Optional ?tail=N for last N lines
+	tailParam := r.URL.Query().Get("tail")
+	if tailParam != "" {
+		tailN, err := strconv.Atoi(tailParam)
+		if err != nil || tailN <= 0 {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid tail parameter", Code: "VALIDATION_ERROR"})
+			return
+		}
+
+		// Read all lines, return last N
+		var lines []string
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 256*1024), 256*1024)
+		for scanner.Scan() {
+			lines = append(lines, scanner.Text())
+		}
+		if tailN > len(lines) {
+			tailN = len(lines)
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		for _, line := range lines[len(lines)-tailN:] {
+			fmt.Fprintln(w, line)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	io.Copy(w, f)
 }

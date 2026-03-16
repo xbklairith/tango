@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/query";
 import { humanize, formatDateTime } from "@/lib/utils";
 import type { Issue, IssueStatus, IssuePriority, UpdateIssueRequest } from "@/types/issue";
 import { issueStatusTransitions } from "@/types/issue";
+import type { Agent } from "@/types/agent";
 import type { Project } from "@/types/project";
 import type { Goal } from "@/types/goal";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,12 @@ export default function IssueDetailPage() {
     queryKey: queryKeys.goals.detail(issue?.goalId ?? ""),
     queryFn: () => api.get<Goal>(`/goals/${issue!.goalId}`),
     enabled: !!issue?.goalId,
+  });
+
+  const { data: assignee } = useQuery({
+    queryKey: ["agents", issue?.assigneeAgentId],
+    queryFn: () => api.get<Agent>(`/agents/${issue!.assigneeAgentId}`),
+    enabled: !!issue?.assigneeAgentId,
   });
 
   if (isLoading) {
@@ -164,6 +171,15 @@ export default function IssueDetailPage() {
           <p className="text-sm">{humanize(issue.type)}</p>
         </div>
       </div>
+
+      {assignee && (
+        <div className="rounded-lg border p-4 space-y-2">
+          <p className="text-sm font-medium">Assigned To</p>
+          <Link to={`/agents/${assignee.id}`} className="text-sm text-blue-600 hover:underline">
+            {assignee.name}
+          </Link>
+        </div>
+      )}
 
       {/* Status transitions */}
       {transitions.length > 0 && (

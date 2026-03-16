@@ -9,8 +9,8 @@ export function useAddComment() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: ({ issueId, body }: { issueId: string; body: string }) =>
-      api.post<IssueComment>(`/issues/${issueId}/comments`, { body }),
+    mutationFn: ({ issueId, body, authorType, authorId }: { issueId: string; body: string; authorType: string; authorId: string }) =>
+      api.post<IssueComment>(`/issues/${issueId}/comments`, { body, authorType, authorId }),
 
     onSuccess: (_, { issueId }) => {
       void queryClient.invalidateQueries({
