@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -93,8 +95,9 @@ func (c *ClaudeAdapter) TestEnvironment(level adapter.TestLevel) (adapter.TestRe
 // buildArgs constructs CLI arguments for the Claude CLI invocation.
 func buildArgs(cfg Config, input adapter.InvokeInput, useResume bool) []string {
 	args := []string{
-		"--print",                        // non-interactive mode
+		"--print", "-",                   // non-interactive mode, read prompt from stdin
 		"--output-format", "stream-json", // structured streaming output
+		"--verbose",                      // richer stream-json output
 		"--model", cfg.Model,             // model selection
 	}
 
@@ -108,9 +111,6 @@ func buildArgs(cfg Config, input adapter.InvokeInput, useResume bool) []string {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 
-	// Disable local session persistence — Ari manages sessions
-	args = append(args, "--no-session-persistence")
-
 	// Budget-based cost limit
 	if cfg.MaxBudgetUSD > 0 {
 		args = append(args, "--max-budget-usd", fmt.Sprintf("%.2f", cfg.MaxBudgetUSD))
@@ -121,18 +121,29 @@ func buildArgs(cfg Config, input adapter.InvokeInput, useResume bool) []string {
 		args = append(args, "--allowedTools", strings.Join(cfg.AllowedTools, ","))
 	}
 
+	// Effort level
+	if cfg.Effort != "" {
+		args = append(args, "--effort", cfg.Effort)
+	}
+
+	// Browser automation
+	if cfg.Chrome {
+		args = append(args, "--chrome")
+	}
+
+	// Max conversation turns
+	if cfg.MaxTurnsPerRun > 0 {
+		args = append(args, "--max-turns", fmt.Sprintf("%d", cfg.MaxTurnsPerRun))
+	}
+
 	// Session resume
 	if useResume && input.Run.SessionState != "" {
 		args = append(args, "--resume", input.Run.SessionState)
 	}
 
-	// Task prompt as positional argument
-	prompt := input.EnvVars["ARI_PROMPT"]
-	if prompt == "" {
-		prompt = input.Prompt
-	}
-	if prompt != "" {
-		args = append(args, prompt)
+	// Extra args always last
+	if len(cfg.ExtraArgs) > 0 {
+		args = append(args, cfg.ExtraArgs...)
 	}
 
 	return args
@@ -166,6 +177,17 @@ func buildEnv(input adapter.InvokeInput, cfg Config) []string {
 		envMap[k] = v
 	}
 
+	// 4. Strip Claude Code nesting vars to prevent recursive spawning (REQ-007)
+	nestingPrefixes := []string{"CLAUDE_CODE_", "CLAUDECODE"}
+	for key := range envMap {
+		for _, prefix := range nestingPrefixes {
+			if strings.HasPrefix(key, prefix) || key == prefix {
+				delete(envMap, key)
+				break
+			}
+		}
+	}
+
 	// Convert map to slice
 	env := make([]string, 0, len(envMap))
 	for k, v := range envMap {
@@ -196,7 +218,11 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, cfg.ClaudePath, args...)
-	if cfg.WorkingDir != "" {
+
+	// Working directory: input.WorkingDir (from run handler) > cfg.WorkingDir > default
+	if input.WorkingDir != "" {
+		cmd.Dir = input.WorkingDir
+	} else if cfg.WorkingDir != "" {
 		cmd.Dir = cfg.WorkingDir
 	}
 
@@ -214,6 +240,16 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	}
 	cmd.WaitDelay = 5 * time.Second
 
+	// Set up stdin pipe for prompt delivery (REQ-001)
+	prompt := input.EnvVars["ARI_PROMPT"]
+	if prompt == "" {
+		prompt = input.Prompt
+	}
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return adapter.InvokeResult{Status: adapter.RunStatusFailed}, fmt.Errorf("stdin pipe: %w", err)
+	}
+
 	var stdoutBuf, stderrBuf bytes.Buffer
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -227,6 +263,14 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	if err := cmd.Start(); err != nil {
 		return adapter.InvokeResult{Status: adapter.RunStatusFailed}, fmt.Errorf("start claude: %w", err)
 	}
+
+	// Write prompt to stdin in a goroutine to prevent deadlocks (REQ-030)
+	go func() {
+		defer stdinPipe.Close()
+		if _, err := io.WriteString(stdinPipe, prompt); err != nil {
+			slog.Warn("failed to write prompt to stdin", "error", err)
+		}
+	}()
 
 	// Stream stdout and stderr concurrently
 	collector := &eventCollector{}

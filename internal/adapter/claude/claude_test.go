@@ -750,6 +750,160 @@ func TestExecute_DisableResumeOnError(t *testing.T) {
 	}
 }
 
+// --- Task 2: Stdin delivery ---
+
+func TestExecute_StdinDelivery(t *testing.T) {
+	// Script reads from stdin instead of args
+	script := `cat`
+	input := makeInputWithScript(t, script, "", "hello from stdin")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if !strings.Contains(result.Stdout, "hello from stdin") {
+		t.Errorf("expected prompt in stdout via stdin, got:\n%s", result.Stdout)
+	}
+}
+
+func TestExecute_VerboseAlwaysPresent(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	input := makeInputWithScript(t, script, "", "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if !strings.Contains(result.Stdout, "--verbose") {
+		t.Errorf("expected --verbose in args, got stdout:\n%s", result.Stdout)
+	}
+}
+
+func TestExecute_PrintDashInArgs(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	input := makeInputWithScript(t, script, "", "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	lines := strings.Split(result.Stdout, "\n")
+	foundPrint := false
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "--print" && i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "-" {
+			foundPrint = true
+			break
+		}
+	}
+	if !foundPrint {
+		t.Errorf("expected --print - in args, got stdout:\n%s", result.Stdout)
+	}
+}
+
+// --- Task 3: Nesting prevention ---
+
+func TestExecute_NestingVarsStripped(t *testing.T) {
+	script := `echo "CC=${CLAUDE_CODE_TEST:-unset}" && echo "CE=${CLAUDECODE:-unset}"`
+	input := makeInputWithScript(t, script, "", "test")
+
+	// Set nesting vars
+	t.Setenv("CLAUDE_CODE_TEST", "should-be-stripped")
+	t.Setenv("CLAUDECODE", "should-be-stripped")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if strings.Contains(result.Stdout, "should-be-stripped") {
+		t.Errorf("CLAUDE_CODE_* and CLAUDECODE should be stripped, got stdout:\n%s", result.Stdout)
+	}
+}
+
+// --- Task 7: CLI flags ---
+
+func TestExecute_EffortFlag(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	input := makeInputWithScript(t, script, `"effort":"low"`, "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if !strings.Contains(result.Stdout, "--effort") || !strings.Contains(result.Stdout, "low") {
+		t.Errorf("expected --effort low in args, got stdout:\n%s", result.Stdout)
+	}
+}
+
+func TestExecute_ChromeFlag(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	input := makeInputWithScript(t, script, `"chrome":true`, "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if !strings.Contains(result.Stdout, "--chrome") {
+		t.Errorf("expected --chrome in args, got stdout:\n%s", result.Stdout)
+	}
+}
+
+func TestExecute_MaxTurnsFlag(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	input := makeInputWithScript(t, script, `"maxTurnsPerRun":25`, "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if !strings.Contains(result.Stdout, "--max-turns") || !strings.Contains(result.Stdout, "25") {
+		t.Errorf("expected --max-turns 25 in args, got stdout:\n%s", result.Stdout)
+	}
+}
+
+func TestExecute_ExtraArgs(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	input := makeInputWithScript(t, script, `"extraArgs":["--custom-flag","value"]`, "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if !strings.Contains(result.Stdout, "--custom-flag") || !strings.Contains(result.Stdout, "value") {
+		t.Errorf("expected extra args in output, got stdout:\n%s", result.Stdout)
+	}
+}
+
+func TestExecute_NoEffortWhenEmpty(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	input := makeInputWithScript(t, script, "", "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if strings.Contains(result.Stdout, "--effort") {
+		t.Errorf("--effort should NOT be in args when not configured, got stdout:\n%s", result.Stdout)
+	}
+}
+
 func TestExecute_NoSessionState_NoResumeFlag(t *testing.T) {
 	script := `for arg in "$@"; do echo "$arg"; done`
 	input := makeInputWithScript(t, script, "", "test")
