@@ -26,14 +26,14 @@ var pathSegmentRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 type Paths struct {
 	HomeDir       string // ~/.ari
 	InstanceID    string // "default"
-	InstanceRoot  string // ~/.ari/instances/default
-	ConfigPath    string // ~/.ari/instances/default/config.json
-	DBDir         string // ~/.ari/instances/default/db
-	LogsDir       string // ~/.ari/instances/default/logs
-	SecretsDir    string // ~/.ari/instances/default/secrets
-	BackupDir     string // ~/.ari/instances/default/data/backups
-	StorageDir    string // ~/.ari/instances/default/data/storage
-	WorkspacesDir string // ~/.ari/instances/default/workspaces
+	InstanceRoot  string // ~/.ari/realms/default
+	ConfigPath    string // ~/.ari/realms/default/config.json
+	DBDir         string // ~/.ari/realms/default/db
+	LogsDir       string // ~/.ari/realms/default/logs
+	SecretsDir    string // ~/.ari/realms/default/secrets
+	BackupDir     string // ~/.ari/realms/default/data/backups
+	StorageDir    string // ~/.ari/realms/default/data/storage
+	WorkspacesDir string // ~/.ari/realms/default/workspaces
 }
 
 // Resolve computes all paths from environment variables and defaults.
@@ -45,7 +45,7 @@ func Resolve() (*Paths, error) {
 		return nil, fmt.Errorf("invalid ARI_INSTANCE_ID: %w", err)
 	}
 
-	root := filepath.Join(homeDir, "instances", instanceID)
+	root := filepath.Join(homeDir, "realms", instanceID)
 
 	return &Paths{
 		HomeDir:       homeDir,

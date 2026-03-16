@@ -69,7 +69,7 @@ func TestInstanceRoot_Default(t *testing.T) {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
-	want := "/tmp/test-ari/instances/default"
+	want := "/tmp/test-ari/realms/default"
 	if paths.InstanceRoot != want {
 		t.Errorf("InstanceRoot = %q, want %q", paths.InstanceRoot, want)
 	}
@@ -87,7 +87,7 @@ func TestInstanceRoot_CustomID(t *testing.T) {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
-	want := "/tmp/test-ari/instances/staging"
+	want := "/tmp/test-ari/realms/staging"
 	if paths.InstanceRoot != want {
 		t.Errorf("InstanceRoot = %q, want %q", paths.InstanceRoot, want)
 	}
@@ -105,7 +105,7 @@ func TestInstanceRoot_ARI_HOME_And_InstanceID(t *testing.T) {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
-	want := "/opt/ari/instances/prod"
+	want := "/opt/ari/realms/prod"
 	if paths.InstanceRoot != want {
 		t.Errorf("InstanceRoot = %q, want %q", paths.InstanceRoot, want)
 	}
@@ -121,7 +121,7 @@ func TestSubdirectories(t *testing.T) {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
-	root := "/tmp/test-ari/instances/default"
+	root := "/tmp/test-ari/realms/default"
 
 	tests := []struct {
 		name string
@@ -154,7 +154,7 @@ func TestMasterKeyPath(t *testing.T) {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
-	want := "/tmp/test-ari/instances/default/secrets/master.key"
+	want := "/tmp/test-ari/realms/default/secrets/master.key"
 	if paths.MasterKeyPath() != want {
 		t.Errorf("MasterKeyPath() = %q, want %q", paths.MasterKeyPath(), want)
 	}
@@ -170,7 +170,7 @@ func TestJWTKeyPath(t *testing.T) {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
-	want := "/tmp/test-ari/instances/default/secrets/jwt.key"
+	want := "/tmp/test-ari/realms/default/secrets/jwt.key"
 	if paths.JWTKeyPath() != want {
 		t.Errorf("JWTKeyPath() = %q, want %q", paths.JWTKeyPath(), want)
 	}
@@ -191,7 +191,7 @@ func TestAgentWorkspaceDir(t *testing.T) {
 		t.Fatalf("AgentWorkspaceDir() error: %v", err)
 	}
 
-	want := "/tmp/test-ari/instances/default/workspaces/abc-123"
+	want := "/tmp/test-ari/realms/default/workspaces/abc-123"
 	if dir != want {
 		t.Errorf("AgentWorkspaceDir() = %q, want %q", dir, want)
 	}
@@ -264,7 +264,7 @@ func TestRunLogPath(t *testing.T) {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
-	want := "/tmp/test-ari/instances/default/data/storage/runs/run-abc.jsonl"
+	want := "/tmp/test-ari/realms/default/data/storage/runs/run-abc.jsonl"
 	if paths.RunLogPath("run-abc") != want {
 		t.Errorf("RunLogPath() = %q, want %q", paths.RunLogPath("run-abc"), want)
 	}
