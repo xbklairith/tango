@@ -107,7 +107,15 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 			IssueID: *convID,
 		})
 		if err == nil {
-			sessionBefore = ss
+			// Parse structured session params and validate cwd
+			params := parseSessionParams(ss)
+			cwd, _ := os.Getwd()
+			if canResumeSession(params, cwd) {
+				sessionBefore = params.SessionID
+			} else if params.SessionID != "" {
+				slog.Warn("session cwd mismatch, starting fresh",
+					"agent_id", agent.ID, "session_cwd", params.Cwd, "current_cwd", cwd)
+			}
 		}
 	} else if taskID != nil {
 		// Task session — existing path
@@ -116,7 +124,15 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 			IssueID: *taskID,
 		})
 		if err == nil {
-			sessionBefore = ss
+			// Parse structured session params and validate cwd
+			params := parseSessionParams(ss)
+			cwd, _ := os.Getwd()
+			if canResumeSession(params, cwd) {
+				sessionBefore = params.SessionID
+			} else if params.SessionID != "" {
+				slog.Warn("session cwd mismatch, starting fresh",
+					"agent_id", agent.ID, "session_cwd", params.Cwd, "current_cwd", cwd)
+			}
 		}
 	}
 
@@ -331,21 +347,29 @@ func (s *RunService) finalize(
 		return err
 	}
 
-	// Persist session state (REQ-026)
-	if result.SessionState != "" {
+	// Persist session state as structured JSON with cwd (REQ-015)
+	if result.SessionState != "" && !result.ClearSession {
+		cwd, _ := os.Getwd()
+		sessionJSON := marshalSessionParams(SessionParams{
+			SessionID: result.SessionState,
+			Cwd:       cwd,
+		})
 		if convID != nil {
 			_ = s.queries.UpsertConversationSession(ctx, db.UpsertConversationSessionParams{
 				AgentID:      agent.ID,
 				IssueID:      *convID,
-				SessionState: result.SessionState,
+				SessionState: sessionJSON,
 			})
 		} else if taskID != nil {
 			_ = s.queries.UpsertTaskSession(ctx, db.UpsertTaskSessionParams{
 				AgentID:      agent.ID,
 				IssueID:      *taskID,
-				SessionState: result.SessionState,
+				SessionState: sessionJSON,
 			})
 		}
+	} else if result.ClearSession {
+		slog.Info("clearing session state (max turns or explicit clear)",
+			"agent_id", agent.ID, "run_id", run.ID)
 	}
 
 	// Determine next agent status
@@ -512,6 +536,12 @@ curl -X PATCH %s/api/agent/me/task \
   -H "Content-Type: application/json" \
   -d '{"issueId": "%s", "status": "done"}'
 
+If you need human input or approval, send to inbox:
+curl -X POST %s/api/agent/me/inbox \
+  -H "Authorization: Bearer $ARI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"category": "<approval|question|decision>", "title": "<title>", "body": "<details>", "urgency": "<low|medium|high|critical>"}'
+
 Do NOT mark the task done without posting a comment first.`,
 				agent.Name, string(agent.Role), squadName,
 				systemPrompt,
@@ -520,6 +550,7 @@ Do NOT mark the task done without posting a comment first.`,
 				s.apiURL,
 				s.apiURL, taskID.String(),
 				s.apiURL, taskID.String(),
+				s.apiURL,
 			)
 			envVars["ARI_PROMPT"] = prompt
 		} else {
@@ -570,14 +601,40 @@ You are in a conversation: %s (%s)
 Message thread:
 %s
 
-Reply to the user's latest message. Use POST /api/agent/me/reply to send your response:
+API: %s
+Auth: Use the ARI_API_KEY environment variable (already set). Always include "Authorization: Bearer $ARI_API_KEY" header.
+
+== REPLY ==
+Reply to the user's latest message:
 POST %s/api/agent/me/reply
-Body: {"conversationId": "%s", "body": "<your reply>"}`,
+Body: {"conversationId": "%s", "body": "<your reply>"}
+
+== INBOX ==
+When the user asks you to send something to their inbox (e.g. a question, decision, or approval request), create an inbox item:
+POST %s/api/agent/me/inbox
+Body: {"category": "<approval|question|decision>", "title": "<short title>", "body": "<details>", "urgency": "<low|medium|high|critical>"}
+
+== ISSUES ==
+When the user asks you to create an issue or task, use:
+POST %s/api/squads/%s/issues
+Body: {"title": "<title>", "type": "<task|bug|story|epic>", "priority": "<critical|high|medium|low|none>", "description": "<optional description>"}
+
+== COMMENTS ON ISSUES ==
+To add a comment to an existing issue:
+POST %s/api/issues/<issueId>/comments
+Body: {"body": "<comment text>"}
+
+IMPORTANT: Read the user's message carefully. If they ask you to send to inbox, use the inbox endpoint. If they ask to create an issue, use the issues endpoint. Do NOT just reply in the conversation when the user is asking you to perform an action.
+Always reply in the conversation as well to confirm what you did.`,
 					agent.Name, string(agent.Role), squadName,
 					systemPrompt,
 					convIssue.Title, convIssue.Identifier,
 					formatMessageThread(comments),
+					s.apiURL,
 					s.apiURL, convID.String(),
+					s.apiURL,
+					s.apiURL, wakeup.SquadID.String(),
+					s.apiURL,
 				)
 				envVars["ARI_PROMPT"] = prompt
 			}
