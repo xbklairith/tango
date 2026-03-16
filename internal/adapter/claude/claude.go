@@ -18,7 +18,7 @@ import (
 )
 
 // sensitiveEnvPattern matches env var names containing sensitive keywords.
-var sensitiveEnvPattern = regexp.MustCompile(`(?i)(KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTHORIZATION|COOKIE)`)
+var sensitiveEnvPattern = regexp.MustCompile(`(?i)(KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTHORIZATION|COOKIE|CREDENTIAL|PRIVATE|DSN|DATABASE_URL|CONNECTION_STRING)`)
 
 // redactEnvForLog returns a copy of env with sensitive values replaced.
 func redactEnvForLog(env map[string]string) map[string]string {

@@ -154,6 +154,11 @@ func LoadConfigFile(path string) (*FileConfig, error) {
 		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
 	}
 
+	// Validate schema version (REQ-114)
+	if cfg.Meta != nil && cfg.Meta.Version != 0 && cfg.Meta.Version != 1 {
+		return nil, fmt.Errorf("unsupported config version %d in %s (expected 1)", cfg.Meta.Version, path)
+	}
+
 	return &cfg, nil
 }
 
@@ -172,7 +177,7 @@ func WriteConfigFile(path string, cfg *FileConfig) error {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 // MergeConfigs merges overlay values onto base. Non-zero overlay values take precedence.

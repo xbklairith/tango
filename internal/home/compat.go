@@ -16,6 +16,7 @@ import (
 func ResolveDataDir(paths *Paths, cwd string) (string, bool) {
 	// Explicit override takes highest priority
 	if v := os.Getenv("ARI_DATA_DIR"); v != "" {
+		slog.Warn("ARI_DATA_DIR is deprecated — use ARI_HOME and config.json instead", "value", v)
 		return v, false
 	}
 
@@ -50,6 +51,10 @@ func dirExists(path string) bool {
 }
 
 func isLegacyDataDir(dir string) bool {
+	// If .migrated marker exists, this data dir has already been migrated
+	if _, err := os.Stat(filepath.Join(dir, ".migrated")); err == nil {
+		return false
+	}
 	// Check for postgres subdirectory as the marker for a real legacy data dir
 	if dirExists(filepath.Join(dir, "postgres")) {
 		return true

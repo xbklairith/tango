@@ -31,6 +31,10 @@ func InitHomeDir(root string) error {
 		if err := os.MkdirAll(p, d.perm); err != nil {
 			return fmt.Errorf("creating directory %s: %w", d.path, err)
 		}
+		// Enforce permissions even on existing directories (MkdirAll doesn't tighten)
+		if d.perm <= 0700 {
+			os.Chmod(p, d.perm)
+		}
 	}
 
 	// Generate master.key if not exists

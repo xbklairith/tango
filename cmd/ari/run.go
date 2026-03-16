@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -62,10 +63,46 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 		}
 	}
 
+	// Load .env file from realm root (REQ-117, REQ-118)
+	// .env values do NOT override existing shell env vars
+	envPath := filepath.Join(paths.RealmRoot, ".env")
+	if err := loadEnvFile(envPath); err != nil {
+		slog.Debug("no .env file loaded", "path", envPath, "error", err)
+	}
+
+	// Load config.json and merge with defaults (REQ-112, REQ-115)
+	fileConfig, err := home.LoadConfigFile(paths.ConfigPath)
+	if err != nil {
+		slog.Warn("failed to load config.json, using defaults", "path", paths.ConfigPath, "error", err)
+	}
+	if fileConfig != nil {
+		// Apply config.json values as env vars (lower precedence than shell env)
+		if fileConfig.Server != nil && fileConfig.Server.Port != 0 && os.Getenv("ARI_PORT") == "" {
+			os.Setenv("ARI_PORT", fmt.Sprintf("%d", fileConfig.Server.Port))
+		}
+		if fileConfig.Server != nil && fileConfig.Server.Host != "" && os.Getenv("ARI_HOST") == "" {
+			os.Setenv("ARI_HOST", fileConfig.Server.Host)
+		}
+		if fileConfig.Server != nil && fileConfig.Server.DeploymentMode != "" && os.Getenv("ARI_DEPLOYMENT_MODE") == "" {
+			os.Setenv("ARI_DEPLOYMENT_MODE", fileConfig.Server.DeploymentMode)
+		}
+		if fileConfig.Logging != nil && fileConfig.Logging.Level != "" && os.Getenv("ARI_LOG_LEVEL") == "" {
+			os.Setenv("ARI_LOG_LEVEL", fileConfig.Logging.Level)
+		}
+		if fileConfig.Database != nil && fileConfig.Database.EmbeddedPostgresPort != 0 && os.Getenv("ARI_EMBEDDED_PG_PORT") == "" {
+			os.Setenv("ARI_EMBEDDED_PG_PORT", fmt.Sprintf("%d", fileConfig.Database.EmbeddedPostgresPort))
+		}
+		if fileConfig.Database != nil && fileConfig.Database.ConnectionString != "" && os.Getenv("ARI_DATABASE_URL") == "" {
+			os.Setenv("ARI_DATABASE_URL", fileConfig.Database.ConnectionString)
+		}
+	}
+
 	// Set ARI_DATA_DIR so config.Load() picks it up
 	if os.Getenv("ARI_DATA_DIR") == "" {
 		os.Setenv("ARI_DATA_DIR", dataDir)
 	}
+
+	slog.Info("ari home", "realm", paths.RealmRoot, "data_dir", dataDir, "legacy", isLegacy)
 
 	// 1. Load configuration
 	cfg, err := config.Load()
@@ -355,4 +392,30 @@ func resolveJWTKey(cfg *config.Config) ([]byte, error) {
 
 	slog.Info("generated and persisted JWT key", "path", keyPath)
 	return key, nil
+}
+
+// loadEnvFile reads a .env file and sets env vars that are not already set.
+// Lines starting with # are comments. Format: KEY=VALUE.
+func loadEnvFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		// Only set if not already in environment (REQ-118)
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
+	return nil
 }
