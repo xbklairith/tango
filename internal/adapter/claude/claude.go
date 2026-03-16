@@ -100,6 +100,48 @@ func filterExtraArgs(args []string) []string {
 	return filtered
 }
 
+// mergeInstructionsWithPrompt creates a temp file containing the instructions file content
+// followed by the system prompt. Returns the temp file path. Caller must defer os.Remove().
+func mergeInstructionsWithPrompt(instructionsPath, systemPrompt string) (string, error) {
+	content, err := os.ReadFile(instructionsPath)
+	if err != nil {
+		return "", fmt.Errorf("reading instructions file: %w", err)
+	}
+
+	merged := string(content) + "\n\n" + systemPrompt
+
+	tmpFile, err := os.CreateTemp("", "ari-instructions-*.md")
+	if err != nil {
+		return "", fmt.Errorf("creating temp instructions file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	if _, err := tmpFile.WriteString(merged); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("writing merged instructions: %w", err)
+	}
+
+	return tmpFile.Name(), nil
+}
+
+// removeArg removes a flag and its value from args (e.g., --append-system-prompt "value").
+func removeArg(args []string, flag string) []string {
+	var result []string
+	skip := false
+	for _, arg := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if arg == flag {
+			skip = true // skip the value too
+			continue
+		}
+		result = append(result, arg)
+	}
+	return result
+}
+
 // blockedEnvKeys are system-critical environment variable names that adapterConfig.env
 // must not override. input.EnvVars (from Ari runtime) is exempt from this restriction.
 var blockedEnvKeys = map[string]bool{
@@ -300,6 +342,44 @@ func isBlockedEnvKey(key string) bool {
 func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapter.InvokeInput, hooks adapter.Hooks, useResume bool) (adapter.InvokeResult, error) {
 	args := buildArgs(cfg, input, useResume)
 
+	// Resolve working directory for instructions file resolution
+	workingDir := input.WorkingDir
+	if workingDir == "" {
+		workingDir = cfg.WorkingDir
+	}
+
+	// Wire skills directory (REQ-003): create temp dir with embedded SKILL.md
+	skillsDir, cleanupSkills, skillsErr := buildSkillsDir()
+	if skillsErr != nil {
+		slog.Warn("failed to create skills dir, skipping --add-dir", "error", skillsErr)
+	} else {
+		defer cleanupSkills()
+		args = append(args, "--add-dir", skillsDir)
+	}
+
+	// Wire instructions file (REQ-002, REQ-029): resolve and inject
+	if cfg.InstructionsFilePath != "" {
+		resolvedPath, err := resolveInstructionsFile(cfg.InstructionsFilePath, workingDir)
+		if err != nil {
+			slog.Warn("skipping instructions file", "path", cfg.InstructionsFilePath, "error", err)
+		} else {
+			// When both instructions file and system prompt exist, merge into temp file
+			if input.Agent.SystemPrompt != "" {
+				tmpFile, err := mergeInstructionsWithPrompt(resolvedPath, input.Agent.SystemPrompt)
+				if err != nil {
+					slog.Warn("failed to merge instructions with system prompt", "error", err)
+				} else {
+					defer os.Remove(tmpFile)
+					// Remove --append-system-prompt from args (mutual exclusion)
+					args = removeArg(args, "--append-system-prompt")
+					args = append(args, "--append-system-prompt-file", tmpFile)
+				}
+			} else {
+				args = append(args, "--append-system-prompt-file", resolvedPath)
+			}
+		}
+	}
+
 	// Enforce run timeout
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
@@ -314,7 +394,19 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	}
 
 	// Inject environment: inherit + adapter-config env + ARI_* overrides
-	cmd.Env = buildEnv(input, cfg)
+	env := buildEnv(input, cfg)
+	cmd.Env = env
+
+	// Log env with redaction (REQ-018, REQ-024)
+	if hooks.OnLogLine != nil {
+		envMap := make(map[string]string)
+		for _, e := range env {
+			if k, v, ok := strings.Cut(e, "="); ok {
+				envMap[k] = v
+			}
+		}
+		slog.Debug("claude adapter env", "env", redactEnvForLog(envMap))
+	}
 
 	// Process group so we can signal the entire tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -402,6 +494,12 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 	// Extract usage, session state, and cost from collected events
 	usage, sessionState, costUSD := collector.extract()
 
+	// Detect max turns exhaustion (REQ-006) — clear session so next run starts fresh
+	clearSession := isMaxTurnsResult(collector)
+	if clearSession {
+		slog.Info("max turns reached, clearing session state")
+	}
+
 	return adapter.InvokeResult{
 		Status:       status,
 		ExitCode:     exitCode,
@@ -410,6 +508,7 @@ func (c *ClaudeAdapter) executeOnce(ctx context.Context, cfg Config, input adapt
 		SessionState: sessionState,
 		Stdout:       stdout,
 		Stderr:       stderr,
+		ClearSession: clearSession,
 	}, nil
 }
 

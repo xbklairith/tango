@@ -430,13 +430,20 @@ func (s *RunService) finalize(
 		if result.Status == adapter.RunStatusTimedOut {
 			alertType = "run_timed_out"
 		}
+		if result.LoginRequired {
+			alertType = "login_required"
+		}
+		stderrExcerpt := result.Stderr
+		if result.LoginRequired && result.LoginURL != "" {
+			stderrExcerpt = fmt.Sprintf("Claude CLI requires re-authentication. Login URL: %s\n\n%s", result.LoginURL, stderrExcerpt)
+		}
 		_, inboxErr := s.inboxService.CreateAgentError(ctx, s.queries, CreateAgentErrorParams{
 			SquadID:       wakeup.SquadID,
 			AgentID:       agent.ID,
 			RunID:         run.ID,
 			Type:          alertType,
 			ExitCode:      result.ExitCode,
-			StderrExcerpt: result.Stderr,
+			StderrExcerpt: stderrExcerpt,
 		})
 		if inboxErr != nil {
 			slog.Error("failed to create inbox alert for run error",
@@ -690,6 +697,12 @@ Always reply in the conversation as well to confirm what you did.`,
 		}
 	}
 
+	// Resolve squad name for prompt template and context
+	squadName := wakeup.SquadID.String()
+	if squad, sqErr := s.queries.GetSquadByID(ctx, wakeup.SquadID); sqErr == nil {
+		squadName = squad.Name
+	}
+
 	return adapter.InvokeInput{
 		Agent: adapter.AgentContext{
 			ID:            agent.ID,
@@ -701,7 +714,8 @@ Always reply in the conversation as well to confirm what you did.`,
 			Model:         model,
 		},
 		Squad: adapter.SquadContext{
-			ID: wakeup.SquadID,
+			ID:   wakeup.SquadID,
+			Name: squadName,
 		},
 		Run: adapter.RunContext{
 			RunID:        run.ID,
