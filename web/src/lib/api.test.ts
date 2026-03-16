@@ -89,7 +89,7 @@ describe("api — token refresh", () => {
       }),
     );
 
-    const err = await api.get("/data").catch((e) => e);
+    const err = await api.get("/data").catch((e: unknown) => e as Record<string, unknown>);
     expect(err.name).toBe("ApiClientError");
     expect(err.status).toBe(401);
     expect(window.location.href).toBe("/login");
@@ -105,7 +105,7 @@ describe("api — token refresh", () => {
       ),
     );
 
-    const err = await api.post("/auth/login", {}).catch((e) => e);
+    const err = await api.post("/auth/login", {}).catch((e: unknown) => e as Record<string, unknown>);
     expect(err.name).toBe("ApiClientError");
     expect(err.status).toBe(401);
     // Only the original request is made — no refresh, no retry.
@@ -160,7 +160,7 @@ describe("api — token refresh", () => {
       }),
     );
 
-    const err = await api.get("/data").catch((e) => e);
+    const err = await api.get("/data").catch((e: unknown) => e as Record<string, unknown>);
     expect(err.name).toBe("ApiClientError");
     expect(err.code).toBe("NETWORK_ERROR");
   });
