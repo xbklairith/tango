@@ -523,6 +523,142 @@ func TestStreamStderr_429Fallback(t *testing.T) {
 	}
 }
 
+// --- Task 5: Unknown session detection ---
+
+func TestIsUnknownSessionError_Matches(t *testing.T) {
+	tests := []struct {
+		name   string
+		stderr string
+		want   bool
+	}{
+		{"no conversation found", "Error: no conversation found with session id abc-123", true},
+		{"unknown session", "unknown session: sess-xyz", true},
+		{"session not found", "session abc-123 not found", true},
+		{"normal error", "some random error occurred", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isUnknownSessionError(tt.stderr, ""); got != tt.want {
+				t.Errorf("isUnknownSessionError(%q) = %v, want %v", tt.stderr, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- Task 6: Max turns detection ---
+
+func TestIsMaxTurnsResult_Subtype(t *testing.T) {
+	ec := &eventCollector{
+		resultEvent: &claudeEvent{
+			Type:    "result",
+			Subtype: "error_max_turns",
+		},
+	}
+	if !isMaxTurnsResult(ec) {
+		t.Error("expected isMaxTurnsResult=true for subtype=error_max_turns")
+	}
+}
+
+func TestIsMaxTurnsResult_StopReason(t *testing.T) {
+	ec := &eventCollector{
+		resultEvent: &claudeEvent{
+			Type:       "result",
+			StopReason: "max_turns",
+		},
+	}
+	if !isMaxTurnsResult(ec) {
+		t.Error("expected isMaxTurnsResult=true for stop_reason=max_turns")
+	}
+}
+
+func TestIsMaxTurnsResult_Normal(t *testing.T) {
+	ec := &eventCollector{
+		resultEvent: &claudeEvent{
+			Type:    "result",
+			Subtype: "success",
+		},
+	}
+	if isMaxTurnsResult(ec) {
+		t.Error("expected isMaxTurnsResult=false for normal result")
+	}
+}
+
+func TestIsMaxTurnsResult_NoResult(t *testing.T) {
+	ec := &eventCollector{}
+	if isMaxTurnsResult(ec) {
+		t.Error("expected isMaxTurnsResult=false when no result event")
+	}
+}
+
+// --- Task 10: Login detection ---
+
+func TestDetectLoginRequired_Matches(t *testing.T) {
+	tests := []struct {
+		name    string
+		stderr  string
+		want    bool
+	}{
+		{"not logged in", "Error: not logged in. Please run `claude login`", true},
+		{"please log in", "please log in to continue", true},
+		{"login required", "Error: login required", true},
+		{"unauthorized", "HTTP 401 Unauthorized", true},
+		{"normal error", "timeout exceeded", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _ := detectLoginRequired(tt.stderr, "")
+			if got != tt.want {
+				t.Errorf("detectLoginRequired(%q) = %v, want %v", tt.stderr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectLoginRequired_ExtractsURL(t *testing.T) {
+	stderr := "Error: not logged in. Please visit https://console.anthropic.com/login to log in"
+	got, url := detectLoginRequired(stderr, "")
+	if !got {
+		t.Error("expected login required")
+	}
+	if url != "https://console.anthropic.com/login" {
+		t.Errorf("URL = %q, want https://console.anthropic.com/login", url)
+	}
+}
+
+// --- Task 11: Cached token extraction ---
+
+func TestExtract_CachedInputTokens(t *testing.T) {
+	input := `{"type":"result","subtype":"success","session_id":"s1","total_cost_usd":0.01,"usage":{"input_tokens":1000,"output_tokens":500,"cache_read_input_tokens":300}}`
+	r := strings.NewReader(input + "\n")
+	var buf bytes.Buffer
+	collector := &eventCollector{}
+	hooks := adapter.Hooks{OnLogLine: func(line adapter.LogLine) {}}
+
+	streamAndParseEvents(r, &buf, 65536, hooks, collector)
+
+	usage, _, _ := collector.extract()
+	if usage.CachedInputTokens != 300 {
+		t.Errorf("CachedInputTokens = %d, want 300", usage.CachedInputTokens)
+	}
+}
+
+func TestExtract_CachedInputTokens_Missing(t *testing.T) {
+	input := `{"type":"result","subtype":"success","session_id":"s1","total_cost_usd":0.01,"usage":{"input_tokens":1000,"output_tokens":500}}`
+	r := strings.NewReader(input + "\n")
+	var buf bytes.Buffer
+	collector := &eventCollector{}
+	hooks := adapter.Hooks{OnLogLine: func(line adapter.LogLine) {}}
+
+	streamAndParseEvents(r, &buf, 65536, hooks, collector)
+
+	usage, _, _ := collector.extract()
+	if usage.CachedInputTokens != 0 {
+		t.Errorf("CachedInputTokens = %d, want 0 (default)", usage.CachedInputTokens)
+	}
+}
+
 func TestStreamStderr_NormalLine(t *testing.T) {
 	input := "some error occurred in processing\n"
 	r := strings.NewReader(input)

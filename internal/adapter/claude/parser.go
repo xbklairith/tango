@@ -7,11 +7,45 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/xb/ari/internal/adapter"
 )
+
+// Compiled regex patterns for error detection
+var (
+	unknownSessionRe = regexp.MustCompile(`(?i)(no conversation found with session id|unknown session|session .* not found)`)
+	loginRequiredRe  = regexp.MustCompile(`(?i)(not logged in|please log in|login required|unauthorized)`)
+	urlRe            = regexp.MustCompile(`https?://[^\s"'<>]+`)
+)
+
+// isUnknownSessionError checks stderr/stdout for session-related errors (REQ-005).
+func isUnknownSessionError(stderr, stdout string) bool {
+	return unknownSessionRe.MatchString(stderr) || unknownSessionRe.MatchString(stdout)
+}
+
+// isMaxTurnsResult checks if the run ended due to max turns exhaustion (REQ-006).
+func isMaxTurnsResult(ec *eventCollector) bool {
+	if ec.resultEvent == nil {
+		return false
+	}
+	return ec.resultEvent.Subtype == "error_max_turns" || ec.resultEvent.StopReason == "max_turns"
+}
+
+// detectLoginRequired checks for authentication errors and extracts login URL if available (REQ-011).
+func detectLoginRequired(stderr, stdout string) (bool, string) {
+	combined := stderr + "\n" + stdout
+	if !loginRequiredRe.MatchString(combined) {
+		return false, ""
+	}
+	url := ""
+	if match := urlRe.FindString(combined); match != "" {
+		url = match
+	}
+	return true, url
+}
 
 // claudeEvent represents a single stream-json event from the Claude CLI.
 // The Type field is the discriminator; other fields are populated based on the event type.
@@ -32,6 +66,7 @@ type claudeEvent struct {
 
 	// result fields
 	TotalCostUSD float64                    `json:"total_cost_usd"`
+	StopReason   string                     `json:"stop_reason"`
 	Usage        *claudeUsage               `json:"usage"`
 	ModelUsage   map[string]*claudeModelUse `json:"modelUsage"`
 
@@ -56,8 +91,9 @@ type claudeContentBlock struct {
 
 // claudeUsage represents token usage in stream-json events.
 type claudeUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	CacheReadInputTokens int `json:"cache_read_input_tokens"`
 }
 
 // claudeModelUse represents per-model usage in the result event.
@@ -87,6 +123,7 @@ func (ec *eventCollector) extract() (adapter.TokenUsage, string, float64) {
 		if ec.resultEvent.Usage != nil {
 			usage.InputTokens = ec.resultEvent.Usage.InputTokens
 			usage.OutputTokens = ec.resultEvent.Usage.OutputTokens
+			usage.CachedInputTokens = ec.resultEvent.Usage.CacheReadInputTokens
 		}
 		usage.Model = ec.resultEvent.Model
 		costUSD = ec.resultEvent.TotalCostUSD

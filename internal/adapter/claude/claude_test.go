@@ -651,6 +651,7 @@ echo '{"type":"result","subtype":"success","session_id":"sess-resumed","total_co
 }
 
 func TestExecute_SessionResume_Fallback(t *testing.T) {
+	// Now only retries on unknown session errors, not generic failures
 	script := `
 HAS_RESUME=0
 for arg in "$@"; do
@@ -659,7 +660,7 @@ for arg in "$@"; do
   fi
 done
 if [ "$HAS_RESUME" = "1" ]; then
-  echo "resume failed" >&2
+  echo "no conversation found with session id sess-old" >&2
   exit 1
 fi
 echo '{"type":"system","subtype":"init","session_id":"sess-fresh","model":"sonnet"}'
@@ -691,6 +692,7 @@ for arg in "$@"; do
   fi
 done
 if [ "$HAS_RESUME" = "1" ]; then
+  echo "unknown session: sess-expired" >&2
   exit 1
 fi
 echo '{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"input_tokens":10,"output_tokens":5}}'
@@ -724,13 +726,13 @@ echo '{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"input
 
 	foundWarning := false
 	for _, line := range logLines {
-		if line.Level == "warn" && strings.Contains(line.Message, "session resume failed") {
+		if line.Level == "warn" && strings.Contains(line.Message, "unknown session error") {
 			foundWarning = true
 			break
 		}
 	}
 	if !foundWarning {
-		t.Error("expected warning log about session resume failure, got none")
+		t.Error("expected warning log about unknown session error, got none")
 	}
 }
 

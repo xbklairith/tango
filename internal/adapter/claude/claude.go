@@ -345,17 +345,27 @@ func (c *ClaudeAdapter) Execute(ctx context.Context, input adapter.InvokeInput, 
 		return result, err
 	}
 
-	// Session resume fallback: if --resume was used and the run failed,
-	// retry once without --resume (fresh session)
+	// Smart session error detection (REQ-005): only retry on unknown session errors,
+	// not arbitrary failures.
 	if useResume && result.Status == adapter.RunStatusFailed {
-		if hooks.OnLogLine != nil {
-			hooks.OnLogLine(adapter.LogLine{
-				Level:     "warn",
-				Message:   fmt.Sprintf("session resume failed (session: %s), retrying without --resume", input.Run.SessionState),
-				Timestamp: time.Now(),
-			})
+		if isUnknownSessionError(result.Stderr, result.Stdout) {
+			if hooks.OnLogLine != nil {
+				hooks.OnLogLine(adapter.LogLine{
+					Level:     "warn",
+					Message:   fmt.Sprintf("unknown session error (session: %s), retrying without --resume", input.Run.SessionState),
+					Timestamp: time.Now(),
+				})
+			}
+			result, err = c.executeOnce(ctx, cfg, input, hooks, false)
 		}
-		result, err = c.executeOnce(ctx, cfg, input, hooks, false)
+	}
+
+	// Detect login required (REQ-011)
+	if result.Status == adapter.RunStatusFailed {
+		if loginRequired, loginURL := detectLoginRequired(result.Stderr, result.Stdout); loginRequired {
+			result.LoginRequired = true
+			result.LoginURL = loginURL
+		}
 	}
 
 	return result, err
