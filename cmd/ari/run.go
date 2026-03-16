@@ -22,6 +22,7 @@ import (
 	"github.com/xb/ari/internal/database"
 	dbpkg "github.com/xb/ari/internal/database/db"
 	ari "github.com/xb/ari"
+	"github.com/xb/ari/internal/home"
 	"github.com/xb/ari/internal/secrets"
 	"github.com/xb/ari/internal/server"
 	"github.com/xb/ari/internal/server/handlers"
@@ -45,6 +46,27 @@ func newRunCmd(version string) *cobra.Command {
 }
 
 func runServer(ctx context.Context, version string, portOverride int) error {
+	// 0. Resolve home directory paths
+	paths, err := home.Resolve()
+	if err != nil {
+		return fmt.Errorf("resolving home directory: %w", err)
+	}
+
+	cwd, _ := os.Getwd()
+	dataDir, isLegacy := home.ResolveDataDir(paths, cwd)
+
+	// Auto-init home directory if using home paths (not legacy, not explicit override)
+	if !isLegacy && os.Getenv("ARI_DATA_DIR") == "" {
+		if err := home.InitHomeDir(paths.InstanceRoot); err != nil {
+			return fmt.Errorf("initializing home directory: %w", err)
+		}
+	}
+
+	// Set ARI_DATA_DIR so config.Load() picks it up
+	if os.Getenv("ARI_DATA_DIR") == "" {
+		os.Setenv("ARI_DATA_DIR", dataDir)
+	}
+
 	// 1. Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -59,7 +81,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	// 2. Initialize logger
 	setupLogger(cfg.LogLevel, cfg.Env)
 
-	slog.Info("starting ari", "version", version, "env", cfg.Env)
+	slog.Info("starting ari", "version", version, "env", cfg.Env, "data_dir", cfg.DataDir, "legacy", isLegacy)
 
 	// 3. Start database (embedded or external)
 	db, cleanup, err := database.Open(ctx, cfg)
