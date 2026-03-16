@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +16,44 @@ import (
 
 	"github.com/xb/ari/internal/adapter"
 )
+
+// sensitiveEnvPattern matches env var names containing sensitive keywords.
+var sensitiveEnvPattern = regexp.MustCompile(`(?i)(KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTHORIZATION|COOKIE)`)
+
+// redactEnvForLog returns a copy of env with sensitive values replaced.
+func redactEnvForLog(env map[string]string) map[string]string {
+	redacted := make(map[string]string, len(env))
+	for k, v := range env {
+		if sensitiveEnvPattern.MatchString(k) {
+			redacted[k] = "***REDACTED***"
+		} else {
+			redacted[k] = v
+		}
+	}
+	return redacted
+}
+
+// renderTemplate replaces {{key}} placeholders with values from vars.
+// Missing variables resolve to empty string.
+func renderTemplate(tmpl string, vars map[string]string) string {
+	result := tmpl
+	for k, v := range vars {
+		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
+	}
+	// Remove any remaining unreplaced placeholders
+	for {
+		start := strings.Index(result, "{{")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result[start:], "}}")
+		if end == -1 {
+			break
+		}
+		result = result[:start] + result[start+end+2:]
+	}
+	return result
+}
 
 // blockedEnvKeys are system-critical environment variable names that adapterConfig.env
 // must not override. input.EnvVars (from Ari runtime) is exempt from this restriction.

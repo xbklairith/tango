@@ -659,6 +659,72 @@ func TestExtract_CachedInputTokens_Missing(t *testing.T) {
 	}
 }
 
+// --- Task 14: Env redaction ---
+
+func TestRedactEnvForLog(t *testing.T) {
+	env := map[string]string{
+		"PATH":             "/usr/bin",
+		"ANTHROPIC_API_KEY": "sk-secret",
+		"ARI_TOKEN":        "tok-123",
+		"DB_PASSWORD":      "p@ss",
+		"AUTHORIZATION":    "Bearer xyz",
+		"NORMAL_VAR":       "visible",
+		"api_key":          "lower-key",
+	}
+
+	redacted := redactEnvForLog(env)
+
+	if redacted["PATH"] != "/usr/bin" {
+		t.Errorf("PATH should not be redacted, got %q", redacted["PATH"])
+	}
+	if redacted["NORMAL_VAR"] != "visible" {
+		t.Errorf("NORMAL_VAR should not be redacted, got %q", redacted["NORMAL_VAR"])
+	}
+	for _, key := range []string{"ANTHROPIC_API_KEY", "ARI_TOKEN", "DB_PASSWORD", "AUTHORIZATION", "api_key"} {
+		if redacted[key] != "***REDACTED***" {
+			t.Errorf("%s should be redacted, got %q", key, redacted[key])
+		}
+	}
+}
+
+// --- Task 13: Prompt template ---
+
+func TestRenderTemplate(t *testing.T) {
+	tmpl := "You are {{agent.name}}, a {{agent.role}} in squad {{squad.name}}."
+	vars := map[string]string{
+		"agent.name": "CodeBot",
+		"agent.role": "developer",
+		"squad.name": "Alpha",
+	}
+
+	got := renderTemplate(tmpl, vars)
+	want := "You are CodeBot, a developer in squad Alpha."
+	if got != want {
+		t.Errorf("renderTemplate() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderTemplate_MissingVar(t *testing.T) {
+	tmpl := "Hello {{agent.name}}, your id is {{agent.id}}."
+	vars := map[string]string{
+		"agent.name": "Bot",
+	}
+
+	got := renderTemplate(tmpl, vars)
+	want := "Hello Bot, your id is ."
+	if got != want {
+		t.Errorf("renderTemplate() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderTemplate_NoVars(t *testing.T) {
+	tmpl := "Plain text with no variables."
+	got := renderTemplate(tmpl, nil)
+	if got != tmpl {
+		t.Errorf("renderTemplate() = %q, want %q", got, tmpl)
+	}
+}
+
 func TestStreamStderr_NormalLine(t *testing.T) {
 	input := "some error occurred in processing\n"
 	r := strings.NewReader(input)
