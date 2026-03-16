@@ -18,6 +18,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newBackupCmd())
 	root.AddCommand(newRestoreCmd())
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newMigrateHomeCmd())
 
 	return root
 }

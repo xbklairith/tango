@@ -8,9 +8,9 @@ import (
 
 // ResolveDataDir determines the data directory to use based on priority:
 // 1. ARI_DATA_DIR env var (explicit override, highest priority)
-// 2. Home directory instance root (if it exists)
+// 2. Home directory realm root (if it exists)
 // 3. Legacy ./data/ directory (if it exists and home does not)
-// 4. Home directory instance root (default — triggers auto-init)
+// 4. Home directory realm root (default — triggers auto-init)
 //
 // Returns the resolved directory and whether legacy mode is active.
 func ResolveDataDir(paths *Paths, cwd string) (string, bool) {
@@ -19,8 +19,8 @@ func ResolveDataDir(paths *Paths, cwd string) (string, bool) {
 		return v, false
 	}
 
-	// Check if home instance root exists
-	homeExists := dirExists(paths.InstanceRoot)
+	// Check if home realm root exists
+	homeExists := dirExists(paths.RealmRoot)
 
 	// Check if legacy ./data/ exists with DB artifacts
 	legacyDir := filepath.Join(cwd, "data")
@@ -29,9 +29,9 @@ func ResolveDataDir(paths *Paths, cwd string) (string, bool) {
 	if homeExists {
 		if legacyExists {
 			slog.Info("both home and legacy data directories exist; using home",
-				"home", paths.InstanceRoot, "legacy", legacyDir)
+				"home", paths.RealmRoot, "legacy", legacyDir)
 		}
-		return paths.InstanceRoot, false
+		return paths.RealmRoot, false
 	}
 
 	if legacyExists {
@@ -41,7 +41,7 @@ func ResolveDataDir(paths *Paths, cwd string) (string, bool) {
 	}
 
 	// Default: use home (will be auto-initialized)
-	return paths.InstanceRoot, false
+	return paths.RealmRoot, false
 }
 
 func dirExists(path string) bool {

@@ -9,8 +9,8 @@ import (
 func TestResolveDataDir_NoLegacy_NoHome(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("ARI_HOME", filepath.Join(tmp, "ari-home"))
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 	t.Setenv("ARI_DATA_DIR", "")
 	os.Unsetenv("ARI_DATA_DIR")
 
@@ -26,16 +26,16 @@ func TestResolveDataDir_NoLegacy_NoHome(t *testing.T) {
 	if legacy {
 		t.Error("expected non-legacy mode")
 	}
-	if dir != paths.InstanceRoot {
-		t.Errorf("dir = %q, want %q", dir, paths.InstanceRoot)
+	if dir != paths.RealmRoot {
+		t.Errorf("dir = %q, want %q", dir, paths.RealmRoot)
 	}
 }
 
 func TestResolveDataDir_LegacyExists_NoHome(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("ARI_HOME", filepath.Join(tmp, "ari-home"))
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 	t.Setenv("ARI_DATA_DIR", "")
 	os.Unsetenv("ARI_DATA_DIR")
 
@@ -64,8 +64,8 @@ func TestResolveDataDir_HomeExists(t *testing.T) {
 	tmp := t.TempDir()
 	homeDir := filepath.Join(tmp, "ari-home")
 	t.Setenv("ARI_HOME", homeDir)
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 	t.Setenv("ARI_DATA_DIR", "")
 	os.Unsetenv("ARI_DATA_DIR")
 
@@ -77,15 +77,15 @@ func TestResolveDataDir_HomeExists(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create home instance root
-	os.MkdirAll(paths.InstanceRoot, 0700)
+	// Create home realm root
+	os.MkdirAll(paths.RealmRoot, 0700)
 
 	dir, legacy := ResolveDataDir(paths, cwd)
 	if legacy {
 		t.Error("expected non-legacy mode")
 	}
-	if dir != paths.InstanceRoot {
-		t.Errorf("dir = %q, want %q", dir, paths.InstanceRoot)
+	if dir != paths.RealmRoot {
+		t.Errorf("dir = %q, want %q", dir, paths.RealmRoot)
 	}
 }
 
@@ -93,8 +93,8 @@ func TestResolveDataDir_BothExist(t *testing.T) {
 	tmp := t.TempDir()
 	homeDir := filepath.Join(tmp, "ari-home")
 	t.Setenv("ARI_HOME", homeDir)
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 	t.Setenv("ARI_DATA_DIR", "")
 	os.Unsetenv("ARI_DATA_DIR")
 
@@ -107,23 +107,23 @@ func TestResolveDataDir_BothExist(t *testing.T) {
 	}
 
 	// Create both
-	os.MkdirAll(paths.InstanceRoot, 0700)
+	os.MkdirAll(paths.RealmRoot, 0700)
 	os.MkdirAll(filepath.Join(cwd, "data", "postgres"), 0755)
 
 	dir, legacy := ResolveDataDir(paths, cwd)
 	if legacy {
 		t.Error("home exists, so should not be legacy")
 	}
-	if dir != paths.InstanceRoot {
-		t.Errorf("dir = %q, want %q (home takes priority)", dir, paths.InstanceRoot)
+	if dir != paths.RealmRoot {
+		t.Errorf("dir = %q, want %q (home takes priority)", dir, paths.RealmRoot)
 	}
 }
 
 func TestResolveDataDir_ARI_DATA_DIR_Override(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("ARI_HOME", filepath.Join(tmp, "ari-home"))
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 	t.Setenv("ARI_DATA_DIR", "/custom/override")
 
 	paths, err := Resolve()

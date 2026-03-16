@@ -57,7 +57,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 
 	// Auto-init home directory if using home paths (not legacy, not explicit override)
 	if !isLegacy && os.Getenv("ARI_DATA_DIR") == "" {
-		if err := home.InitHomeDir(paths.InstanceRoot); err != nil {
+		if err := home.InitHomeDir(paths.RealmRoot); err != nil {
 			return fmt.Errorf("initializing home directory: %w", err)
 		}
 	}

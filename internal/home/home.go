@@ -1,6 +1,6 @@
-// Package home resolves all filesystem paths for an Ari instance.
-// It supports multi-instance layouts under ~/.ari/instances/{id}/ and
-// allows overrides via ARI_HOME and ARI_INSTANCE_ID environment variables.
+// Package home resolves all filesystem paths for an Ari realm.
+// It supports multi-realm layouts under ~/.ari/realms/{id}/ and
+// allows overrides via ARI_HOME and ARI_REALM_ID environment variables.
 package home
 
 import (
@@ -12,21 +12,21 @@ import (
 )
 
 const (
-	DefaultInstanceID = "default"
-	ConfigFileName    = "config.json"
+	DefaultRealmID = "default"
+	ConfigFileName = "config.json"
 )
 
-// instanceIDRe allows alphanumeric, underscore, hyphen; must start with letter or digit.
-var instanceIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+// realmIDRe allows alphanumeric, underscore, hyphen; must start with letter or digit.
+var realmIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
 // pathSegmentRe validates a safe filesystem path segment (for agent IDs etc.).
 var pathSegmentRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
-// Paths holds all resolved filesystem paths for an Ari instance.
+// Paths holds all resolved filesystem paths for an Ari realm.
 type Paths struct {
 	HomeDir       string // ~/.ari
-	InstanceID    string // "default"
-	InstanceRoot  string // ~/.ari/realms/default
+	RealmID       string // "default"
+	RealmRoot     string // ~/.ari/realms/default
 	ConfigPath    string // ~/.ari/realms/default/config.json
 	DBDir         string // ~/.ari/realms/default/db
 	LogsDir       string // ~/.ari/realms/default/logs
@@ -39,18 +39,18 @@ type Paths struct {
 // Resolve computes all paths from environment variables and defaults.
 func Resolve() (*Paths, error) {
 	homeDir := resolveHomeDir()
-	instanceID := resolveInstanceID()
+	realmID := resolveRealmID()
 
-	if err := ValidateInstanceID(instanceID); err != nil {
-		return nil, fmt.Errorf("invalid ARI_INSTANCE_ID: %w", err)
+	if err := ValidateRealmID(realmID); err != nil {
+		return nil, fmt.Errorf("invalid ARI_REALM_ID: %w", err)
 	}
 
-	root := filepath.Join(homeDir, "realms", instanceID)
+	root := filepath.Join(homeDir, "realms", realmID)
 
 	return &Paths{
 		HomeDir:       homeDir,
-		InstanceID:    instanceID,
-		InstanceRoot:  root,
+		RealmID:       realmID,
+		RealmRoot:     root,
 		ConfigPath:    filepath.Join(root, ConfigFileName),
 		DBDir:         filepath.Join(root, "db"),
 		LogsDir:       filepath.Join(root, "logs"),
@@ -89,16 +89,16 @@ func (p *Paths) AgentWorkspaceDir(agentID string) (string, error) {
 	return filepath.Join(p.WorkspacesDir, id), nil
 }
 
-// ValidateInstanceID checks that an instance ID is safe for use as a directory name.
-func ValidateInstanceID(id string) error {
+// ValidateRealmID checks that a realm ID is safe for use as a directory name.
+func ValidateRealmID(id string) error {
 	if id == "" {
-		return fmt.Errorf("instance ID must not be empty")
+		return fmt.Errorf("realm ID must not be empty")
 	}
 	if strings.Contains(id, "..") {
-		return fmt.Errorf("instance ID must not contain '..'")
+		return fmt.Errorf("realm ID must not contain '..'")
 	}
-	if !instanceIDRe.MatchString(id) {
-		return fmt.Errorf("instance ID %q must match %s", id, instanceIDRe.String())
+	if !realmIDRe.MatchString(id) {
+		return fmt.Errorf("realm ID %q must match %s", id, realmIDRe.String())
 	}
 	return nil
 }
@@ -111,11 +111,11 @@ func resolveHomeDir() string {
 	return filepath.Join(home, ".ari")
 }
 
-func resolveInstanceID() string {
-	if v := os.Getenv("ARI_INSTANCE_ID"); v != "" {
+func resolveRealmID() string {
+	if v := os.Getenv("ARI_REALM_ID"); v != "" {
 		return v
 	}
-	return DefaultInstanceID
+	return DefaultRealmID
 }
 
 func expandHomePrefix(value string) string {
@@ -127,5 +127,6 @@ func expandHomePrefix(value string) string {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, value[2:])
 	}
-	return value
+	abs, _ := filepath.Abs(value)
+	return abs
 }

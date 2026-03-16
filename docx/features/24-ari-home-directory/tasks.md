@@ -37,8 +37,8 @@
 ## Progress Summary
 
 - Total Tasks: 8
-- Completed: 2/8
-- In Progress: Task 3
+- Completed: 6/8
+- In Progress: Task 7
 - Test Coverage: Existing
 
 ## Implementation Approach
@@ -180,7 +180,7 @@ Create `internal/home/config.go`:
 
 ---
 
-### [ ] Task 3 — Initialize Home Directory Structure
+### [x] Task 3 — Initialize Home Directory Structure
 
 **Linked Requirements:** REQ-107, REQ-108, REQ-109, REQ-110, REQ-111
 **Estimated time:** 45 min
@@ -249,7 +249,7 @@ Create `cmd/ari/init.go`:
 
 ---
 
-### [ ] Task 4 — Wire Config into Server Startup
+### [x] Task 4 — Wire Config into Server Startup
 
 **Linked Requirements:** REQ-112, REQ-113
 **Estimated time:** 60 min
@@ -333,7 +333,7 @@ Modify paths in `cmd/ari/run.go`:
 
 ---
 
-### [ ] Task 5 — Per-Agent Workspace Directories
+### [x] Task 5 — Per-Agent Workspace Directories
 
 **Linked Requirements:** REQ-114, REQ-115
 **Estimated time:** 30 min
@@ -403,7 +403,7 @@ Modify `internal/server/handlers/run_handler.go` (or `run_service.go`):
 
 ---
 
-### [ ] Task 6 — Auto-Backup
+### [x] Task 6 — Auto-Backup
 
 **Linked Requirements:** REQ-116, REQ-117
 **Estimated time:** 45 min

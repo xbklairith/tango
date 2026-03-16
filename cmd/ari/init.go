@@ -17,16 +17,16 @@ func newInitCmd() *cobra.Command {
 		Long:  "Create the ~/.ari/ directory structure with default config, secrets, and workspace directories.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			homeOverride, _ := cmd.Flags().GetString("home")
-			instanceOverride, _ := cmd.Flags().GetString("instance")
+			realmOverride, _ := cmd.Flags().GetString("realm")
 
 			if homeOverride != "" {
 				os.Setenv("ARI_HOME", homeOverride)
 			}
-			if instanceOverride != "" {
-				if err := home.ValidateInstanceID(instanceOverride); err != nil {
-					return fmt.Errorf("invalid instance ID: %w", err)
+			if realmOverride != "" {
+				if err := home.ValidateRealmID(realmOverride); err != nil {
+					return fmt.Errorf("invalid realm ID: %w", err)
 				}
-				os.Setenv("ARI_INSTANCE_ID", instanceOverride)
+				os.Setenv("ARI_REALM_ID", realmOverride)
 			}
 
 			paths, err := home.Resolve()
@@ -34,13 +34,13 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("resolving paths: %w", err)
 			}
 
-			slog.Info("initializing ari home", "root", paths.InstanceRoot)
+			slog.Info("initializing ari home", "root", paths.RealmRoot)
 
-			if err := home.InitHomeDir(paths.InstanceRoot); err != nil {
+			if err := home.InitHomeDir(paths.RealmRoot); err != nil {
 				return fmt.Errorf("initializing home directory: %w", err)
 			}
 
-			cmd.Printf("Ari home initialized at: %s\n", paths.InstanceRoot)
+			cmd.Printf("Ari home initialized at: %s\n", paths.RealmRoot)
 			cmd.Printf("  config:     %s\n", paths.ConfigPath)
 			cmd.Printf("  database:   %s\n", paths.DBDir)
 			cmd.Printf("  secrets:    %s\n", paths.SecretsDir)
@@ -52,7 +52,7 @@ func newInitCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("home", "", "Override home directory (default: ~/.ari)")
-	cmd.Flags().String("instance", "", "Instance ID (default: default)")
+	cmd.Flags().String("realm", "", "Realm ID (default: default)")
 
 	return cmd
 }

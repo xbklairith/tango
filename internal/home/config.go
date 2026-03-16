@@ -18,6 +18,21 @@ type FileConfig struct {
 	Logging  *LoggingConfig  `json:"logging,omitempty"`
 	Secrets  *SecretsConfig  `json:"secrets,omitempty"`
 	Storage  *StorageConfig  `json:"storage,omitempty"`
+	Runtime  *RuntimeConfig  `json:"runtime,omitempty"`
+	TLS      *TLSConfig      `json:"tls,omitempty"`
+}
+
+type RuntimeConfig struct {
+	MaxRunsPerSquad   int    `json:"maxRunsPerSquad,omitempty"`
+	StaleCheckoutAge  string `json:"staleCheckoutAge,omitempty"`
+	AgentDrainTimeout string `json:"agentDrainTimeout,omitempty"`
+}
+
+type TLSConfig struct {
+	CertPath     string `json:"certPath,omitempty"`
+	KeyPath      string `json:"keyPath,omitempty"`
+	Domain       string `json:"domain,omitempty"`
+	RedirectPort int    `json:"redirectPort,omitempty"`
 }
 
 type ConfigMeta struct {
@@ -98,7 +113,7 @@ func DefaultConfig() *FileConfig {
 		},
 		Server: &ServerConfig{
 			DeploymentMode:         "local_trusted",
-			Host:                   "0.0.0.0",
+			Host:                   "127.0.0.1",
 			Port:                   3100,
 			ServeUI:                true,
 			ShutdownTimeoutSeconds: 30,
@@ -276,6 +291,8 @@ func mergeServer(base, overlay *ServerConfig) *ServerConfig {
 	if overlay.TrustedProxies != "" {
 		result.TrustedProxies = overlay.TrustedProxies
 	}
+	// ServeUI is a bool — overlay always wins if Server section is present
+	result.ServeUI = overlay.ServeUI
 	return &result
 }
 

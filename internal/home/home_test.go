@@ -29,8 +29,8 @@ func TestHomeDir_Default(t *testing.T) {
 
 func TestHomeDir_ARI_HOME_Override(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/custom-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -45,8 +45,8 @@ func TestHomeDir_ARI_HOME_Override(t *testing.T) {
 func TestHomeDir_TildeExpansion(t *testing.T) {
 	userHome, _ := os.UserHomeDir()
 	t.Setenv("ARI_HOME", "~/my-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -59,10 +59,10 @@ func TestHomeDir_TildeExpansion(t *testing.T) {
 	}
 }
 
-func TestInstanceRoot_Default(t *testing.T) {
+func TestRealmRoot_Default(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -70,17 +70,17 @@ func TestInstanceRoot_Default(t *testing.T) {
 	}
 
 	want := "/tmp/test-ari/realms/default"
-	if paths.InstanceRoot != want {
-		t.Errorf("InstanceRoot = %q, want %q", paths.InstanceRoot, want)
+	if paths.RealmRoot != want {
+		t.Errorf("RealmRoot = %q, want %q", paths.RealmRoot, want)
 	}
-	if paths.InstanceID != "default" {
-		t.Errorf("InstanceID = %q, want %q", paths.InstanceID, "default")
+	if paths.RealmID != "default" {
+		t.Errorf("RealmID = %q, want %q", paths.RealmID, "default")
 	}
 }
 
-func TestInstanceRoot_CustomID(t *testing.T) {
+func TestRealmRoot_CustomID(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "staging")
+	t.Setenv("ARI_REALM_ID", "staging")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -88,17 +88,17 @@ func TestInstanceRoot_CustomID(t *testing.T) {
 	}
 
 	want := "/tmp/test-ari/realms/staging"
-	if paths.InstanceRoot != want {
-		t.Errorf("InstanceRoot = %q, want %q", paths.InstanceRoot, want)
+	if paths.RealmRoot != want {
+		t.Errorf("RealmRoot = %q, want %q", paths.RealmRoot, want)
 	}
-	if paths.InstanceID != "staging" {
-		t.Errorf("InstanceID = %q, want %q", paths.InstanceID, "staging")
+	if paths.RealmID != "staging" {
+		t.Errorf("RealmID = %q, want %q", paths.RealmID, "staging")
 	}
 }
 
-func TestInstanceRoot_ARI_HOME_And_InstanceID(t *testing.T) {
+func TestRealmRoot_ARI_HOME_And_RealmID(t *testing.T) {
 	t.Setenv("ARI_HOME", "/opt/ari")
-	t.Setenv("ARI_INSTANCE_ID", "prod")
+	t.Setenv("ARI_REALM_ID", "prod")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -106,15 +106,15 @@ func TestInstanceRoot_ARI_HOME_And_InstanceID(t *testing.T) {
 	}
 
 	want := "/opt/ari/realms/prod"
-	if paths.InstanceRoot != want {
-		t.Errorf("InstanceRoot = %q, want %q", paths.InstanceRoot, want)
+	if paths.RealmRoot != want {
+		t.Errorf("RealmRoot = %q, want %q", paths.RealmRoot, want)
 	}
 }
 
 func TestSubdirectories(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -146,8 +146,8 @@ func TestSubdirectories(t *testing.T) {
 
 func TestMasterKeyPath(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -162,8 +162,8 @@ func TestMasterKeyPath(t *testing.T) {
 
 func TestJWTKeyPath(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -178,8 +178,8 @@ func TestJWTKeyPath(t *testing.T) {
 
 func TestAgentWorkspaceDir(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -199,8 +199,8 @@ func TestAgentWorkspaceDir(t *testing.T) {
 
 func TestAgentWorkspaceDir_PathTraversal(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {
@@ -216,16 +216,16 @@ func TestAgentWorkspaceDir_PathTraversal(t *testing.T) {
 	}
 }
 
-func TestValidateInstanceID_Valid(t *testing.T) {
+func TestValidateRealmID_Valid(t *testing.T) {
 	valid := []string{"default", "staging", "my-project-1", "prod_v2", "A", "a1"}
 	for _, id := range valid {
-		if err := ValidateInstanceID(id); err != nil {
-			t.Errorf("ValidateInstanceID(%q) returned error: %v", id, err)
+		if err := ValidateRealmID(id); err != nil {
+			t.Errorf("ValidateRealmID(%q) returned error: %v", id, err)
 		}
 	}
 }
 
-func TestValidateInstanceID_Invalid(t *testing.T) {
+func TestValidateRealmID_Invalid(t *testing.T) {
 	invalid := []string{
 		"",             // empty
 		"a/b",          // contains /
@@ -238,26 +238,26 @@ func TestValidateInstanceID_Invalid(t *testing.T) {
 		".hidden",      // starts with .
 	}
 	for _, id := range invalid {
-		if err := ValidateInstanceID(id); err == nil {
-			t.Errorf("ValidateInstanceID(%q) should return error", id)
+		if err := ValidateRealmID(id); err == nil {
+			t.Errorf("ValidateRealmID(%q) should return error", id)
 		}
 	}
 }
 
-func TestResolve_InvalidInstanceID(t *testing.T) {
+func TestResolve_InvalidRealmID(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "../escape")
+	t.Setenv("ARI_REALM_ID", "../escape")
 
 	_, err := Resolve()
 	if err == nil {
-		t.Fatal("Resolve() should return error for invalid instance ID")
+		t.Fatal("Resolve() should return error for invalid realm ID")
 	}
 }
 
 func TestRunLogPath(t *testing.T) {
 	t.Setenv("ARI_HOME", "/tmp/test-ari")
-	t.Setenv("ARI_INSTANCE_ID", "")
-	os.Unsetenv("ARI_INSTANCE_ID")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
 
 	paths, err := Resolve()
 	if err != nil {

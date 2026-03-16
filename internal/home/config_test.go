@@ -24,7 +24,7 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Database.EmbeddedPostgresPort != 5433 {
 		t.Errorf("default embedded PG port = %d, want 5433", cfg.Database.EmbeddedPostgresPort)
 	}
-	if cfg.Server.Host != "0.0.0.0" {
+	if cfg.Server.Host != "127.0.0.1" {
 		t.Errorf("default host = %q, want 0.0.0.0", cfg.Server.Host)
 	}
 	if cfg.Server.DeploymentMode != "local_trusted" {
@@ -39,7 +39,7 @@ func TestLoadConfigFromFile(t *testing.T) {
 	data := `{
 		"$meta": {"version": 1},
 		"database": {"mode": "postgres", "connectionString": "postgres://localhost/test", "embeddedPostgresPort": 5555},
-		"server": {"host": "0.0.0.0", "port": 9000, "deploymentMode": "authenticated"},
+		"server": {"host": "127.0.0.1", "port": 9000, "deploymentMode": "authenticated"},
 		"logging": {"level": "debug"},
 		"secrets": {"keyFilePath": "/tmp/key"}
 	}`
@@ -130,7 +130,7 @@ func TestMergeConfigs(t *testing.T) {
 		t.Errorf("merged port = %d, want 9000 (overlay)", result.Server.Port)
 	}
 	// Non-overlaid fields should retain base defaults
-	if result.Server.Host != "0.0.0.0" {
+	if result.Server.Host != "127.0.0.1" {
 		t.Errorf("merged host = %q, want 0.0.0.0 (base)", result.Server.Host)
 	}
 	if result.Database.Mode != "embedded-postgres" {
