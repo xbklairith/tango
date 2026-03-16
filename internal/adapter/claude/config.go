@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -97,6 +98,35 @@ func parseConfig(raw json.RawMessage) Config {
 	}
 
 	return cfg
+}
+
+// resolveInstructionsFile resolves the instructions file path.
+// Relative paths are resolved against workingDir. Path traversal is rejected.
+// Returns error if file does not exist.
+func resolveInstructionsFile(path, workingDir string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty instructions file path")
+	}
+
+	// Reject path traversal
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("instructions file path contains path traversal: %s", path)
+	}
+
+	// Resolve relative paths against workingDir
+	if !filepath.IsAbs(path) {
+		if workingDir == "" {
+			return "", fmt.Errorf("relative instructions file path requires workingDir: %s", path)
+		}
+		path = filepath.Join(workingDir, path)
+	}
+
+	// Check file exists
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("instructions file not found: %s", path)
+	}
+
+	return path, nil
 }
 
 // validateWorkingDir checks that dir is an absolute path with no ".." path segments.

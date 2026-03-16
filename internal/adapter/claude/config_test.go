@@ -3,6 +3,8 @@ package claude
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -265,6 +267,48 @@ func TestParseConfig_InstructionsFilePathTraversal(t *testing.T) {
 	cfg := parseConfig(raw)
 	if cfg.InstructionsFilePath != "" {
 		t.Errorf("path traversal should be rejected, got %q", cfg.InstructionsFilePath)
+	}
+}
+
+func TestResolveInstructionsFile_Absolute(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "instructions.md")
+	os.WriteFile(path, []byte("# Instructions"), 0644)
+
+	resolved, err := resolveInstructionsFile(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != path {
+		t.Errorf("resolved = %q, want %q", resolved, path)
+	}
+}
+
+func TestResolveInstructionsFile_Relative(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "instructions.md")
+	os.WriteFile(path, []byte("# Instructions"), 0644)
+
+	resolved, err := resolveInstructionsFile("instructions.md", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != path {
+		t.Errorf("resolved = %q, want %q", resolved, path)
+	}
+}
+
+func TestResolveInstructionsFile_Missing(t *testing.T) {
+	_, err := resolveInstructionsFile("/nonexistent/file.md", "")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestResolveInstructionsFile_Traversal(t *testing.T) {
+	_, err := resolveInstructionsFile("../../etc/passwd", "/opt/agent")
+	if err == nil {
+		t.Error("expected error for path traversal")
 	}
 }
 

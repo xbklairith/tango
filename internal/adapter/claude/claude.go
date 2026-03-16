@@ -140,7 +140,10 @@ func buildArgs(cfg Config, input adapter.InvokeInput, useResume bool) []string {
 		"--model", cfg.Model,             // model selection
 	}
 
-	// Append system prompt — preserves Claude Code's built-in prompt
+	// System prompt injection: --append-system-prompt-file and --append-system-prompt
+	// are mutually exclusive. When instructionsFilePath is configured, we merge the
+	// system prompt into a temp file and use --append-system-prompt-file only.
+	// Otherwise, use --append-system-prompt as before.
 	if input.Agent.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", input.Agent.SystemPrompt)
 	}
