@@ -133,16 +133,16 @@ var UserPermissions = RolePermissions{
 var AgentPermissions = RolePermissions{
 	"captain": {
 		ResourceIssue:        actions(ActionCreate, ActionRead, ActionUpdate, ActionAssign, ActionAdvance, ActionReject, ActionResolve),
-		ResourceAgent:        readOnly(),
-		ResourceProject:      readOnly(),
-		ResourceGoal:         readOnly(),
-		ResourcePipeline:     readOnly(),
+		ResourceAgent:        actions(ActionCreate, ActionRead, ActionUpdate, ActionDelete, ActionAssign),
+		ResourceProject:      actions(ActionCreate, ActionRead, ActionUpdate),
+		ResourceGoal:         actions(ActionCreate, ActionRead, ActionUpdate),
+		ResourcePipeline:     actions(ActionCreate, ActionRead, ActionUpdate),
 		ResourceInbox:        actions(ActionCreate, ActionRead, ActionResolve),
 		ResourceConversation: actions(ActionCreate, ActionRead, ActionUpdate),
 		ResourceActivity:     readOnly(),
 		ResourceCost:         readOnly(),
-		ResourceTask:         actions(ActionRead, ActionUpdate),
-		ResourceRun:          readOnly(),
+		ResourceTask:         actions(ActionCreate, ActionRead, ActionUpdate),
+		ResourceRun:          actions(ActionCreate, ActionRead),
 		ResourceWakeup:       actions(ActionCreate),
 	},
 	"lead": {

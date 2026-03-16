@@ -64,6 +64,7 @@ func (h *AuthHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/register", h.Register)
 	mux.HandleFunc("POST /api/auth/login", h.Login)
 	mux.HandleFunc("POST /api/auth/logout", h.Logout)
+	mux.HandleFunc("POST /api/auth/refresh", h.Refresh)
 	mux.HandleFunc("GET /api/auth/me", h.Me)
 }
 
@@ -349,6 +350,90 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	slog.Info("user logged out", "user_id", identity.UserID)
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out successfully"})
+}
+
+// Refresh handles POST /api/auth/refresh.
+// It accepts a valid or recently-expired session token, verifies the DB session,
+// and issues a fresh token + session cookie. This is a public endpoint (no middleware
+// auth check) so it can serve expired JWTs.
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	// In local_trusted mode there is no real token, so nothing to refresh.
+	if h.mode == auth.ModeLocalTrusted {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "refreshed"})
+		return
+	}
+
+	tokenString := auth.ExtractToken(r)
+	if tokenString == "" {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+
+	// Parse claims accepting expired tokens (signature must still be valid).
+	claims, err := h.jwt.ParseForRefresh(tokenString)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Invalid token", Code: "INVALID_TOKEN"})
+		return
+	}
+
+	// Look up existing session — this is the authoritative expiry check.
+	tokenHash := auth.HashToken(tokenString)
+	session, err := h.sessions.FindByTokenHash(r.Context(), tokenHash)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Session not found or expired", Code: "INVALID_TOKEN"})
+		return
+	}
+
+	// Reject if the DB session itself has expired.
+	if time.Now().After(session.ExpiresAt) {
+		_ = h.sessions.DeleteByID(r.Context(), session.ID)
+		clearSessionCookie(w, h.isSecure)
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Session expired", Code: "SESSION_EXPIRED"})
+		return
+	}
+
+	userID, err := uuid.Parse(claims.Subject)
+	if err != nil || session.UserID != userID {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Invalid token claims", Code: "INVALID_TOKEN"})
+		return
+	}
+
+	// Mint new token and session.
+	newToken, err := h.jwt.Mint(userID, claims.Email)
+	if err != nil {
+		slog.Error("failed to mint refresh JWT", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	newTokenHash := auth.HashToken(newToken)
+	_, err = h.sessions.Create(r.Context(), auth.CreateSessionParams{
+		ID:        uuid.New(),
+		UserID:    userID,
+		TokenHash: newTokenHash,
+		ExpiresAt: time.Now().Add(h.sessionTTL),
+	})
+	if err != nil {
+		slog.Error("failed to create refreshed session", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	// Invalidate the old session.
+	_ = h.sessions.DeleteByID(r.Context(), session.ID)
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "ari_session",
+		Value:    newToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.isSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(h.sessionTTL.Seconds()),
+	})
+
+	slog.Info("session refreshed", "user_id", userID)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "refreshed"})
 }
 
 // Me handles GET /api/auth/me.

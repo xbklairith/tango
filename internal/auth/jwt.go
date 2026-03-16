@@ -59,6 +59,31 @@ func (s *JWTService) Mint(userID uuid.UUID, email string) (string, error) {
 	return signed, nil
 }
 
+// ParseForRefresh parses a JWT and validates its signature but accepts expired tokens.
+// Used exclusively by the refresh endpoint to extract claims from a recently-expired token.
+func (s *JWTService) ParseForRefresh(tokenString string) (*SessionClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &SessionClaims{}, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return s.signingKey, nil
+	})
+
+	// Accept the token if the only error is expiry — signature is still valid.
+	if err != nil && !errors.Is(err, jwt.ErrTokenExpired) {
+		if errors.Is(err, jwt.ErrTokenMalformed) {
+			return nil, ErrTokenMalformed
+		}
+		return nil, ErrTokenInvalid
+	}
+
+	claims, ok := token.Claims.(*SessionClaims)
+	if !ok {
+		return nil, ErrTokenInvalid
+	}
+	return claims, nil
+}
+
 // Validate parses and validates a JWT string.
 func (s *JWTService) Validate(tokenString string) (*SessionClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &SessionClaims{}, func(token *jwt.Token) (any, error) {

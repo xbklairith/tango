@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -221,6 +222,7 @@ func (c *e2eClient) createSquad(t *testing.T, name, prefix string) (int, *e2eSqu
 	var resp e2eSquadResp
 	status := c.doJSON(t, "POST", "/api/squads", map[string]string{
 		"name": name, "issuePrefix": prefix,
+		"captainName": "Captain", "captainShortName": "captain-" + strings.ToLower(prefix),
 	}, &resp)
 	return status, &resp
 }

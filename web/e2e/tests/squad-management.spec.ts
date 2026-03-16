@@ -13,7 +13,7 @@ test.describe("Squad Management", () => {
     const cookies = await loginViaAPI(apiContext, email, password);
 
     const resp = await apiContext.post("/api/squads", {
-      data: { name: "Squad List Test", issuePrefix: "SLT" },
+      data: { name: "Squad List Test", issuePrefix: "SLT", captainName: "SLT Captain", captainShortName: "slt-captain" },
       headers: { Cookie: cookies },
     });
     expect(resp.ok()).toBeTruthy();

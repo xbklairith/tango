@@ -172,6 +172,12 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Block captain creation via this endpoint - captains are auto-created with squads
+	if req.Role == domain.AgentRoleCaptain {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Captain agents are created automatically when a squad is created", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	// Verify squad membership
 	if _, ok := h.verifySquadMembership(w, r, req.SquadID); !ok {
 		return
@@ -256,6 +262,9 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AdapterType != nil {
 		params.AdapterType = db.NullAdapterType{AdapterType: db.AdapterType(*req.AdapterType), Valid: true}
+	} else {
+		// Default to claude_local adapter when not specified
+		params.AdapterType = db.NullAdapterType{AdapterType: db.AdapterTypeClaudeLocal, Valid: true}
 	}
 	if req.AdapterConfig != nil {
 		params.AdapterConfig = pqtype.NullRawMessage{RawMessage: req.AdapterConfig, Valid: true}
@@ -461,6 +470,18 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// Permission check: agent.update
 	if !requirePermission(w, r, existing.SquadID, auth.ResourceAgent, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
+	}
+
+	// Block role change and termination for captain agents
+	if db.AgentRole(existing.Role) == db.AgentRoleCaptain {
+		if req.Role != nil && *req.Role != domain.AgentRoleCaptain {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Cannot change captain agent's role", Code: "VALIDATION_ERROR"})
+			return
+		}
+		if req.Status != nil && *req.Status == domain.AgentStatusTerminated {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Cannot terminate captain agent; captain is permanently bound to the squad", Code: "VALIDATION_ERROR"})
+			return
+		}
 	}
 
 	// Status transition validation
@@ -689,6 +710,12 @@ func (h *AgentHandler) TransitionAgentStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+		return
+	}
+
+	// Block terminating captain agents
+	if db.AgentRole(existing.Role) == db.AgentRoleCaptain && req.Status == domain.AgentStatusTerminated {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Cannot terminate captain agent; captain is permanently bound to the squad", Code: "VALIDATION_ERROR"})
 		return
 	}
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { useAuth } from "@/lib/auth";
 import { useActiveSquad } from "@/lib/active-squad";
 import { useQuery } from "@tanstack/react-query";
@@ -15,9 +16,11 @@ import { Plus } from "lucide-react";
 import { CreateAgentDialog } from "@/features/agents/create-agent-dialog";
 import { CreateIssueDialog } from "@/features/issues/create-issue-dialog";
 import { CreateProjectDialog } from "@/features/projects/create-project-dialog";
+import { CreateSquadDialog } from "@/features/squads/create-squad-dialog";
 import { ActivityFeed } from "./activity-feed";
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { activeSquadId } = useActiveSquad();
   const activeSquad = user?.squads?.find((s) => s.squadId === activeSquadId);
@@ -25,6 +28,7 @@ export default function DashboardPage() {
   const [agentCreateOpen, setAgentCreateOpen] = useState(false);
   const [issueCreateOpen, setIssueCreateOpen] = useState(false);
   const [projectCreateOpen, setProjectCreateOpen] = useState(false);
+  const [squadCreateOpen, setSquadCreateOpen] = useState(false);
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(activeSquadId ?? ""),
@@ -46,16 +50,19 @@ export default function DashboardPage() {
 
   if (!activeSquad) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <h2 className="text-2xl font-bold">Welcome to Ari</h2>
-        <p className="text-muted-foreground">
-          Create your first squad to get started.
-        </p>
-        <Button onClick={() => window.location.href = "/squads"}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Squad
-        </Button>
-      </div>
+      <>
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <h2 className="text-2xl font-bold">Welcome to Ari</h2>
+          <p className="text-muted-foreground">
+            Create your first squad to get started.
+          </p>
+          <Button onClick={() => setSquadCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Squad
+          </Button>
+        </div>
+        <CreateSquadDialog open={squadCreateOpen} onOpenChange={setSquadCreateOpen} onSuccess={(squad) => navigate(`/squads/${squad.id}`)} />
+      </>
     );
   }
 
@@ -123,6 +130,7 @@ export default function DashboardPage() {
           <Button size="sm" variant="outline" onClick={() => setAgentCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> New Agent</Button>
           <Button size="sm" variant="outline" onClick={() => setIssueCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> New Issue</Button>
           <Button size="sm" variant="outline" onClick={() => setProjectCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> New Project</Button>
+          <Button size="sm" variant="outline" onClick={() => setSquadCreateOpen(true)}><Plus className="h-4 w-4 mr-1" /> New Squad</Button>
         </div>
       </div>
 
@@ -148,6 +156,7 @@ export default function DashboardPage() {
           <CreateProjectDialog open={projectCreateOpen} onOpenChange={setProjectCreateOpen} squadId={activeSquadId} />
         </>
       )}
+      <CreateSquadDialog open={squadCreateOpen} onOpenChange={setSquadCreateOpen} onSuccess={(squad) => navigate(`/squads/${squad.id}`)} />
     </div>
   );
 }

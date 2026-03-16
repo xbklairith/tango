@@ -30,6 +30,7 @@ func withUser(ctx context.Context, id Identity) context.Context {
 var publicEndpoints = map[string]map[string]bool{
 	"/api/auth/register": {"POST": true},
 	"/api/auth/login":    {"POST": true},
+	"/api/auth/refresh":  {"POST": true},
 	"/api/health":        {"GET": true},
 }
 

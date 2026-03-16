@@ -21,6 +21,7 @@ func TestAddMember_Success(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Add Member Test", "issuePrefix": "ADDM",
+		"captainName": "Captain", "captainShortName": "captain-addm",
 	}, []*http.Cookie{cookieOwner})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -54,6 +55,7 @@ func TestAddMember_AdminCannotGrantOwner(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "ACL Test", "issuePrefix": "ACLX",
+		"captainName": "Captain", "captainShortName": "captain-aclx",
 	}, []*http.Cookie{cookieOwner})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -99,6 +101,7 @@ func TestAddMember_Duplicate(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Dup Member Test", "issuePrefix": "DUPM",
+		"captainName": "Captain", "captainShortName": "captain-dupm",
 	}, []*http.Cookie{cookieOwner})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -134,6 +137,7 @@ func TestLeaveSquad_LastOwnerBlocked(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Leave Test", "issuePrefix": "LEAV",
+		"captainName": "Captain", "captainShortName": "captain-leav",
 	}, []*http.Cookie{cookieOwner})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -158,6 +162,7 @@ func TestLeaveSquad_NonOwnerSuccess(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Leave Success", "issuePrefix": "LVSC",
+		"captainName": "Captain", "captainShortName": "captain-lvsc",
 	}, []*http.Cookie{cookieOwner})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -193,6 +198,7 @@ func TestListMembers_Success(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "List Members", "issuePrefix": "LSTM",
+		"captainName": "Captain", "captainShortName": "captain-lstm",
 	}, []*http.Cookie{cookieOwner})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)

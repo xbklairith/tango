@@ -53,22 +53,12 @@ type costBreakdownResp struct {
 	} `json:"agents"`
 }
 
-// setupCostTestEnv creates a user, squad, and captain agent, returning (cookie, squadID, agentID).
+// setupCostTestEnv creates a user and squad (with auto-created captain), returning (cookie, squadID, agentID).
 func setupCostTestEnv(t *testing.T, env *testEnv, email string) (*http.Cookie, string, string) {
 	t.Helper()
 	cookie, squadID := setupSquadAndAuth(t, env, email)
-
-	agent, status := createAgent(t, env, cookie, map[string]any{
-		"squadId":   squadID,
-		"name":      "Cost Agent",
-		"shortName": "cost-agent",
-		"role":      "captain",
-	})
-	if status != http.StatusCreated {
-		t.Fatalf("create agent: status = %d", status)
-	}
-
-	return cookie, squadID, agent.ID
+	captain := getSquadCaptain(t, env, cookie, squadID)
+	return cookie, squadID, captain.ID
 }
 
 func TestRecordCostEvent_Success(t *testing.T) {
@@ -250,16 +240,15 @@ func TestBudgetEnforcement_AgentExceeded(t *testing.T) {
 	env := makeEnv(t, auth.ModeAuthenticated, false)
 	cookie, squadID := setupSquadAndAuth(t, env, "budget-agent@example.com")
 
-	// Create agent with a $10 budget (1000 cents)
-	agent, status := createAgent(t, env, cookie, map[string]any{
-		"squadId":            squadID,
-		"name":               "Budget Agent",
-		"shortName":          "budget-agent",
-		"role":               "captain",
-		"budgetMonthlyCents": 1000,
-	})
-	if status != http.StatusCreated {
-		t.Fatalf("create agent: status = %d", status)
+	// Use auto-created captain and set budget to $10 (1000 cents)
+	agent := getSquadCaptain(t, env, cookie, squadID)
+	{
+		rr := doJSON(t, env.handler, "PATCH", fmt.Sprintf("/api/agents/%s", agent.ID), map[string]any{
+			"budgetMonthlyCents": 1000,
+		}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("set budget: status = %d, body: %s", rr.Code, rr.Body.String())
+		}
 	}
 
 	// Transition agent to idle first (active -> idle)
@@ -317,16 +306,15 @@ func TestBudgetEnforcement_ResumeBlocked(t *testing.T) {
 	env := makeEnv(t, auth.ModeAuthenticated, false)
 	cookie, squadID := setupSquadAndAuth(t, env, "budget-resume@example.com")
 
-	// Create agent with a small budget
-	agent, status := createAgent(t, env, cookie, map[string]any{
-		"squadId":            squadID,
-		"name":               "Resume Agent",
-		"shortName":          "resume-agent",
-		"role":               "captain",
-		"budgetMonthlyCents": 500,
-	})
-	if status != http.StatusCreated {
-		t.Fatalf("create agent: status = %d", status)
+	// Use auto-created captain and set a small budget
+	agent := getSquadCaptain(t, env, cookie, squadID)
+	{
+		rr := doJSON(t, env.handler, "PATCH", fmt.Sprintf("/api/agents/%s", agent.ID), map[string]any{
+			"budgetMonthlyCents": 500,
+		}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("set budget: status = %d, body: %s", rr.Code, rr.Body.String())
+		}
 	}
 
 	// Record cost exceeding budget
@@ -367,16 +355,8 @@ func TestBudgetEnforcement_SquadExceeded(t *testing.T) {
 		t.Fatalf("set squad budget: status = %d, body: %s", rr.Code, rr.Body.String())
 	}
 
-	// Create agent (no individual budget)
-	agent, status := createAgent(t, env, cookie, map[string]any{
-		"squadId":   squadID,
-		"name":      "Squad Budget Agent",
-		"shortName": "squad-budget-agent",
-		"role":      "captain",
-	})
-	if status != http.StatusCreated {
-		t.Fatalf("create agent: status = %d", status)
-	}
+	// Use auto-created captain (no individual budget)
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	// Transition to idle then running
 	doJSON(t, env.handler, "POST", fmt.Sprintf("/api/agents/%s/transition", agent.ID), map[string]any{
@@ -411,16 +391,15 @@ func TestBudgetEnforcement_Warning80Percent(t *testing.T) {
 	env := makeEnv(t, auth.ModeAuthenticated, false)
 	cookie, squadID := setupSquadAndAuth(t, env, "budget-warn@example.com")
 
-	// Create agent with $10 budget (1000 cents)
-	agent, status := createAgent(t, env, cookie, map[string]any{
-		"squadId":            squadID,
-		"name":               "Warn Agent",
-		"shortName":          "warn-agent",
-		"role":               "captain",
-		"budgetMonthlyCents": 1000,
-	})
-	if status != http.StatusCreated {
-		t.Fatalf("create agent: status = %d", status)
+	// Use auto-created captain and set $10 budget (1000 cents)
+	agent := getSquadCaptain(t, env, cookie, squadID)
+	{
+		rr := doJSON(t, env.handler, "PATCH", fmt.Sprintf("/api/agents/%s", agent.ID), map[string]any{
+			"budgetMonthlyCents": 1000,
+		}, []*http.Cookie{cookie})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("set budget: status = %d, body: %s", rr.Code, rr.Body.String())
+		}
 	}
 
 	// Record cost at 85% (850 cents)

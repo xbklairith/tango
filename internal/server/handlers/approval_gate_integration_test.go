@@ -92,6 +92,7 @@ func TestApprovalGates_ConfigureViaSquadSettings(t *testing.T) {
 	// Create squad
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Gate Squad", "issuePrefix": "GAT",
+		"captainName": "Captain", "captainShortName": "captain-gat",
 	}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create squad: %d: %s", rr.Code, rr.Body.String())
@@ -177,6 +178,7 @@ func TestApprovalGates_ValidationErrors(t *testing.T) {
 
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Val Squad", "issuePrefix": "VAL",
+		"captainName": "Captain", "captainShortName": "captain-val",
 	}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create squad: %d: %s", rr.Code, rr.Body.String())
@@ -246,6 +248,7 @@ func TestApprovalGates_MaxGatesLimit(t *testing.T) {
 
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Max Squad", "issuePrefix": "MAX",
+		"captainName": "Captain", "captainShortName": "captain-max",
 	}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create squad: %d: %s", rr.Code, rr.Body.String())
@@ -289,6 +292,7 @@ func TestApprovalGates_CreateApprovalRequest(t *testing.T) {
 	// Create squad
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Approve Squad", "issuePrefix": "APV",
+		"captainName": "Captain", "captainShortName": "captain-apv",
 	}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create squad: %d: %s", rr.Code, rr.Body.String())

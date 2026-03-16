@@ -842,6 +842,15 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Auto-wake on status change: if issue status changed and has an assigned agent, wake them
+	// This covers reopens, backlog→todo, todo→in_progress, etc.
+	if h.wakeupSvc != nil && isStatusChange && !req.SetAssigneeAgent && updated.AssigneeAgentID.Valid {
+		ctxMap := map[string]any{"ARI_TASK_ID": issueID.String()}
+		if _, err := h.wakeupSvc.Enqueue(r.Context(), updated.AssigneeAgentID.UUID, existing.SquadID, "assignment", ctxMap); err != nil {
+			slog.Warn("auto-wake enqueue failed on status change", "agent_id", updated.AssigneeAgentID.UUID, "error", err)
+		}
+	}
+
 	// Auto-advance: if status changed to done and issue is in a pipeline, advance to next stage
 	if req.Status != nil && *req.Status == domain.IssueStatusDone && h.pipelineSvc != nil {
 		if handled, _, advErr := h.pipelineSvc.AutoAdvanceOnDone(r.Context(), issueID, identity.UserID); handled && advErr != nil {
@@ -921,13 +930,30 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
-		return
-	}
+	// Support both agent tokens and user sessions.
+	// Agent tokens bypass verifySquadMembership; user tokens require it.
+	var actorType domain.ActivityActorType
+	var actorID uuid.UUID
 
-	// Permission check: issue.update (comment creation maps to issue.update)
-	if !requirePermission(w, r, issue.SquadID, auth.ResourceIssue, auth.ActionUpdate, makeRoleLookup(h.queries)) {
-		return
+	if agentIdentity, agentOk := auth.AgentFromContext(r.Context()); agentOk {
+		// Agent token: verify agent belongs to this squad.
+		if agentIdentity.SquadID != issue.SquadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
+			return
+		}
+		actorType = domain.ActivityActorAgent
+		actorID = agentIdentity.AgentID
+	} else {
+		if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
+			return
+		}
+		// Permission check: issue.update (comment creation maps to issue.update)
+		if !requirePermission(w, r, issue.SquadID, auth.ResourceIssue, auth.ActionUpdate, makeRoleLookup(h.queries)) {
+			return
+		}
+		userIdentity, _ := auth.UserFromContext(r.Context())
+		actorType = domain.ActivityActorUser
+		actorID = userIdentity.UserID
 	}
 
 	var req domain.CreateCommentRequest
@@ -940,6 +966,13 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "body is required", Code: "VALIDATION_ERROR"})
 		return
 	}
+
+	// For agent tokens, auto-populate authorType/authorId from the token.
+	if agentIdentity, agentOk := auth.AgentFromContext(r.Context()); agentOk {
+		req.AuthorType = domain.CommentAuthorAgent
+		req.AuthorID = agentIdentity.AgentID
+	}
+
 	if !req.AuthorType.Valid() {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "authorType must be one of: agent, user, system", Code: "VALIDATION_ERROR"})
 		return
@@ -980,13 +1013,6 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		// System comments are allowed with any authorId (typically uuid.Nil)
 	}
 
-	// Get actor identity for activity logging
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return
-	}
-
 	tx, err := h.dbConn.BeginTx(r.Context(), nil)
 	if err != nil {
 		slog.Error("failed to begin transaction", "error", err)
@@ -1011,8 +1037,8 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    issue.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  actorType,
+		ActorID:    actorID,
 		Action:     "comment.created",
 		EntityType: "comment",
 		EntityID:   comment.ID,

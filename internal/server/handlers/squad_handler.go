@@ -56,6 +56,9 @@ type createSquadRequest struct {
 	Settings           *domain.SquadSettings `json:"settings,omitempty"`
 	BudgetMonthlyCents *int64                `json:"budgetMonthlyCents,omitempty"`
 	BrandColor         *string               `json:"brandColor,omitempty"`
+	// Captain agent fields
+	CaptainName      string `json:"captainName"`
+	CaptainShortName string `json:"captainShortName"`
 }
 
 type updateSquadRequest struct {
@@ -186,6 +189,30 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate captain agent fields
+	req.CaptainName = strings.TrimSpace(req.CaptainName)
+	if req.CaptainName == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "captainName is required", Code: "VALIDATION_ERROR"})
+		return
+	}
+	if len(req.CaptainName) > 255 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "captainName must not exceed 255 characters", Code: "VALIDATION_ERROR"})
+		return
+	}
+	req.CaptainShortName = strings.TrimSpace(req.CaptainShortName)
+	if req.CaptainShortName == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "captainShortName is required", Code: "VALIDATION_ERROR"})
+		return
+	}
+	if len(req.CaptainShortName) > 50 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "captainShortName must not exceed 50 characters", Code: "VALIDATION_ERROR"})
+		return
+	}
+	if !domain.ShortNameRegex.MatchString(req.CaptainShortName) {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "captainShortName must contain only lowercase alphanumeric characters and hyphens", Code: "VALIDATION_ERROR"})
+		return
+	}
+
 	if req.Settings != nil {
 		// Validate settings keys by marshaling to map
 		settingsBytes, err := json.Marshal(req.Settings)
@@ -294,6 +321,29 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create captain agent
+	captainParams := db.CreateAgentParams{
+		SquadID:     squad.ID,
+		Name:        req.CaptainName,
+		ShortName:   req.CaptainShortName,
+		Role:        db.AgentRoleCaptain,
+		Status:      db.AgentStatusActive,
+		AdapterType: db.NullAdapterType{AdapterType: db.AdapterTypeClaudeLocal, Valid: true},
+	}
+	captain, err := qtx.CreateAgent(r.Context(), captainParams)
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			if strings.Contains(pqErr.Constraint, "short_name") {
+				writeJSON(w, http.StatusConflict, errorResponse{Error: "An agent with this shortName already exists", Code: "CONFLICT"})
+				return
+			}
+		}
+		slog.Error("failed to create captain agent", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squad.ID,
 		ActorType:  domain.ActivityActorUser,
@@ -302,6 +352,24 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		EntityType: "squad",
 		EntityID:   squad.ID,
 		Metadata:   map[string]any{"name": squad.Name, "issuePrefix": squad.IssuePrefix},
+	}); err != nil {
+		slog.Error("failed to log activity", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+
+	if err := logActivity(r.Context(), qtx, ActivityParams{
+		SquadID:    squad.ID,
+		ActorType:  domain.ActivityActorUser,
+		ActorID:    identity.UserID,
+		Action:     "agent.created",
+		EntityType: "agent",
+		EntityID:   captain.ID,
+		Metadata: map[string]any{
+			"name":   captain.Name,
+			"role":   string(captain.Role),
+			"urlKey": captain.ShortName,
+		},
 	}); err != nil {
 		slog.Error("failed to log activity", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})

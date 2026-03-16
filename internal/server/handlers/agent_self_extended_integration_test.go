@@ -22,13 +22,8 @@ func TestSelfService_Assignments_MemberOwnIssues(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "assign@test.com")
 
-	// Create captain → lead → member hierarchy
-	captain, code := createAgent(t, env, cookie, map[string]any{
-		"name": "captain-bot", "shortName": "cb", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create captain: expected 201, got %d", code)
-	}
+	// Captain is auto-created with squad
+	captain := getSquadCaptain(t, env, cookie, squadID)
 
 	lead, code := createAgent(t, env, cookie, map[string]any{
 		"name": "lead-bot", "shortName": "lb", "role": "lead", "squadId": squadID,
@@ -37,7 +32,6 @@ func TestSelfService_Assignments_MemberOwnIssues(t *testing.T) {
 	if code != http.StatusCreated {
 		t.Fatalf("create lead: expected 201, got %d", code)
 	}
-	_ = lead
 
 	member, code := createAgent(t, env, cookie, map[string]any{
 		"name": "member-bot", "shortName": "mb", "role": "member", "squadId": squadID,
@@ -119,9 +113,7 @@ func TestSelfService_Team_MemberView(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "team@test.com")
 
-	captain, _ := createAgent(t, env, cookie, map[string]any{
-		"name": "team-captain", "shortName": "tc", "role": "captain", "squadId": squadID,
-	})
+	captain := getSquadCaptain(t, env, cookie, squadID)
 
 	lead, _ := createAgent(t, env, cookie, map[string]any{
 		"name": "team-lead", "shortName": "tl", "role": "lead", "squadId": squadID,
@@ -195,16 +187,18 @@ func TestSelfService_Budget_WithLimit(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "budget@test.com")
 
+	// Use auto-created captain, update its budget via PATCH
+	captain := getSquadCaptain(t, env, cookie, squadID)
+
 	budgetCents := int64(10000)
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "budget-bot", "shortName": "bb", "role": "captain", "squadId": squadID,
+	rr := doJSON(t, env.handler, "PATCH", "/api/agents/"+captain.ID, map[string]any{
 		"budgetMonthlyCents": budgetCents,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
+	}, []*http.Cookie{cookie})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update agent budget: expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 
-	token := mintRunToken(t, rtSvc, agent.ID, squadID)
+	token := mintRunToken(t, rtSvc, captain.ID, squadID)
 
 	req := httptest.NewRequest("GET", "/api/agent/me/budget", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -257,12 +251,7 @@ func TestSelfService_Goals_MemberWithGoals(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "goals@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "goal-bot", "shortName": "gb", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	// Create a goal
 	goal, goalCode := createGoal(t, env, cookie, squadID, map[string]any{
@@ -329,12 +318,7 @@ func TestSelfService_Inbox_CreateQuestion(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "inbox-q@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "inbox-bot", "shortName": "ib", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	token := mintRunToken(t, rtSvc, agent.ID, squadID)
 
@@ -383,12 +367,7 @@ func TestSelfService_Inbox_RejectAlert(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "inbox-a@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "alert-bot", "shortName": "ab2", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	token := mintRunToken(t, rtSvc, agent.ID, squadID)
 
@@ -418,12 +397,7 @@ func TestSelfService_Cost_SelfReport(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "cost@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "cost-bot", "shortName": "co", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	token := mintRunToken(t, rtSvc, agent.ID, squadID)
 
@@ -476,12 +450,7 @@ func TestSelfService_Cost_ExceedsMax(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "costmax@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "maxcost-bot", "shortName": "mc", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	token := mintRunToken(t, rtSvc, agent.ID, squadID)
 
@@ -532,12 +501,7 @@ func TestSelfService_Gates_ReturnsConfig(t *testing.T) {
 		t.Fatalf("PATCH squad settings: expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "gate-bot", "shortName": "gt", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	token := mintRunToken(t, rtSvc, agent.ID, squadID)
 
@@ -587,12 +551,7 @@ func TestSelfService_Gates_EmptyWhenNoGates(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "nogates@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name": "nogate-bot", "shortName": "ng", "role": "captain", "squadId": squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	token := mintRunToken(t, rtSvc, agent.ID, squadID)
 

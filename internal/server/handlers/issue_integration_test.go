@@ -79,8 +79,10 @@ func setupSquadAndAuthWithUserID(t *testing.T, env *testEnv, email string) (*htt
 	cookie := sessionCookie(loginRR)
 
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
-		"name":        "Test Squad",
-		"issuePrefix": fmt.Sprintf("TS%s", strings.ToUpper(email[:2])),
+		"name":             "Test Squad",
+		"issuePrefix":      fmt.Sprintf("TS%s", strings.ToUpper(email[:2])),
+		"captainName":      "Captain",
+		"captainShortName": fmt.Sprintf("captain-%s", email[:4]),
 	}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create squad: status = %d, body: %s", rr.Code, rr.Body.String())

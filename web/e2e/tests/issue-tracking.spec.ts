@@ -13,7 +13,7 @@ test.describe("Issue Tracking", () => {
     const cookies = await loginViaAPI(apiContext, email, password);
 
     const squadResp = await apiContext.post("/api/squads", {
-      data: { name: "Issue List Squad", issuePrefix: "ILS" },
+      data: { name: "Issue List Squad", issuePrefix: "ILS", captainName: "ILS Captain", captainShortName: "ils-captain" },
       headers: { Cookie: cookies },
     });
     const squad = await squadResp.json();

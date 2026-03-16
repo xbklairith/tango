@@ -116,12 +116,11 @@ func TestAgentPermissions_CaptainMatrix(t *testing.T) {
 		}
 	}
 
-	// captain should have agent.read only
-	if !captainPerms[ResourceAgent][ActionRead] {
-		t.Error("captain should have agent.read")
-	}
-	if captainPerms[ResourceAgent][ActionCreate] {
-		t.Error("captain should NOT have agent.create")
+	// captain should have full agent management (CEO role)
+	for _, act := range []Action{ActionCreate, ActionRead, ActionUpdate, ActionDelete, ActionAssign} {
+		if !captainPerms[ResourceAgent][act] {
+			t.Errorf("captain should have agent.%s", act)
+		}
 	}
 }
 

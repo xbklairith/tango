@@ -49,9 +49,11 @@ func TestCreateSquad_Success(t *testing.T) {
 
 	// Create squad
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
-		"name":        "Acme Engineering",
-		"issuePrefix": "ACME",
-		"description": "The core engineering squad",
+		"name":             "Acme Engineering",
+		"issuePrefix":      "ACME",
+		"description":      "The core engineering squad",
+		"captainName":      "Captain",
+		"captainShortName": "captain-acme",
 	}, []*http.Cookie{cookie})
 
 	if rr.Code != http.StatusCreated {
@@ -89,11 +91,13 @@ func TestCreateSquad_DuplicatePrefix(t *testing.T) {
 	// First squad
 	doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Squad One", "issuePrefix": "DUPE",
+		"captainName": "Captain", "captainShortName": "captain-dupe1",
 	}, []*http.Cookie{cookie})
 
 	// Second squad with same prefix
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Squad Two", "issuePrefix": "DUPE",
+		"captainName": "Captain", "captainShortName": "captain-dupe2",
 	}, []*http.Cookie{cookie})
 
 	if rr.Code != http.StatusConflict {
@@ -146,6 +150,7 @@ func TestListSquads_OnlyMySquads(t *testing.T) {
 
 	doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "A Squad", "issuePrefix": "ASQD",
+		"captainName": "Captain", "captainShortName": "captain-asqd",
 	}, []*http.Cookie{cookieA})
 
 	// User B
@@ -155,6 +160,7 @@ func TestListSquads_OnlyMySquads(t *testing.T) {
 
 	doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "B Squad", "issuePrefix": "BSQD",
+		"captainName": "Captain", "captainShortName": "captain-bsqd",
 	}, []*http.Cookie{cookieB})
 
 	// User A should see only their squad
@@ -185,6 +191,7 @@ func TestGetSquad_NonMemberReturns404(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Private Squad", "issuePrefix": "PRIV",
+		"captainName": "Captain", "captainShortName": "captain-priv",
 	}, []*http.Cookie{cookieA})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -212,6 +219,7 @@ func TestUpdateSquad_OwnerSuccess(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Update Test", "issuePrefix": "UPDT",
+		"captainName": "Captain", "captainShortName": "captain-updt",
 	}, []*http.Cookie{cookie})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -242,6 +250,7 @@ func TestUpdateSquad_InvalidStatusTransition(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Transition Test", "issuePrefix": "TRNS",
+		"captainName": "Captain", "captainShortName": "captain-trns",
 	}, []*http.Cookie{cookie})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -271,6 +280,7 @@ func TestDeleteSquad_OwnerSuccess(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Delete Test", "issuePrefix": "DELT",
+		"captainName": "Captain", "captainShortName": "captain-delt",
 	}, []*http.Cookie{cookie})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
@@ -298,6 +308,7 @@ func TestUpdateBudget_OwnerSuccess(t *testing.T) {
 
 	createRR := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Budget Test", "issuePrefix": "BUDG",
+		"captainName": "Captain", "captainShortName": "captain-budg",
 	}, []*http.Cookie{cookie})
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)

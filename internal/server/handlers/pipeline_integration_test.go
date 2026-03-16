@@ -105,6 +105,7 @@ func TestCreatePipeline_Success(t *testing.T) {
 	// Create squad
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Pipeline Squad", "issuePrefix": "PIP",
+		"captainName": "Captain", "captainShortName": "captain-pip",
 	}, []*http.Cookie{cookie})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create squad: %d: %s", rr.Code, rr.Body.String())
@@ -147,6 +148,7 @@ func TestPipelineWithStages(t *testing.T) {
 
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Stage Squad", "issuePrefix": "STG",
+		"captainName": "Captain", "captainShortName": "captain-stg",
 	}, []*http.Cookie{cookie})
 	var sq squadResp
 	json.NewDecoder(rr.Body).Decode(&sq)
@@ -216,6 +218,7 @@ func TestListPipelines_Pagination(t *testing.T) {
 
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "List Squad", "issuePrefix": "LST",
+		"captainName": "Captain", "captainShortName": "captain-lst",
 	}, []*http.Cookie{cookie})
 	var sq squadResp
 	json.NewDecoder(rr.Body).Decode(&sq)
@@ -259,6 +262,7 @@ func TestDeletePipeline_Success(t *testing.T) {
 
 	rr := doJSON(t, env.handler, "POST", "/api/squads", map[string]any{
 		"name": "Del Squad", "issuePrefix": "DEL",
+		"captainName": "Captain", "captainShortName": "captain-del",
 	}, []*http.Cookie{cookie})
 	var sq squadResp
 	json.NewDecoder(rr.Body).Decode(&sq)

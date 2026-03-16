@@ -39,7 +39,7 @@ test.describe("Auth & Navigation", () => {
 
     // Seed a squad so squad-scoped nav items appear
     await apiContext.post("/api/squads", {
-      data: { name: "Nav Test Squad", issuePrefix: "NAV" },
+      data: { name: "Nav Test Squad", issuePrefix: "NAV", captainName: "NAV Captain", captainShortName: "nav-captain" },
       headers: { Cookie: cookies },
     });
 

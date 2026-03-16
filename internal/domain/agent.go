@@ -211,7 +211,8 @@ func ValidateHierarchyChange(
 
 // --- Input Validation ---
 
-var shortNameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
+// ShortNameRegex validates agent short names: lowercase alphanumeric and hyphens only.
+var ShortNameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // CreateAgentRequest is the parsed request body for POST /api/agents.
 type CreateAgentRequest struct {
@@ -262,7 +263,7 @@ func ValidateCreateAgentInput(input CreateAgentRequest) error {
 	if len(input.ShortName) > 50 {
 		return fmt.Errorf("shortName must not exceed 50 characters")
 	}
-	if !shortNameRegex.MatchString(input.ShortName) {
+	if !ShortNameRegex.MatchString(input.ShortName) {
 		return fmt.Errorf("shortName must contain only lowercase alphanumeric characters and hyphens")
 	}
 	if !ValidAgentRoles[input.Role] {
@@ -297,7 +298,7 @@ func ValidateUpdateAgentInput(input UpdateAgentRequest) error {
 		if len(*input.ShortName) > 50 {
 			return fmt.Errorf("shortName must not exceed 50 characters")
 		}
-		if !shortNameRegex.MatchString(*input.ShortName) {
+		if !ShortNameRegex.MatchString(*input.ShortName) {
 			return fmt.Errorf("shortName must contain only lowercase alphanumeric characters and hyphens")
 		}
 	}

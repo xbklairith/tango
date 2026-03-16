@@ -96,15 +96,7 @@ func TestAgentSelf_GetMe_ReturnsAgentContext(t *testing.T) {
 
 	cookie, squadID := setupSquadAndAuth(t, env, "self@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name":      "test-bot",
-		"shortName": "tb",
-		"role":      "captain",
-		"squadId":   squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	issue, code := createIssue(t, env, cookie, squadID, map[string]any{
 		"title":           "Fix the bug",
@@ -162,15 +154,7 @@ func TestAgentSelf_UpdateTask_MarksIssueDone(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "done@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name":      "done-bot",
-		"shortName": "db",
-		"role":      "captain",
-		"squadId":   squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	issue, _ := createIssue(t, env, cookie, squadID, map[string]any{
 		"title":           "Complete this task",
@@ -204,9 +188,7 @@ func TestAgentSelf_UpdateTask_RejectsNonAssignee(t *testing.T) {
 	env, rtSvc := makeEnvWithRunTokens(t)
 	cookie, squadID := setupSquadAndAuth(t, env, "nonassignee@test.com")
 
-	agentA, _ := createAgent(t, env, cookie, map[string]any{
-		"name": "agent-a", "shortName": "aa", "role": "captain", "squadId": squadID,
-	})
+	agentA := getSquadCaptain(t, env, cookie, squadID)
 	agentB, _ := createAgent(t, env, cookie, map[string]any{
 		"name": "agent-b", "shortName": "ab", "role": "lead", "squadId": squadID,
 		"parentAgentId": agentA.ID,

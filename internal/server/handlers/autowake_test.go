@@ -14,15 +14,7 @@ func TestAutoWake_AssignAgentToIssue_Succeeds(t *testing.T) {
 	env := makeEnv(t, "authenticated", false)
 	cookie, squadID := setupSquadAndAuth(t, env, "autowake@test.com")
 
-	agent, code := createAgent(t, env, cookie, map[string]any{
-		"name":      "wake-bot",
-		"shortName": "wb",
-		"role":      "captain",
-		"squadId":   squadID,
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create agent: expected 201, got %d", code)
-	}
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	issue, code := createIssue(t, env, cookie, squadID, map[string]any{
 		"title":  "Auto-wake test task",
@@ -52,12 +44,7 @@ func TestAutoWake_ClearAssignment_Succeeds(t *testing.T) {
 	env := makeEnv(t, "authenticated", false)
 	cookie, squadID := setupSquadAndAuth(t, env, "clear@test.com")
 
-	agent, _ := createAgent(t, env, cookie, map[string]any{
-		"name":      "clear-bot",
-		"shortName": "cb",
-		"role":      "captain",
-		"squadId":   squadID,
-	})
+	agent := getSquadCaptain(t, env, cookie, squadID)
 
 	issue, _ := createIssue(t, env, cookie, squadID, map[string]any{
 		"title":           "Clear assignment task",

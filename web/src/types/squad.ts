@@ -27,6 +27,8 @@ export interface CreateSquadRequest {
   issuePrefix: string;
   description?: string;
   budgetMonthlyCents?: number;
+  captainName: string;
+  captainShortName: string;
 }
 
 export interface UpdateSquadRequest {

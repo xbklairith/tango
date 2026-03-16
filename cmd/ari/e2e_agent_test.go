@@ -44,9 +44,11 @@ func TestE2E_GoldenAgentJourney(t *testing.T) {
 	// 2. Create squad
 	var squad e2eSquadResp
 	status := c.doJSON(t, "POST", "/api/squads", map[string]any{
-		"name":        "Journey Squad",
-		"slug":        "journey-squad",
-		"issuePrefix": "JS",
+		"name":             "Journey Squad",
+		"slug":             "journey-squad",
+		"issuePrefix":      "JS",
+		"captainName":      "Captain",
+		"captainShortName": "captain-js",
 	}, &squad)
 	if status != http.StatusCreated {
 		t.Fatalf("create squad: expected 201, got %d", status)

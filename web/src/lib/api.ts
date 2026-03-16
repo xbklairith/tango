@@ -14,10 +14,30 @@ export class ApiClientError extends Error {
   }
 }
 
+// Deduplicates concurrent refresh attempts — all waiters share one in-flight call.
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefreshSession(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = fetch(`${API_BASE}/auth/refresh`, {
+    method: "POST",
+    credentials: "same-origin",
+  })
+    .then((res) => res.ok)
+    .catch(() => false)
+    .finally(() => {
+      refreshPromise = null;
+    });
+
+  return refreshPromise;
+}
+
 async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  allowRetry = true,
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
   const headers: Record<string, string> = {};
@@ -39,7 +59,16 @@ async function request<T>(
   }
 
   if (response.status === 401) {
-    // Only redirect to login if not already there, to avoid infinite loop
+    // Attempt a silent token refresh once, then replay the original request.
+    // Skip retry for auth endpoints to avoid infinite loops.
+    if (allowRetry && !path.startsWith("/auth/")) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        return request<T>(method, path, body, false);
+      }
+    }
+
+    // Refresh failed or not applicable — send user to login.
     if (!window.location.pathname.startsWith("/login")) {
       window.location.href = "/login";
     }

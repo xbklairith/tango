@@ -13,21 +13,17 @@ test.describe("Agent Management", () => {
     const cookies = await loginViaAPI(apiContext, email, password);
 
     const squadResp = await apiContext.post("/api/squads", {
-      data: { name: "Agent List Squad", issuePrefix: "ALS" },
+      data: { name: "Agent List Squad", issuePrefix: "ALS", captainName: "Test Captain", captainShortName: "test-cap" },
       headers: { Cookie: cookies },
     });
     const squad = await squadResp.json();
 
-    const captainResp = await apiContext.post("/api/agents", {
-      data: {
-        squadId: squad.id,
-        name: "Test Captain",
-        shortName: "test-cap",
-        role: "captain",
-      },
+    // Captain is auto-created with squad — fetch it to use as parent
+    const agentsResp = await apiContext.get(`/api/agents?squadId=${squad.id}`, {
       headers: { Cookie: cookies },
     });
-    const captain = await captainResp.json();
+    const agents = await agentsResp.json();
+    const captain = agents.find((a: { role: string }) => a.role === "captain");
 
     await apiContext.post("/api/agents", {
       data: {

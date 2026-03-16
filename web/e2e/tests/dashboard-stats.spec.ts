@@ -35,21 +35,10 @@ test.describe("Dashboard Stats", () => {
 
     // Create squad
     const squadResp = await apiContext.post("/api/squads", {
-      data: { name: "Dashboard Squad", issuePrefix: "DASH" },
+      data: { name: "Dashboard Squad", issuePrefix: "DASH", captainName: "Dashboard Captain", captainShortName: "dash-captain" },
       headers: { Cookie: cookies },
     });
     const squad = await squadResp.json();
-
-    // Create agent
-    await apiContext.post("/api/agents", {
-      data: {
-        squadId: squad.id,
-        name: "Dashboard Captain",
-        shortName: "dash-cap",
-        role: "captain",
-      },
-      headers: { Cookie: cookies },
-    });
 
     // Create issues
     await apiContext.post(`/api/squads/${squad.id}/issues`, {
