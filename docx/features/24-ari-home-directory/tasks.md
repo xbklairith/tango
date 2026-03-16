@@ -37,8 +37,8 @@
 ## Progress Summary
 
 - Total Tasks: 8
-- Completed: 6/8
-- In Progress: Task 7
+- Completed: 7/8
+- In Progress: Task 8
 - Test Coverage: Existing
 
 ## Implementation Approach
@@ -480,7 +480,7 @@ Modify `cmd/ari/run.go`:
 
 ---
 
-### [ ] Task 7 — Migration CLI (`ari migrate-home`)
+### [x] Task 7 — Migration CLI (`ari migrate-home`)
 
 **Linked Requirements:** REQ-118
 **Estimated time:** 45 min
