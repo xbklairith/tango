@@ -42,9 +42,9 @@
 ## Progress Summary
 
 - Total Tasks: 15
-- Completed: 0/15
-- In Progress: None
-- Test Coverage: Existing
+- Completed: 13/15
+- In Progress: None (Tasks 4 session wiring + 12 workspace cwd in run_handler pending integration)
+- Test Coverage: 30+ new tests
 
 ## Tasks (TDD: Red-Green-Refactor)
 
