@@ -3,6 +3,7 @@ package home
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -108,19 +109,33 @@ func ExecuteMigration(plan *MigrationPlan, dryRun bool) (*MigrationResult, error
 	return result, nil
 }
 
+// sanitizePerm ensures sensitive files get restricted permissions.
+func sanitizePerm(path string, mode os.FileMode) os.FileMode {
+	base := filepath.Base(path)
+	if base == "master.key" || base == "jwt.key" || base == ".env" {
+		return 0600
+	}
+	return mode
+}
+
 func copyFile(src, dst string) error {
+	// Use Lstat to detect symlinks — do not follow them
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to copy symlink: %s", src)
+	}
+
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	info, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+	perm := sanitizePerm(dst, info.Mode().Perm())
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
@@ -131,9 +146,15 @@ func copyFile(src, dst string) error {
 }
 
 func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Skip symlinks to prevent symlink attacks
+		if d.Type()&os.ModeSymlink != 0 {
+			slog.Warn("skipping symlink during migration", "path", path)
+			return nil
 		}
 
 		rel, err := filepath.Rel(src, path)
@@ -143,8 +164,8 @@ func copyDir(src, dst string) error {
 
 		target := filepath.Join(dst, rel)
 
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
+		if d.IsDir() {
+			return os.MkdirAll(target, 0700)
 		}
 
 		return copyFile(path, target)

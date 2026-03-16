@@ -265,7 +265,31 @@ func TestRunLogPath(t *testing.T) {
 	}
 
 	want := "/tmp/test-ari/realms/default/data/storage/runs/run-abc.jsonl"
-	if paths.RunLogPath("run-abc") != want {
-		t.Errorf("RunLogPath() = %q, want %q", paths.RunLogPath("run-abc"), want)
+	got, err := paths.RunLogPath("run-abc")
+	if err != nil {
+		t.Fatalf("RunLogPath() error: %v", err)
+	}
+	if got != want {
+		t.Errorf("RunLogPath() = %q, want %q", got, want)
+	}
+}
+
+func TestRunLogPath_PathTraversal(t *testing.T) {
+	t.Setenv("ARI_HOME", "/tmp/test-ari")
+	t.Setenv("ARI_REALM_ID", "")
+	os.Unsetenv("ARI_REALM_ID")
+
+	paths, err := Resolve()
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+
+	_, err = paths.RunLogPath("../../../etc/passwd")
+	if err == nil {
+		t.Error("RunLogPath should reject path traversal")
+	}
+	_, err = paths.RunLogPath("")
+	if err == nil {
+		t.Error("RunLogPath should reject empty ID")
 	}
 }

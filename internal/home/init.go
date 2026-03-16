@@ -60,16 +60,25 @@ func InitHomeDir(root string) error {
 }
 
 func ensureMasterKey(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil // already exists
+	// Use O_CREATE|O_EXCL for atomic "create if not exists" — prevents TOCTOU race
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil // already exists — safe
+		}
+		return fmt.Errorf("creating master key file: %w", err)
 	}
+	defer f.Close()
 
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return fmt.Errorf("generating random key: %w", err)
 	}
 
-	return os.WriteFile(path, key, 0600)
+	if _, err := f.Write(key); err != nil {
+		return fmt.Errorf("writing master key: %w", err)
+	}
+	return nil
 }
 
 func writeEnvFile(path string) error {

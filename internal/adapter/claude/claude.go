@@ -55,6 +55,51 @@ func renderTemplate(tmpl string, vars map[string]string) string {
 	return result
 }
 
+// deniedExtraArgs are CLI flags that extraArgs must not override for security.
+var deniedExtraArgs = map[string]bool{
+	"--dangerously-skip-permissions": true,
+	"--allowedTools":                 true,
+	"--append-system-prompt":         true,
+	"--append-system-prompt-file":    true,
+	"--resume":                       true,
+	"--print":                        true,
+	"--output-format":                true,
+	"--model":                        true,
+	"--max-budget-usd":               true,
+}
+
+// deniedExtraArgsWithValue are denied flags that also take a following value argument.
+var deniedExtraArgsWithValue = map[string]bool{
+	"--allowedTools":              true,
+	"--append-system-prompt":      true,
+	"--append-system-prompt-file": true,
+	"--resume":                    true,
+	"--output-format":             true,
+	"--model":                     true,
+	"--max-budget-usd":            true,
+}
+
+// filterExtraArgs removes security-sensitive flags from extra args.
+func filterExtraArgs(args []string) []string {
+	var filtered []string
+	skip := false
+	for _, arg := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if deniedExtraArgs[arg] {
+			slog.Warn("claude adapter: blocked security-sensitive extraArg", "arg", arg)
+			if deniedExtraArgsWithValue[arg] {
+				skip = true // skip the following value too
+			}
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	return filtered
+}
+
 // blockedEnvKeys are system-critical environment variable names that adapterConfig.env
 // must not override. input.EnvVars (from Ari runtime) is exempt from this restriction.
 var blockedEnvKeys = map[string]bool{
@@ -183,9 +228,9 @@ func buildArgs(cfg Config, input adapter.InvokeInput, useResume bool) []string {
 		args = append(args, "--resume", input.Run.SessionState)
 	}
 
-	// Extra args always last
+	// Extra args always last — filtered through denylist to prevent privilege escalation
 	if len(cfg.ExtraArgs) > 0 {
-		args = append(args, cfg.ExtraArgs...)
+		args = append(args, filterExtraArgs(cfg.ExtraArgs)...)
 	}
 
 	return args

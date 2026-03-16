@@ -808,6 +808,26 @@ func TestExecute_PrintDashInArgs(t *testing.T) {
 	}
 }
 
+func TestExecute_ExtraArgs_SecurityFiltered(t *testing.T) {
+	script := `for arg in "$@"; do echo "$arg"; done`
+	// Try to inject --dangerously-skip-permissions via extraArgs
+	input := makeInputWithScript(t, script,
+		`"skipPermissions":false,"extraArgs":["--dangerously-skip-permissions","--safe-flag"]`, "test")
+
+	a := claude.New()
+	result, err := a.Execute(context.Background(), input, adapter.Hooks{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if strings.Contains(result.Stdout, "--dangerously-skip-permissions") {
+		t.Errorf("security-sensitive flag should be filtered from extraArgs, got stdout:\n%s", result.Stdout)
+	}
+	if !strings.Contains(result.Stdout, "--safe-flag") {
+		t.Errorf("safe flag should pass through, got stdout:\n%s", result.Stdout)
+	}
+}
+
 // --- Task 3: Nesting prevention ---
 
 func TestExecute_NestingVarsStripped(t *testing.T) {

@@ -72,8 +72,13 @@ func (p *Paths) JWTKeyPath() string {
 }
 
 // RunLogPath returns the path for a specific run's JSONL log file.
-func (p *Paths) RunLogPath(runID string) string {
-	return filepath.Join(p.StorageDir, "runs", runID+".jsonl")
+// Validates runID to prevent path traversal.
+func (p *Paths) RunLogPath(runID string) (string, error) {
+	id := strings.TrimSpace(runID)
+	if !pathSegmentRe.MatchString(id) {
+		return "", fmt.Errorf("invalid run ID for log path: %q", runID)
+	}
+	return filepath.Join(p.StorageDir, "runs", id+".jsonl"), nil
 }
 
 // AgentWorkspaceDir returns the workspace directory for a specific agent.
