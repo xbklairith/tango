@@ -89,25 +89,30 @@ type InvokeInput struct {
 	EnvVars      map[string]string    `json:"envVars"`
 	Prompt       string               `json:"prompt"`
 	Conversation *ConversationContext `json:"conversation,omitempty"`
+	WorkingDir   string               `json:"workingDir,omitempty"` // resolved cwd from run handler
 }
 
 // TokenUsage captures LLM usage for cost accounting.
 type TokenUsage struct {
-	InputTokens  int    `json:"inputTokens"`
-	OutputTokens int    `json:"outputTokens"`
-	Model        string `json:"model"`
-	Provider     string `json:"provider"`
+	InputTokens       int    `json:"inputTokens"`
+	CachedInputTokens int    `json:"cachedInputTokens,omitempty"` // cache_read_input_tokens from Claude CLI
+	OutputTokens      int    `json:"outputTokens"`
+	Model             string `json:"model"`
+	Provider          string `json:"provider"`
 }
 
 // InvokeResult is returned by Execute() when the run ends.
 type InvokeResult struct {
-	Status       RunStatus  `json:"status"`
-	ExitCode     int        `json:"exitCode"`
-	Usage        TokenUsage `json:"usage"`
-	CostUSD      float64    `json:"costUSD,omitempty"` // total cost from the adapter (e.g., Claude CLI total_cost_usd)
-	SessionState string     `json:"sessionState"`      // sessionIdAfter — opaque state blob
-	Stdout       string     `json:"stdout"`            // excerpt (up to MaxExcerptBytes)
-	Stderr       string     `json:"stderr"`            // excerpt (up to MaxExcerptBytes)
+	Status        RunStatus  `json:"status"`
+	ExitCode      int        `json:"exitCode"`
+	Usage         TokenUsage `json:"usage"`
+	CostUSD       float64    `json:"costUSD,omitempty"`       // total cost from the adapter (e.g., Claude CLI total_cost_usd)
+	SessionState  string     `json:"sessionState"`            // sessionIdAfter — opaque state blob
+	Stdout        string     `json:"stdout"`                  // excerpt (up to MaxExcerptBytes)
+	Stderr        string     `json:"stderr"`                  // excerpt (up to MaxExcerptBytes)
+	ClearSession  bool       `json:"clearSession,omitempty"`  // true when session should be discarded (e.g., max turns)
+	LoginRequired bool       `json:"loginRequired,omitempty"` // true when Claude CLI needs re-authentication
+	LoginURL      string     `json:"loginURL,omitempty"`      // URL for re-authentication if available
 }
 
 // LogLine represents a single structured log line from an adapter.

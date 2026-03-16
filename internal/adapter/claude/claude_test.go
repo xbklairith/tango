@@ -210,7 +210,6 @@ func TestExecute_BuildArgs_BasicFlags(t *testing.T) {
 		"sonnet",
 		"--append-system-prompt",
 		"--dangerously-skip-permissions",
-		"--no-session-persistence",
 	} {
 		if !strings.Contains(stdout, flag) {
 			t.Errorf("expected flag %q in args, got stdout:\n%s", flag, stdout)
@@ -606,7 +605,8 @@ func TestExecute_ConcurrentExecutions(t *testing.T) {
 	}
 }
 
-func TestExecute_NoSessionPersistenceAlwaysPresent(t *testing.T) {
+func TestExecute_NoSessionPersistenceNotPresent(t *testing.T) {
+	// --no-session-persistence was removed to allow session resume to work.
 	script := `for arg in "$@"; do echo "$arg"; done`
 	input := makeInputWithScript(t, script, "", "test")
 
@@ -616,8 +616,8 @@ func TestExecute_NoSessionPersistenceAlwaysPresent(t *testing.T) {
 		t.Fatalf("Execute returned error: %v", err)
 	}
 
-	if !strings.Contains(result.Stdout, "--no-session-persistence") {
-		t.Errorf("expected --no-session-persistence in args, got stdout:\n%s", result.Stdout)
+	if strings.Contains(result.Stdout, "--no-session-persistence") {
+		t.Errorf("--no-session-persistence should NOT be in args, got stdout:\n%s", result.Stdout)
 	}
 }
 

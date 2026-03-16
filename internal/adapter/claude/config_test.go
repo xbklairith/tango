@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -205,5 +206,87 @@ func TestValidateWorkingDir_Empty(t *testing.T) {
 	err := validateWorkingDir("")
 	if err != nil {
 		t.Errorf("unexpected error for empty string: %v", err)
+	}
+}
+
+// --- Task 1: New config fields ---
+
+func TestParseConfig_NewFields(t *testing.T) {
+	raw := json.RawMessage(`{
+		"effort": "high",
+		"chrome": true,
+		"maxTurnsPerRun": 25,
+		"extraArgs": ["--foo", "--bar"],
+		"instructionsFilePath": "/opt/agents/instructions.md",
+		"promptTemplate": "You are {{agent.name}}."
+	}`)
+
+	cfg := parseConfig(raw)
+
+	if cfg.Effort != "high" {
+		t.Errorf("Effort = %q, want high", cfg.Effort)
+	}
+	if !cfg.Chrome {
+		t.Error("Chrome = false, want true")
+	}
+	if cfg.MaxTurnsPerRun != 25 {
+		t.Errorf("MaxTurnsPerRun = %d, want 25", cfg.MaxTurnsPerRun)
+	}
+	if len(cfg.ExtraArgs) != 2 || cfg.ExtraArgs[0] != "--foo" {
+		t.Errorf("ExtraArgs = %v, want [--foo, --bar]", cfg.ExtraArgs)
+	}
+	if cfg.InstructionsFilePath != "/opt/agents/instructions.md" {
+		t.Errorf("InstructionsFilePath = %q", cfg.InstructionsFilePath)
+	}
+	if cfg.PromptTemplate != "You are {{agent.name}}." {
+		t.Errorf("PromptTemplate = %q", cfg.PromptTemplate)
+	}
+}
+
+func TestParseConfig_EffortValidation(t *testing.T) {
+	for _, valid := range []string{"", "low", "medium", "high"} {
+		raw := json.RawMessage(fmt.Sprintf(`{"effort":%q}`, valid))
+		cfg := parseConfig(raw)
+		if cfg.Effort != valid {
+			t.Errorf("effort=%q: got %q", valid, cfg.Effort)
+		}
+	}
+
+	// Invalid effort should be reset to empty
+	raw := json.RawMessage(`{"effort":"ultra"}`)
+	cfg := parseConfig(raw)
+	if cfg.Effort != "" {
+		t.Errorf("invalid effort should be reset to empty, got %q", cfg.Effort)
+	}
+}
+
+func TestParseConfig_InstructionsFilePathTraversal(t *testing.T) {
+	raw := json.RawMessage(`{"instructionsFilePath":"../../etc/passwd"}`)
+	cfg := parseConfig(raw)
+	if cfg.InstructionsFilePath != "" {
+		t.Errorf("path traversal should be rejected, got %q", cfg.InstructionsFilePath)
+	}
+}
+
+func TestParseConfig_NewFieldsDefaults(t *testing.T) {
+	cfg := parseConfig(nil)
+
+	if cfg.Effort != "" {
+		t.Errorf("default Effort = %q, want empty", cfg.Effort)
+	}
+	if cfg.Chrome {
+		t.Error("default Chrome = true, want false")
+	}
+	if cfg.MaxTurnsPerRun != 0 {
+		t.Errorf("default MaxTurnsPerRun = %d, want 0", cfg.MaxTurnsPerRun)
+	}
+	if len(cfg.ExtraArgs) != 0 {
+		t.Errorf("default ExtraArgs = %v, want empty", cfg.ExtraArgs)
+	}
+	if cfg.InstructionsFilePath != "" {
+		t.Errorf("default InstructionsFilePath = %q, want empty", cfg.InstructionsFilePath)
+	}
+	if cfg.PromptTemplate != "" {
+		t.Errorf("default PromptTemplate = %q, want empty", cfg.PromptTemplate)
 	}
 }

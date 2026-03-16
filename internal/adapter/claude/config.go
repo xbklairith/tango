@@ -33,6 +33,14 @@ type Config struct {
 	SkipPermissions      *bool             `json:"skipPermissions"`      // pointer to distinguish unset from false
 	Env                  map[string]string `json:"env"`
 	DisableResumeOnError bool              `json:"disableResumeOnError"`
+
+	// v2 fields (all optional with zero-value defaults)
+	InstructionsFilePath string   `json:"instructionsFilePath"` // per-agent instructions markdown
+	Effort               string   `json:"effort"`               // "low", "medium", "high"
+	Chrome               bool     `json:"chrome"`               // enable browser automation
+	MaxTurnsPerRun       int      `json:"maxTurnsPerRun"`       // max conversation turns per run
+	ExtraArgs            []string `json:"extraArgs"`            // additional CLI args
+	PromptTemplate       string   `json:"promptTemplate"`       // custom prompt template
 }
 
 // parseConfig extracts Config from adapterConfig JSON, applying defaults for missing fields.
@@ -71,6 +79,23 @@ func parseConfig(raw json.RawMessage) Config {
 		t := true
 		cfg.SkipPermissions = &t
 	}
+
+	// Validate effort
+	switch cfg.Effort {
+	case "", "low", "medium", "high":
+		// valid
+	default:
+		slog.Warn("claude adapter: invalid effort value, ignoring", "effort", cfg.Effort)
+		cfg.Effort = ""
+	}
+
+	// Validate instructionsFilePath — reject path traversal
+	if cfg.InstructionsFilePath != "" && strings.Contains(cfg.InstructionsFilePath, "..") {
+		slog.Warn("claude adapter: instructionsFilePath contains path traversal, ignoring",
+			"path", cfg.InstructionsFilePath)
+		cfg.InstructionsFilePath = ""
+	}
+
 	return cfg
 }
 
