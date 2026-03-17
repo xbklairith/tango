@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,12 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 
 	slog.Info("starting ari", "version", version, "env", cfg.Env, "data_dir", cfg.DataDir, "legacy", isLegacy)
 
+	// Wire home paths into config for subsystems that still use cfg.DataDir
+	// This ensures database, secrets, and run logs use the correct realm paths
+	if !isLegacy && os.Getenv("ARI_DATA_DIR") == "" {
+		cfg.DataDir = paths.RealmRoot
+	}
+
 	// 3. Start database (embedded or external)
 	db, cleanup, err := database.Open(ctx, cfg)
 	if err != nil {
@@ -215,9 +222,19 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 		slog.Info("claude adapter not available", "message", result.Message)
 	}
 
-	runTokenKey := make([]byte, 32)
-	if _, err := rand.Read(runTokenKey); err != nil {
-		return fmt.Errorf("generate run token key: %w", err)
+	var runTokenKey []byte
+	if fixedKey := os.Getenv("ARI_RUN_TOKEN_KEY"); fixedKey != "" {
+		decoded, err := hex.DecodeString(fixedKey)
+		if err != nil || len(decoded) < 32 {
+			return fmt.Errorf("ARI_RUN_TOKEN_KEY must be a hex-encoded string of at least 32 bytes")
+		}
+		runTokenKey = decoded
+		slog.Info("using fixed run token key from ARI_RUN_TOKEN_KEY")
+	} else {
+		runTokenKey = make([]byte, 32)
+		if _, err := rand.Read(runTokenKey); err != nil {
+			return fmt.Errorf("generate run token key: %w", err)
+		}
 	}
 	runTokenSvc, err := auth.NewRunTokenService(runTokenKey)
 	if err != nil {
@@ -345,6 +362,41 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	// 7. Wait for shutdown signal
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Start auto-backup service for embedded postgres (REQ-119)
+	if cfg.UseEmbeddedPostgres() && !isLegacy {
+		backupInterval := 60 * time.Minute
+		backupRetention := 30 * 24 * time.Hour
+		if fileConfig != nil && fileConfig.Database != nil && fileConfig.Database.Backup != nil {
+			if !fileConfig.Database.Backup.Enabled {
+				slog.Info("auto-backup disabled via config")
+			} else {
+				if fileConfig.Database.Backup.IntervalMinutes > 0 {
+					backupInterval = time.Duration(fileConfig.Database.Backup.IntervalMinutes) * time.Minute
+				}
+				if fileConfig.Database.Backup.RetentionDays > 0 {
+					backupRetention = time.Duration(fileConfig.Database.Backup.RetentionDays) * 24 * time.Hour
+				}
+			}
+		}
+		backupDir := paths.BackupDir
+		os.MkdirAll(backupDir, 0700)
+
+		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable", cfg.EmbeddedPGPort)
+		backupSvc := home.NewBackupService(backupInterval, backupRetention, backupDir, func(bCtx context.Context) error {
+			fileName := home.BackupFileName()
+			outPath := filepath.Join(backupDir, fileName)
+			// Use pg_dump from embedded postgres runtime
+			cmd := exec.CommandContext(bCtx, "pg_dump", connStr, "-f", outPath)
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("pg_dump: %w", err)
+			}
+			slog.Info("backup created", "file", outPath)
+			return nil
+		})
+		go backupSvc.Start(ctx)
+		slog.Info("auto-backup started", "interval", backupInterval, "retention", backupRetention, "dir", backupDir)
+	}
 
 	// H5: Start session cleanup AFTER signal.NotifyContext so it uses the right context
 	if sessionStore != nil {
