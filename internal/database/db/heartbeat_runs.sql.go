@@ -453,6 +453,51 @@ func (q *Queries) ListHeartbeatRunsBySquad(ctx context.Context, arg ListHeartbea
 	return items, nil
 }
 
+const listStaleHeartbeatRuns = `-- name: ListStaleHeartbeatRuns :many
+SELECT id, squad_id, agent_id, wakeup_request_id, invocation_source, status, session_id_before, session_id_after, exit_code, usage_json, stdout_excerpt, stderr_excerpt, started_at, finished_at, created_at FROM heartbeat_runs
+WHERE status IN ('queued', 'running')
+  AND created_at < now() - make_interval(secs => $1)
+`
+
+func (q *Queries) ListStaleHeartbeatRuns(ctx context.Context, maxAgeSeconds float64) ([]HeartbeatRun, error) {
+	rows, err := q.db.QueryContext(ctx, listStaleHeartbeatRuns, maxAgeSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []HeartbeatRun{}
+	for rows.Next() {
+		var i HeartbeatRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.SquadID,
+			&i.AgentID,
+			&i.WakeupRequestID,
+			&i.InvocationSource,
+			&i.Status,
+			&i.SessionIDBefore,
+			&i.SessionIDAfter,
+			&i.ExitCode,
+			&i.UsageJson,
+			&i.StdoutExcerpt,
+			&i.StderrExcerpt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateHeartbeatRunFinished = `-- name: UpdateHeartbeatRunFinished :one
 UPDATE heartbeat_runs
 SET status = $1,

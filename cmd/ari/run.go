@@ -289,7 +289,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	agentSelfHandler.SetPipelineService(pipelineSvc)
 	permissionHandler := handlers.NewPermissionHandler()
 
-	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second)
+	wakeupProcessor := handlers.NewWakeupProcessor(db, queries, runSvc, cfg.MaxRunsPerSquad, 5*time.Second, cfg.MaxRunTimeout)
 	go wakeupProcessor.Start(ctx)
 
 	// Approval gate timeout checker
@@ -300,6 +300,9 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	if err := runSvc.CancelStaleRuns(ctx); err != nil {
 		slog.Error("failed to cancel stale runs", "error", err)
 	}
+
+	// Start background detector for stuck runs (checks every 60s)
+	go runSvc.StartStaleRunDetector(ctx, cfg.MaxRunTimeout, 60*time.Second)
 
 	// 6. Set up production hardening: rate limiter, TLS, OAuth
 	globalRateLimiter := server.NewRateLimitMiddleware(server.RateLimitConfig{

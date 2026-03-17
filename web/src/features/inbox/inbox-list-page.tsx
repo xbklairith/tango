@@ -209,7 +209,7 @@ export default function InboxListPage() {
 
       {/* Table */}
       <div className="rounded-md border">
-        <table className="w-full">
+        <table data-testid="inbox-table" className="w-full">
           <thead>
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-3 text-left text-sm font-medium w-10">
@@ -231,11 +231,12 @@ export default function InboxListPage() {
               </tr>
             )}
             {items?.map((item) => (
-              <tr key={item.id} className="border-b last:border-0">
+              <tr key={item.id} data-testid={`inbox-item-${item.id}`} className="border-b last:border-0">
                 <td className="px-4 py-3">{urgencyIcon[item.urgency]}</td>
                 <td className="px-4 py-3">
                   <Link
                     to={`/inbox/${item.id}`}
+                    data-testid={`inbox-item-link-${item.id}`}
                     className="text-sm font-medium hover:underline"
                   >
                     {item.title}

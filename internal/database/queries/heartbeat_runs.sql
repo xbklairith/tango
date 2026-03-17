@@ -84,6 +84,11 @@ WHERE hr.agent_id = @agent_id
 ORDER BY hr.created_at DESC
 LIMIT @page_limit OFFSET @page_offset;
 
+-- name: ListStaleHeartbeatRuns :many
+SELECT * FROM heartbeat_runs
+WHERE status IN ('queued', 'running')
+  AND created_at < now() - make_interval(secs => @max_age_seconds);
+
 -- name: GetAgentRunStats :many
 SELECT a.id AS agent_id, a.name AS agent_name, a.status AS agent_status,
        COUNT(hr.id)::bigint AS total_runs,

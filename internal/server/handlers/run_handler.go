@@ -180,6 +180,48 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 		slog.Error("failed to transition agent to running", "error", err)
 	}
 
+	// Fix 3: Safety net — if we exit Invoke() without reaching finalize(),
+	// mark the run failed and reset the agent.
+	var finalized bool
+	defer func() {
+		if finalized {
+			return
+		}
+		slog.Warn("invoke exited without finalize, recovering",
+			"run_id", run.ID, "agent_id", agent.ID)
+
+		s.mu.Lock()
+		if cancel, ok := s.active[run.ID]; ok {
+			cancel()
+			delete(s.active, run.ID)
+		}
+		s.mu.Unlock()
+
+		bgCtx := context.Background()
+		_, _ = s.queries.UpdateHeartbeatRunFinished(bgCtx, db.UpdateHeartbeatRunFinishedParams{
+			ID:            run.ID,
+			Status:        db.HeartbeatRunStatusFailed,
+			ExitCode:      sql.NullInt32{Int32: -1, Valid: true},
+			StderrExcerpt: sql.NullString{String: "run terminated unexpectedly", Valid: true},
+		})
+		_, _ = s.queries.UpdateAgent(bgCtx, db.UpdateAgentParams{
+			ID:     agent.ID,
+			Status: db.NullAgentStatus{AgentStatus: db.AgentStatusError, Valid: true},
+		})
+		s.tokenSvc.Revoke(run.ID)
+
+		s.sseHub.Publish(wakeup.SquadID, "heartbeat.run.finished", map[string]any{
+			"runId":   run.ID,
+			"agentId": agent.ID,
+			"status":  "failed",
+		})
+		s.sseHub.Publish(wakeup.SquadID, "agent.status.changed", map[string]any{
+			"agentId": agent.ID,
+			"from":    "running",
+			"to":      "error",
+		})
+	}()
+
 	// Emit SSE events
 	s.sseHub.Publish(wakeup.SquadID, "heartbeat.run.started", map[string]any{
 		"runId":     run.ID,
@@ -266,6 +308,7 @@ func (s *RunService) Invoke(ctx context.Context, wakeup db.WakeupRequest) error 
 	s.mu.Unlock()
 
 	// 11. Finalize
+	finalized = true
 	return s.finalize(ctx, agent, run, wakeup, result, execErr, taskID, convID)
 }
 
@@ -313,6 +356,92 @@ func (s *RunService) Stop(ctx context.Context, agentID uuid.UUID) error {
 // Called at startup to clean up after unclean shutdown (REQ-057).
 func (s *RunService) CancelStaleRuns(ctx context.Context) error {
 	return s.queries.CancelAllStaleHeartbeatRuns(ctx)
+}
+
+// RecoverOrphanedRun finds the active run for an agent and force-fails it.
+// Used by panic recovery in the dispatch goroutine and the stale run detector.
+func (s *RunService) RecoverOrphanedRun(ctx context.Context, agentID uuid.UUID) {
+	run, err := s.queries.GetActiveRunByAgent(ctx, agentID)
+	if err != nil {
+		// No active run — just reset agent status
+		_, _ = s.queries.UpdateAgent(ctx, db.UpdateAgentParams{
+			ID:     agentID,
+			Status: db.NullAgentStatus{AgentStatus: db.AgentStatusError, Valid: true},
+		})
+		return
+	}
+
+	s.recoverRun(ctx, run)
+}
+
+// recoverRun force-fails a single stuck run and resets the agent.
+func (s *RunService) recoverRun(ctx context.Context, run db.HeartbeatRun) {
+	slog.Warn("recovering orphaned run",
+		"run_id", run.ID, "agent_id", run.AgentID, "status", run.Status)
+
+	// Cancel context if still tracked
+	s.mu.Lock()
+	if cancel, ok := s.active[run.ID]; ok {
+		cancel()
+		delete(s.active, run.ID)
+	}
+	s.mu.Unlock()
+
+	// Mark run as timed_out
+	_, _ = s.queries.UpdateHeartbeatRunFinished(ctx, db.UpdateHeartbeatRunFinishedParams{
+		ID:            run.ID,
+		Status:        db.HeartbeatRunStatusTimedOut,
+		ExitCode:      sql.NullInt32{Int32: -1, Valid: true},
+		StderrExcerpt: sql.NullString{String: "run recovered: exceeded maximum timeout or panicked", Valid: true},
+	})
+
+	// Reset agent to error
+	_, _ = s.queries.UpdateAgent(ctx, db.UpdateAgentParams{
+		ID:     run.AgentID,
+		Status: db.NullAgentStatus{AgentStatus: db.AgentStatusError, Valid: true},
+	})
+
+	s.tokenSvc.Revoke(run.ID)
+
+	// Emit SSE events
+	s.sseHub.Publish(run.SquadID, "heartbeat.run.finished", map[string]any{
+		"runId":   run.ID,
+		"agentId": run.AgentID,
+		"status":  "timed_out",
+	})
+	s.sseHub.Publish(run.SquadID, "agent.status.changed", map[string]any{
+		"agentId": run.AgentID,
+		"from":    "running",
+		"to":      "error",
+	})
+}
+
+// StartStaleRunDetector periodically checks for runs stuck in running/queued
+// status beyond maxAge and force-fails them.
+func (s *RunService) StartStaleRunDetector(ctx context.Context, maxAge time.Duration, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	slog.Info("stale run detector started", "max_age", maxAge, "check_interval", checkInterval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			staleRuns, err := s.queries.ListStaleHeartbeatRuns(ctx, maxAge.Seconds())
+			if err != nil {
+				slog.Error("failed to query stale runs", "error", err)
+				continue
+			}
+			for _, run := range staleRuns {
+				s.recoverRun(ctx, run)
+			}
+			if len(staleRuns) > 0 {
+				slog.Warn("recovered stale runs", "count", len(staleRuns))
+			}
+		}
+	}
 }
 
 // finalize writes the run result, persists session state, emits SSE events,

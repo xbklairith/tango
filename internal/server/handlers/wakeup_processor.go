@@ -15,11 +15,12 @@ import (
 // WakeupProcessor polls the wakeup_requests table and dispatches pending
 // requests to the RunService, respecting per-squad concurrency limits.
 type WakeupProcessor struct {
-	dbConn       *sql.DB
-	queries      *db.Queries
-	runSvc       *RunService
-	maxPerSquad  int
-	pollInterval time.Duration
+	dbConn        *sql.DB
+	queries       *db.Queries
+	runSvc        *RunService
+	maxPerSquad   int
+	pollInterval  time.Duration
+	maxRunTimeout time.Duration
 }
 
 // NewWakeupProcessor creates a new WakeupProcessor.
@@ -29,6 +30,7 @@ func NewWakeupProcessor(
 	runSvc *RunService,
 	maxPerSquad int,
 	pollInterval time.Duration,
+	maxRunTimeout time.Duration,
 ) *WakeupProcessor {
 	if maxPerSquad <= 0 {
 		maxPerSquad = 3
@@ -36,12 +38,16 @@ func NewWakeupProcessor(
 	if pollInterval <= 0 {
 		pollInterval = 500 * time.Millisecond
 	}
+	if maxRunTimeout <= 0 {
+		maxRunTimeout = 30 * time.Minute
+	}
 	return &WakeupProcessor{
-		dbConn:       dbConn,
-		queries:      queries,
-		runSvc:       runSvc,
-		maxPerSquad:  maxPerSquad,
-		pollInterval: pollInterval,
+		dbConn:        dbConn,
+		queries:       queries,
+		runSvc:        runSvc,
+		maxPerSquad:   maxPerSquad,
+		pollInterval:  pollInterval,
+		maxRunTimeout: maxRunTimeout,
 	}
 }
 
@@ -151,7 +157,22 @@ func (p *WakeupProcessor) dispatchForSquad(ctx context.Context, squadIDStr strin
 
 		// Invoke in a goroutine (non-blocking for the processor)
 		go func(w db.WakeupRequest) {
-			if invokeErr := p.runSvc.Invoke(ctx, w); invokeErr != nil {
+			// Fix 1: Panic recovery — if Invoke panics, recover the orphaned run
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("panic in run invoke",
+						"wakeup_id", w.ID,
+						"agent_id", w.AgentID,
+						"panic", r)
+					p.runSvc.RecoverOrphanedRun(context.Background(), w.AgentID)
+				}
+			}()
+
+			// Fix 2: Hard timeout — safety net above adapter-level timeouts
+			invokeCtx, invokeCancel := context.WithTimeout(ctx, p.maxRunTimeout)
+			defer invokeCancel()
+
+			if invokeErr := p.runSvc.Invoke(invokeCtx, w); invokeErr != nil {
 				slog.Error("run invoke failed",
 					"wakeup_id", w.ID,
 					"agent_id", w.AgentID,

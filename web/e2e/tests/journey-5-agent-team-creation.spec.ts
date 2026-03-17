@@ -76,7 +76,7 @@ test.describe("Journey 5: Agent Team Creation via Conversation", () => {
     apiContext,
   }) => {
     // This test involves agent LLM runs which are slow — agent may retry + self-correct
-    test.setTimeout(600_000);
+    test.setTimeout(900_000); // 15 min — extended for captain + member LLM runs
 
     const email = `j5-${Date.now()}@e2e.test`;
     const password = "TestP@ss1234!";
@@ -172,8 +172,9 @@ test.describe("Journey 5: Agent Team Creation via Conversation", () => {
     await convDialog.getByRole("button", { name: "Start" }).click();
     await expect(convDialog).not.toBeVisible({ timeout: 10000 });
 
-    // Verify we're on the conversation page
+    // Verify we're on the conversation page and capture the URL for later
     await page.waitForURL(/\/conversations\//, { timeout: 10000 });
+    const conversationUrl = page.url();
     await expect(page.getByText("Create investment research team")).toBeVisible({ timeout: 10000 });
 
     // ──────────────────────────────────────────────────────────
@@ -304,5 +305,147 @@ test.describe("Journey 5: Agent Team Creation via Conversation", () => {
     // Verify at least one new agent is visible in the UI
     const agentRows = page.locator("table tbody tr");
     await expect(agentRows).not.toHaveCount(1, { timeout: 10000 }); // more than just captain
+
+    // Collect member agent IDs (non-captain agents)
+    const memberAgents = finalAgents.filter(
+      (a: { id: string; role: string }) => a.role !== "captain",
+    );
+    console.log(`[journey-5] ${memberAgents.length} member agents found`);
+
+    // ──────────────────────────────────────────────────────────
+    // Act 8 — Send Follow-up Message to Captain
+    // ──────────────────────────────────────────────────────────
+
+    await page.goto(conversationUrl);
+    await page.waitForURL(/\/conversations\//, { timeout: 10000 });
+
+    const messageInput = page.getByTestId("message-input");
+    await expect(messageInput).toBeVisible({ timeout: 10000 });
+    await messageInput.fill(
+      "Now create an issue for each team member asking them to introduce themselves. Assign each issue to the respective member. Each member should send their introduction to my inbox.",
+    );
+    await page.getByTestId("send-message-btn").click();
+
+    // Wait for the message to appear in conversation
+    await expect(
+      page.getByText("Now create an issue for each team member"),
+    ).toBeVisible({ timeout: 10000 });
+
+    // ──────────────────────────────────────────────────────────
+    // Act 9 — Wait for Captain Run to Complete
+    // ──────────────────────────────────────────────────────────
+
+    // Snapshot current completed run count
+    const act9RunsResp = await apiContext.get(`/api/agents/${captainId}/runs`, {
+      headers: { Cookie: cookies },
+    });
+    const act9Runs = await act9RunsResp.json();
+    const act9CompletedCount = act9Runs.filter(
+      (r: { status: string }) =>
+        r.status === "succeeded" || r.status === "failed" || r.status === "timed_out",
+    ).length;
+
+    await waitForRunComplete(apiContext, captainId, cookies, {
+      timeout: 180_000,
+      initialRunCount: act9CompletedCount,
+    });
+
+    console.log("[journey-5] Captain run completed after follow-up message");
+
+    // ──────────────────────────────────────────────────────────
+    // Act 10 — Verify Issues Created and Assigned
+    // ──────────────────────────────────────────────────────────
+
+    let assignedIssues: any[] = [];
+    await expect(async () => {
+      const issuesResp = await apiContext.get(`/api/squads/${squadId}/issues`, {
+        headers: { Cookie: cookies },
+      });
+      const issuesBody = await issuesResp.json();
+      // API returns { data: [...], pagination: {...} }
+      const issues = Array.isArray(issuesBody) ? issuesBody : issuesBody.data ?? [];
+      const memberIds = new Set(memberAgents.map((a: { id: string }) => a.id));
+      assignedIssues = issues.filter(
+        (i: { type: string; assigneeAgentId: string | null }) =>
+          i.type === "task" && i.assigneeAgentId && memberIds.has(i.assigneeAgentId),
+      );
+      expect(assignedIssues.length).toBeGreaterThanOrEqual(memberAgents.length);
+    }).toPass({ timeout: 30_000 });
+
+    console.log(`[journey-5] ${assignedIssues.length} issues assigned to members:`);
+    for (const issue of assignedIssues) {
+      const member = memberAgents.find((a: { id: string }) => a.id === issue.assigneeAgentId);
+      console.log(`  - "${issue.title}" → ${member?.name ?? issue.assigneeAgentId} (${issue.status})`);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Act 11 — Wait for All Member Runs to Complete
+    // ──────────────────────────────────────────────────────────
+
+    console.log("[journey-5] Waiting for all member agent runs to complete...");
+
+    await Promise.all(
+      memberAgents.map((agent: { id: string; name: string }) =>
+        waitForRunComplete(apiContext, agent.id, cookies, { timeout: 180_000 }).then(() =>
+          console.log(`[journey-5]   ✓ ${agent.name} run completed`),
+        ),
+      ),
+    );
+
+    console.log("[journey-5] All member runs completed");
+
+    // ──────────────────────────────────────────────────────────
+    // Act 12 — Verify Inbox Items from Members
+    // ──────────────────────────────────────────────────────────
+
+    let memberInboxItems: any[] = [];
+    const memberIds = new Set(memberAgents.map((a: { id: string }) => a.id));
+
+    await expect(async () => {
+      const inboxResp = await apiContext.get(`/api/squads/${squadId}/inbox`, {
+        headers: { Cookie: cookies },
+      });
+      const inbox = await inboxResp.json();
+      // Find inbox items from member agents (not the captain's approval)
+      memberInboxItems = inbox.data.filter(
+        (item: { requestedByAgentId: string | null }) =>
+          item.requestedByAgentId && memberIds.has(item.requestedByAgentId),
+      );
+      expect(memberInboxItems.length).toBeGreaterThanOrEqual(memberAgents.length);
+    }).toPass({ timeout: 120_000 });
+
+    console.log(`[journey-5] ${memberInboxItems.length} inbox items from members:`);
+    for (const item of memberInboxItems) {
+      const member = memberAgents.find((a: { id: string }) => a.id === item.requestedByAgentId);
+      console.log(`  - "${item.title}" from ${member?.name ?? item.requestedByAgentId}`);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Act 13 — Verify in UI (Inbox + Issues)
+    // ──────────────────────────────────────────────────────────
+
+    // Check Inbox page
+    await page.getByRole("link", { name: "Inbox" }).click();
+    await page.waitForURL(/\/inbox/, { timeout: 10000 });
+
+    // Verify inbox table and member items are visible
+    const inboxTable = page.getByTestId("inbox-table");
+    await expect(inboxTable).toBeVisible({ timeout: 10000 });
+    for (const item of memberInboxItems.slice(0, 3)) {
+      await expect(page.getByTestId(`inbox-item-${item.id}`)).toBeVisible({ timeout: 10000 });
+    }
+
+    // Check Issues page
+    await page.getByRole("link", { name: "Issues" }).click();
+    await page.waitForURL(/\/issues/, { timeout: 10000 });
+
+    // Verify issues table and assigned issues are visible
+    const issuesTable = page.getByTestId("issues-table");
+    await expect(issuesTable).toBeVisible({ timeout: 10000 });
+    for (const issue of assignedIssues.slice(0, 3)) {
+      await expect(page.getByTestId(`issue-row-${issue.id}`)).toBeVisible({ timeout: 10000 });
+    }
+
+    console.log("[journey-5] ✅ Full journey complete: Captain → Issues → Members → Inbox");
   });
 });

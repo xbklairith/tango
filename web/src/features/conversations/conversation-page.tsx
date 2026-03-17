@@ -250,7 +250,7 @@ export default function ConversationPage() {
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
+      <div data-testid="messages-area" className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Info className="h-10 w-10 text-muted-foreground/40 mb-2" />
@@ -299,6 +299,7 @@ export default function ConversationPage() {
           <div className="flex items-end gap-2">
             <Textarea
               ref={textareaRef}
+              data-testid="message-input"
               value={messageText}
               onChange={(e) => setMessageText(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -307,6 +308,7 @@ export default function ConversationPage() {
               className="min-h-[40px] max-h-[120px] resize-none"
             />
             <Button
+              data-testid="send-message-btn"
               size="sm"
               onClick={handleSend}
               disabled={!messageText.trim() || sendMessage.isPending}

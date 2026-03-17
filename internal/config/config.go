@@ -86,6 +86,10 @@ type Config struct {
 	// RateLimitBurst is the per-IP burst capacity (default 200).
 	RateLimitBurst int
 
+	// MaxRunTimeout is the hard ceiling for a single agent run (default 30m).
+	// Acts as a safety net above adapter-level timeouts.
+	MaxRunTimeout time.Duration
+
 	// TrustedProxies is a comma-separated list of CIDR ranges for trusted proxy IPs.
 	TrustedProxies string
 }
@@ -152,6 +156,7 @@ func Load() (*Config, error) {
 		TLSRedirectPort: 80,
 		RateLimitRPS:    100,
 		RateLimitBurst:  200,
+		MaxRunTimeout:   30 * time.Minute,
 		TrustedProxies:  os.Getenv("ARI_TRUSTED_PROXIES"),
 	}
 
@@ -286,6 +291,15 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid ARI_RATE_LIMIT_BURST %q: %w", v, err)
 		}
 		cfg.RateLimitBurst = n
+	}
+
+	// Parse max run timeout
+	if v := os.Getenv("ARI_MAX_RUN_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ARI_MAX_RUN_TIMEOUT %q: %w", v, err)
+		}
+		cfg.MaxRunTimeout = d
 	}
 
 	// Enforce positive rate limit values (clamp non-positive to defaults)

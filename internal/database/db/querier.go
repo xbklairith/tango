@@ -162,6 +162,7 @@ type Querier interface {
 	ListSquadSecretsForDecryption(ctx context.Context, squadID uuid.UUID) ([]ListSquadSecretsForDecryptionRow, error)
 	ListSquadsByUser(ctx context.Context, arg ListSquadsByUserParams) ([]ListSquadsByUserRow, error)
 	ListStagesByPipeline(ctx context.Context, pipelineID uuid.UUID) ([]PipelineStage, error)
+	ListStaleHeartbeatRuns(ctx context.Context, maxAgeSeconds float64) ([]HeartbeatRun, error)
 	ListTopLevelGoalsBySquad(ctx context.Context, squadID uuid.UUID) ([]Goal, error)
 	MarkWakeupDiscarded(ctx context.Context, id uuid.UUID) (WakeupRequest, error)
 	MarkWakeupDispatched(ctx context.Context, id uuid.UUID) (WakeupRequest, error)

@@ -78,7 +78,7 @@ export default function IssueListPage() {
       <IssueFilters filters={filters} agents={agents ?? []} onChange={handleFilterChange} />
 
       <div className="rounded-md border">
-        <table className="w-full">
+        <table data-testid="issues-table" className="w-full">
           <thead>
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-3 text-left text-sm font-medium">ID</th>
@@ -89,10 +89,10 @@ export default function IssueListPage() {
           </thead>
           <tbody>
             {issues?.map((issue) => (
-              <tr key={issue.id} className="border-b last:border-0">
+              <tr key={issue.id} data-testid={`issue-row-${issue.id}`} className="border-b last:border-0">
                 <td className="px-4 py-3 text-sm font-mono">{issue.identifier}</td>
                 <td className="px-4 py-3">
-                  <Link to={`/issues/${issue.id}`} className="text-sm font-medium hover:underline">
+                  <Link to={`/issues/${issue.id}`} data-testid={`issue-link-${issue.id}`} className="text-sm font-medium hover:underline">
                     {issue.title}
                   </Link>
                 </td>
