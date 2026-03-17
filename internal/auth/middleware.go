@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -72,20 +73,28 @@ func Middleware(
 			// Agents authenticate via run tokens regardless of deployment mode.
 			tokenString := ExtractToken(r)
 			if tokenString != "" && runTokenSvc != nil {
-				if rtClaims, rtErr := runTokenSvc.Validate(tokenString); rtErr == nil {
+				rtClaims, rtErr := runTokenSvc.Validate(tokenString)
+				if rtErr != nil {
+					slog.Debug("run token validation failed",
+						"path", r.URL.Path,
+						"method", r.Method,
+						"error", rtErr,
+						"token_len", len(tokenString))
+				}
+				if rtErr == nil {
 					agentID, err := uuid.Parse(rtClaims.Subject)
 					if err != nil {
-						writeAuthError(w, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
+						writeAuthError(w, r, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
 						return
 					}
 					squadID, err := uuid.Parse(rtClaims.SquadID)
 					if err != nil {
-						writeAuthError(w, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
+						writeAuthError(w, r, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
 						return
 					}
 					runID, err := uuid.Parse(rtClaims.RunID)
 					if err != nil {
-						writeAuthError(w, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
+						writeAuthError(w, r, http.StatusUnauthorized, "Invalid run token claims", "INVALID_TOKEN")
 						return
 					}
 					var convID uuid.UUID
@@ -113,7 +122,7 @@ func Middleware(
 
 			// Authenticated mode: require token
 			if tokenString == "" {
-				writeAuthError(w, http.StatusUnauthorized, "Authentication required", "UNAUTHENTICATED")
+				writeAuthError(w, r, http.StatusUnauthorized, "Authentication required", "UNAUTHENTICATED")
 				return
 			}
 
@@ -121,9 +130,9 @@ func Middleware(
 			claims, err := jwtSvc.Validate(tokenString)
 			if err != nil {
 				if errors.Is(err, ErrTokenExpired) {
-					writeAuthError(w, http.StatusUnauthorized, "Token has expired", "TOKEN_EXPIRED")
+					writeAuthError(w, r, http.StatusUnauthorized, "Token has expired", "TOKEN_EXPIRED")
 				} else {
-					writeAuthError(w, http.StatusUnauthorized, "Invalid token", "INVALID_TOKEN")
+					writeAuthError(w, r, http.StatusUnauthorized, "Invalid token", "INVALID_TOKEN")
 				}
 				return
 			}
@@ -132,20 +141,20 @@ func Middleware(
 			tokenHash := HashToken(tokenString)
 			session, err := sessions.FindByTokenHash(r.Context(), tokenHash)
 			if err != nil {
-				writeAuthError(w, http.StatusUnauthorized, "Session not found or expired", "INVALID_TOKEN")
+				writeAuthError(w, r, http.StatusUnauthorized, "Session not found or expired", "INVALID_TOKEN")
 				return
 			}
 
 			// Parse user ID from claims
 			userID, err := parseUUID(claims.Subject)
 			if err != nil {
-				writeAuthError(w, http.StatusUnauthorized, "Invalid token claims", "INVALID_TOKEN")
+				writeAuthError(w, r, http.StatusUnauthorized, "Invalid token claims", "INVALID_TOKEN")
 				return
 			}
 
 			// Verify session belongs to the claimed user
 			if session.UserID != userID {
-				writeAuthError(w, http.StatusUnauthorized, "Session mismatch", "INVALID_TOKEN")
+				writeAuthError(w, r, http.StatusUnauthorized, "Session mismatch", "INVALID_TOKEN")
 				return
 			}
 
@@ -186,7 +195,14 @@ type authErrorResponse struct {
 }
 
 // writeAuthError writes a JSON error response for auth failures.
-func writeAuthError(w http.ResponseWriter, status int, message, code string) {
+func writeAuthError(w http.ResponseWriter, r *http.Request, status int, message, code string) {
+	slog.Warn("auth denied",
+		"path", r.URL.Path,
+		"method", r.Method,
+		"status", status,
+		"code", code,
+		"reason", message,
+	)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(authErrorResponse{Error: message, Code: code})

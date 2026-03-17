@@ -29,9 +29,8 @@ type permissionMatrixResponse struct {
 // GetPermissions returns the full permission matrix as JSON.
 func (h *PermissionHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 	// Any authenticated user or agent can view the matrix.
-	_, isUser := auth.UserFromContext(r.Context())
-	_, isAgent := auth.AgentFromContext(r.Context())
-	if !isUser && !isAgent {
+	_, ok := auth.CallerFromContext(r.Context())
+	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
 	}

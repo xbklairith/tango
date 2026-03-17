@@ -59,30 +59,6 @@ type memberResponse struct {
 	UpdatedAt   string            `json:"updatedAt"`
 }
 
-// --- Helpers ---
-
-func (h *MembershipHandler) requireMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (db.SquadMembership, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return db.SquadMembership{}, false
-	}
-	membership, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Error("failed to check membership", "error", err)
-			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-			return db.SquadMembership{}, false
-		}
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: "Squad not found", Code: "SQUAD_NOT_FOUND"})
-		return db.SquadMembership{}, false
-	}
-	return membership, true
-}
-
 // --- Handlers ---
 
 func (h *MembershipHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +66,7 @@ func (h *MembershipHandler) List(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, ok := h.requireMembership(w, r, squadID); !ok {
+	if _, ok := requireSquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -123,11 +99,11 @@ func (h *MembershipHandler) Add(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	membership, ok := h.requireMembership(w, r, squadID)
+	access, ok := requireSquadAccess(w, r, squadID, h.queries)
 	if !ok {
 		return
 	}
-	actorRole := domain.MemberRole(membership.Role)
+	actorRole := domain.MemberRole(access.Role)
 	// Permission check: squad.update for adding members
 	if !requirePermission(w, r, squadID, auth.ResourceSquad, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 		return
@@ -184,10 +160,11 @@ func (h *MembershipHandler) Add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	addActorType, addActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    membership.UserID,
+		ActorType:  addActorType,
+		ActorID:    addActorID,
 		Action:     "member.added",
 		EntityType: "member",
 		EntityID:   newMembership.ID,
@@ -221,8 +198,7 @@ func (h *MembershipHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	membership, ok := h.requireMembership(w, r, squadID)
-	if !ok {
+	if _, ok := requireSquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 	// Permission check: squad.update for role changes
@@ -301,10 +277,11 @@ func (h *MembershipHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	roleActorType, roleActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    membership.UserID,
+		ActorType:  roleActorType,
+		ActorID:    roleActorID,
 		Action:     "member.role_updated",
 		EntityType: "member",
 		EntityID:   memberID,
@@ -346,8 +323,7 @@ func (h *MembershipHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	membership, ok := h.requireMembership(w, r, squadID)
-	if !ok {
+	if _, ok := requireSquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 	// Permission check: squad.update for removing members
@@ -386,10 +362,11 @@ func (h *MembershipHandler) Remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	removeActorType, removeActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    membership.UserID,
+		ActorType:  removeActorType,
+		ActorID:    removeActorID,
 		Action:     "member.removed",
 		EntityType: "member",
 		EntityID:   memberID,
@@ -414,7 +391,7 @@ func (h *MembershipHandler) Leave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -422,7 +399,7 @@ func (h *MembershipHandler) Leave(w http.ResponseWriter, r *http.Request) {
 
 	// Verify membership exists
 	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
+		UserID:  caller.ID,
 		SquadID: squadID,
 	})
 	if err != nil {
@@ -436,7 +413,7 @@ func (h *MembershipHandler) Leave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.queries.DeleteSquadMembershipByUserIfNotLastOwner(r.Context(), db.DeleteSquadMembershipByUserIfNotLastOwnerParams{
-		UserID:  identity.UserID,
+		UserID:  caller.ID,
 		SquadID: squadID,
 	})
 	if err != nil {
@@ -449,6 +426,6 @@ func (h *MembershipHandler) Leave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("user left squad", "squad_id", squadID, "user_id", identity.UserID)
+	slog.Info("user left squad", "squad_id", squadID, "user_id", caller.ID)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "You have left the squad"})
 }

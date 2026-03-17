@@ -249,10 +249,11 @@ func (s *InboxService) Resolve(ctx context.Context, itemID, userID uuid.UUID, re
 	}
 
 	// Log activity within the transaction.
+	resolveActorType, resolveActorID := resolveActor(ctx)
 	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    item.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  resolveActorType,
+		ActorID:    resolveActorID,
 		Action:     "inbox.resolved",
 		EntityType: "inbox_item",
 		EntityID:   item.ID,
@@ -326,10 +327,11 @@ func (s *InboxService) Acknowledge(ctx context.Context, itemID, userID uuid.UUID
 	}
 
 	// Log activity.
+	ackActorType, ackActorID := resolveActor(ctx)
 	if err := logActivity(ctx, s.queries, ActivityParams{
 		SquadID:    item.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  ackActorType,
+		ActorID:    ackActorID,
 		Action:     "inbox.acknowledged",
 		EntityType: "inbox_item",
 		EntityID:   item.ID,

@@ -152,7 +152,7 @@ func (h *SecretHandler) DeleteSecret(w http.ResponseWriter, r *http.Request) {
 // RotateMasterKey handles POST /api/secrets/rotate-master-key.
 func (h *SecretHandler) RotateMasterKey(w http.ResponseWriter, r *http.Request) {
 	// System-level operation: requires is_admin
-	user, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -160,11 +160,11 @@ func (h *SecretHandler) RotateMasterKey(w http.ResponseWriter, r *http.Request) 
 
 	// LocalOperator is always admin
 	isAdmin := false
-	if user.UserID == uuid.Nil && user.Email == "local@ari.local" {
+	if caller.ID == uuid.Nil && caller.Email == "local@ari.local" {
 		isAdmin = true
 	} else {
 		// Look up user in DB to check is_admin
-		dbUser, err := h.queries.GetUserByID(r.Context(), user.UserID)
+		dbUser, err := h.queries.GetUserByID(r.Context(), caller.ID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 			return

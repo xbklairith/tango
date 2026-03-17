@@ -81,23 +81,31 @@ func (h *ActivityHandler) ListActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auth + membership check
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
 	}
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Squad not found", Code: "SQUAD_NOT_FOUND"})
+	// Agents verify squad scope directly — no membership row needed.
+	if caller.IsAgent() {
+		if caller.SquadID != squadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
+	} else {
+		_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  caller.ID,
+			SquadID: squadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusNotFound, errorResponse{Error: "Squad not found", Code: "SQUAD_NOT_FOUND"})
+				return
+			}
+			slog.Error("failed to check squad membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	// Permission check: activity.read

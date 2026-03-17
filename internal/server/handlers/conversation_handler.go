@@ -56,30 +56,6 @@ type sendMessageRequest struct {
 	Body string `json:"body"`
 }
 
-// --- Squad Membership Helper ---
-
-func (h *ConversationHandler) verifySquadMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (uuid.UUID, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return uuid.Nil, false
-	}
-	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return uuid.Nil, false
-		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return uuid.Nil, false
-	}
-	return identity.UserID, true
-}
-
 // --- Handlers ---
 
 // StartConversation creates a new conversation issue assigned to the specified agent.
@@ -91,7 +67,7 @@ func (h *ConversationHandler) StartConversation(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	userID, ok := h.verifySquadMembership(w, r, squadID)
+	userID, ok := verifySquadAccess(w, r, squadID, h.queries)
 	if !ok {
 		return
 	}
@@ -172,9 +148,13 @@ func (h *ConversationHandler) StartConversation(w http.ResponseWriter, r *http.R
 	// Create first comment if message provided
 	var firstComment *commentResponse
 	if req.Message != "" {
+		authorType := db.CommentAuthorTypeUser
+		if caller, ok := auth.CallerFromContext(r.Context()); ok && caller.IsAgent() {
+			authorType = db.CommentAuthorTypeAgent
+		}
 		comment, err := qtx.CreateIssueComment(r.Context(), db.CreateIssueCommentParams{
 			IssueID:    issue.ID,
-			AuthorType: db.CommentAuthorTypeUser,
+			AuthorType: authorType,
 			AuthorID:   userID,
 			Body:       req.Message,
 		})
@@ -188,10 +168,11 @@ func (h *ConversationHandler) StartConversation(w http.ResponseWriter, r *http.R
 	}
 
 	// Log activity
+	actorType, actorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  actorType,
+		ActorID:    actorID,
 		Action:     "conversation.created",
 		EntityType: "issue",
 		EntityID:   issue.ID,
@@ -278,7 +259,7 @@ func (h *ConversationHandler) SendMessage(w http.ResponseWriter, r *http.Request
 	}
 
 	// Verify user is squad member
-	userID, ok := h.verifySquadMembership(w, r, issue.SquadID)
+	userID, ok := verifySquadAccess(w, r, issue.SquadID, h.queries)
 	if !ok {
 		return
 	}
@@ -321,9 +302,13 @@ func (h *ConversationHandler) SendMessage(w http.ResponseWriter, r *http.Request
 
 	qtx := h.queries.WithTx(tx)
 
+	commentAuthorType := db.CommentAuthorTypeUser
+	if caller, ok := auth.CallerFromContext(r.Context()); ok && caller.IsAgent() {
+		commentAuthorType = db.CommentAuthorTypeAgent
+	}
 	comment, err := qtx.CreateIssueComment(r.Context(), db.CreateIssueCommentParams{
 		IssueID:    convID,
-		AuthorType: db.CommentAuthorTypeUser,
+		AuthorType: commentAuthorType,
 		AuthorID:   userID,
 		Body:       req.Body,
 	})
@@ -334,10 +319,11 @@ func (h *ConversationHandler) SendMessage(w http.ResponseWriter, r *http.Request
 	}
 
 	// Log activity
+	msgActorType, msgActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    issue.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  msgActorType,
+		ActorID:    msgActorID,
 		Action:     "conversation.message_sent",
 		EntityType: "comment",
 		EntityID:   comment.ID,
@@ -396,7 +382,7 @@ func (h *ConversationHandler) ListConversations(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -500,7 +486,7 @@ func (h *ConversationHandler) ListMessages(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, issue.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -581,7 +567,7 @@ func (h *ConversationHandler) CloseConversation(w http.ResponseWriter, r *http.R
 	}
 
 	// Verify squad membership
-	userID, ok := h.verifySquadMembership(w, r, issue.SquadID)
+	_, ok := verifySquadAccess(w, r, issue.SquadID, h.queries)
 	if !ok {
 		return
 	}
@@ -619,10 +605,11 @@ func (h *ConversationHandler) CloseConversation(w http.ResponseWriter, r *http.R
 	}
 
 	// Log activity
+	closeActorType, closeActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    issue.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  closeActorType,
+		ActorID:    closeActorID,
 		Action:     "conversation.closed",
 		EntityType: "issue",
 		EntityID:   convID,

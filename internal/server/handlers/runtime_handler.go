@@ -89,7 +89,7 @@ func (h *RuntimeHandler) WakeAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify squad membership (user must be a member)
-	if _, ok := h.verifySquadMembership(w, r, agent.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, agent.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -191,7 +191,7 @@ func (h *RuntimeHandler) StopAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, agent.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, agent.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -238,7 +238,7 @@ func (h *RuntimeHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify access
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -310,7 +310,7 @@ func (h *RuntimeHandler) ListAgentRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, agent.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, agent.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -367,28 +367,6 @@ func (h *RuntimeHandler) ListAgentRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Helpers ---
-
-func (h *RuntimeHandler) verifySquadMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (uuid.UUID, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return uuid.Nil, false
-	}
-	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return uuid.Nil, false
-		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return uuid.Nil, false
-	}
-	return identity.UserID, true
-}
 
 func (h *RuntimeHandler) sendAgentSnapshot(w http.ResponseWriter, flusher http.Flusher, squadID uuid.UUID, r *http.Request) {
 	agents, err := h.queries.ListAgentsBySquad(r.Context(), squadID)
@@ -450,7 +428,7 @@ func (h *RuntimeHandler) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, run.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, run.SquadID, h.queries); !ok {
 		return
 	}
 

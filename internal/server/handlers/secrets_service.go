@@ -383,11 +383,11 @@ func secretToResponse(s db.SquadSecret) *SecretResponse {
 
 // resolveActor extracts actor type and ID from context.
 func resolveActor(ctx context.Context) (domain.ActivityActorType, uuid.UUID) {
-	if user, ok := auth.UserFromContext(ctx); ok {
-		return domain.ActivityActorUser, user.UserID
-	}
-	if agent, ok := auth.AgentFromContext(ctx); ok {
-		return domain.ActivityActorAgent, agent.AgentID
+	if caller, ok := auth.CallerFromContext(ctx); ok {
+		if caller.IsAgent() {
+			return domain.ActivityActorAgent, caller.ID
+		}
+		return domain.ActivityActorUser, caller.ID
 	}
 	return domain.ActivityActorSystem, uuid.Nil
 }

@@ -267,21 +267,24 @@ func (h *InboxHandler) CreateInboxItem(w http.ResponseWriter, r *http.Request) {
 		params.RelatedRunID = uuid.NullUUID{UUID: id, Valid: true}
 	}
 
-	// Determine auth type: agent or user.
-	agentIdentity, isAgent := auth.AgentFromContext(r.Context())
-	userIdentity, isUser := auth.UserFromContext(r.Context())
+	// Determine caller identity (agent or user).
+	caller, ok := auth.CallerFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
 
-	if isAgent {
+	if caller.IsAgent() {
 		// Agent auth: verify squad scope.
-		if agentIdentity.SquadID != squadID {
+		if caller.SquadID != squadID {
 			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		params.RequestedByAgentID = uuid.NullUUID{UUID: agentIdentity.AgentID, Valid: true}
-	} else if isUser {
+		params.RequestedByAgentID = uuid.NullUUID{UUID: caller.ID, Valid: true}
+	} else {
 		// User auth: verify squad membership.
 		_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-			UserID:  userIdentity.UserID,
+			UserID:  caller.ID,
 			SquadID: squadID,
 		})
 		if err != nil {
@@ -293,9 +296,6 @@ func (h *InboxHandler) CreateInboxItem(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
 			return
 		}
-	} else {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return
 	}
 
 	// Permission check: inbox.create
@@ -323,23 +323,30 @@ func (h *InboxHandler) ListInboxItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auth + membership check.
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
 	}
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+	if caller.IsAgent() {
+		if caller.SquadID != squadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		slog.Error("inbox list: failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
+	} else {
+		_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  caller.ID,
+			SquadID: squadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+				return
+			}
+			slog.Error("inbox list: failed to check squad membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	// Permission check: inbox.read
@@ -444,7 +451,7 @@ func (h *InboxHandler) GetInboxItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auth check.
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -463,18 +470,25 @@ func (h *InboxHandler) GetInboxItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify squad membership.
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: item.SquadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+	if caller.IsAgent() {
+		if caller.SquadID != item.SquadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		slog.Error("inbox get: failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
+	} else {
+		_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  caller.ID,
+			SquadID: item.SquadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+				return
+			}
+			slog.Error("inbox get: failed to check squad membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, dbInboxItemToResponse(item))
@@ -490,23 +504,30 @@ func (h *InboxHandler) GetInboxCount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auth + membership check.
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
 	}
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+	if caller.IsAgent() {
+		if caller.SquadID != squadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		slog.Error("inbox count: failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
+	} else {
+		_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  caller.ID,
+			SquadID: squadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+				return
+			}
+			slog.Error("inbox count: failed to check squad membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	counts, err := h.queries.CountUnresolvedBySquad(r.Context(), squadID)
@@ -533,7 +554,7 @@ func (h *InboxHandler) ResolveInboxItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Auth check.
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -552,18 +573,25 @@ func (h *InboxHandler) ResolveInboxItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Verify squad membership.
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: existing.SquadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+	if caller.IsAgent() {
+		if caller.SquadID != existing.SquadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		slog.Error("inbox resolve: failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
+	} else {
+		_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  caller.ID,
+			SquadID: existing.SquadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+				return
+			}
+			slog.Error("inbox resolve: failed to check squad membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	// Permission check: inbox.resolve
@@ -603,7 +631,7 @@ func (h *InboxHandler) ResolveInboxItem(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	item, err := h.inboxService.Resolve(r.Context(), itemID, identity.UserID, resolution, req.ResponseNote, req.ResponsePayload)
+	item, err := h.inboxService.Resolve(r.Context(), itemID, caller.ID, resolution, req.ResponseNote, req.ResponsePayload)
 	if err != nil {
 		if errors.Is(err, domain.ErrInboxAlreadyResolved) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "Inbox item is already resolved", Code: "ALREADY_RESOLVED"})
@@ -639,7 +667,7 @@ func (h *InboxHandler) AcknowledgeInboxItem(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Auth check.
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -658,18 +686,25 @@ func (h *InboxHandler) AcknowledgeInboxItem(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Verify squad membership.
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: existing.SquadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+	if caller.IsAgent() {
+		if caller.SquadID != existing.SquadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		slog.Error("inbox acknowledge: failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
+	} else {
+		_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  caller.ID,
+			SquadID: existing.SquadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+				return
+			}
+			slog.Error("inbox acknowledge: failed to check squad membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	// Permission check: inbox.update
@@ -677,7 +712,7 @@ func (h *InboxHandler) AcknowledgeInboxItem(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	item, err := h.inboxService.Acknowledge(r.Context(), itemID, identity.UserID)
+	item, err := h.inboxService.Acknowledge(r.Context(), itemID, caller.ID)
 	if err != nil {
 		if errors.Is(err, domain.ErrInboxNotFound) {
 			writeJSON(w, http.StatusNotFound, errorResponse{Error: "Inbox item not found", Code: "NOT_FOUND"})
@@ -706,7 +741,7 @@ func (h *InboxHandler) DismissInboxItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Auth check.
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -731,18 +766,25 @@ func (h *InboxHandler) DismissInboxItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Verify squad membership.
-	_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: existing.SquadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+	if caller.IsAgent() {
+		if caller.SquadID != existing.SquadID {
+			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agent does not belong to this squad", Code: "FORBIDDEN"})
 			return
 		}
-		slog.Error("inbox dismiss: failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return
+	} else {
+		_, err = h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
+			UserID:  caller.ID,
+			SquadID: existing.SquadID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
+				return
+			}
+			slog.Error("inbox dismiss: failed to check squad membership", "error", err)
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+			return
+		}
 	}
 
 	// Permission check: inbox.resolve (dismiss is a form of resolution)
@@ -760,7 +802,7 @@ func (h *InboxHandler) DismissInboxItem(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Delegate to Resolve with dismissed resolution.
-	item, err := h.inboxService.Resolve(r.Context(), itemID, identity.UserID, domain.InboxResolutionDismissed, req.ResponseNote, nil)
+	item, err := h.inboxService.Resolve(r.Context(), itemID, caller.ID, domain.InboxResolutionDismissed, req.ResponseNote, nil)
 	if err != nil {
 		if errors.Is(err, domain.ErrInboxAlreadyResolved) {
 			writeJSON(w, http.StatusConflict, errorResponse{Error: "Inbox item is already resolved", Code: "ALREADY_RESOLVED"})

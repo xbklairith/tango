@@ -106,31 +106,6 @@ func dbCostEventToResponse(ce db.CostEvent) costEventResponse {
 	return resp
 }
 
-// --- Helpers ---
-
-// verifySquadMembershipForCost checks that the authenticated user is a member of the given squad.
-func (h *CostHandler) verifySquadMembershipForCost(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) bool {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return false
-	}
-	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return false
-		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return false
-	}
-	return true
-}
-
 // --- Handlers ---
 
 // RecordCostEvent handles POST /api/cost-events.
@@ -159,7 +134,7 @@ func (h *CostHandler) RecordCostEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify squad membership
-	if !h.verifySquadMembershipForCost(w, r, agent.SquadID) {
+	if _, ok := verifySquadAccess(w, r, agent.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -216,7 +191,7 @@ func (h *CostHandler) GetSquadCostSummary(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if !h.verifySquadMembershipForCost(w, r, squadID) {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -275,7 +250,7 @@ func (h *CostHandler) GetSquadCostBreakdown(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if !h.verifySquadMembershipForCost(w, r, squadID) {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 

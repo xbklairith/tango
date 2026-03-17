@@ -565,6 +565,91 @@ Do NOT mark the task done without posting a comment first.`,
 		}
 	}
 
+	// Build inbox_resolved context when wakeup is from inbox resolution
+	inboxItemID := extractInboxItemID(wakeup.ContextJson)
+	if inboxItemID != nil && convID == nil && taskID == nil {
+		inboxItem, err := s.queries.GetInboxItemByID(ctx, *inboxItemID)
+		if err == nil {
+			resolution := extractStringField(wakeup.ContextJson, "resolution")
+			responseNote := extractStringField(wakeup.ContextJson, "response_note")
+
+			envVars["ARI_INBOX_ITEM_ID"] = inboxItemID.String()
+			envVars["ARI_INBOX_RESOLUTION"] = resolution
+
+			squadName := wakeup.SquadID.String()
+			if squad, sqErr := s.queries.GetSquadByID(ctx, wakeup.SquadID); sqErr == nil {
+				squadName = squad.Name
+			}
+
+			bodyText := ""
+			if inboxItem.Body.Valid {
+				bodyText = inboxItem.Body.String
+			}
+			noteText := ""
+			if responseNote != "" {
+				noteText = fmt.Sprintf("\nResponse note from human: %s", responseNote)
+			}
+
+			prompt := fmt.Sprintf(`You are %s, a %s in squad %s.
+
+%s
+
+Your inbox request has been resolved.
+
+== INBOX ITEM ==
+Title: %s
+Category: %s
+Body: %s
+Resolution: %s%s
+
+== INSTRUCTIONS ==
+The human has %s your request. Act on this decision now.
+
+API: %s
+Squad ID: %s
+Your Agent ID: %s
+
+Use the /ari skill for API helper and endpoint reference. Always include -H "Authorization: Bearer $ARI_API_KEY" in every curl call.
+
+To create agents (hierarchy: captain → lead → member):
+- Create leads first with parentAgentId = your ID (captain: %s)
+- Then create members with parentAgentId = the lead's ID (NOT the captain)
+curl -s -X POST "$ARI_API_URL/api/agents" -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"squadId": "%s", "name": "<name>", "shortName": "<url-safe-short>", "role": "<lead|member>", "parentAgentId": "<parentId>"}'
+
+To create issues:
+curl -s -X POST "$ARI_API_URL/api/squads/%s/issues" -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"title": "<title>", "type": "<task|bug|story|epic>", "priority": "<critical|high|medium|low|none>"}'
+
+To reply in conversation:
+curl -s -X POST "$ARI_API_URL/api/agent/me/reply" -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"conversationId": "<id>", "body": "<your reply>"}'
+
+To send to inbox:
+curl -s -X POST "$ARI_API_URL/api/agent/me/inbox" -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"category": "<approval|question|decision>", "title": "<title>", "body": "<details>", "urgency": "<low|medium|high|critical>"}'
+
+Proceed with the action based on the resolution.`,
+				agent.Name, string(agent.Role), squadName, // %s x3: name, role, squad
+				systemPrompt,                               // %s: system prompt
+				inboxItem.Title,                             // %s: inbox title
+				string(inboxItem.Category),                  // %s: category
+				bodyText,                                    // %s: body
+				resolution,                                  // %s: resolution
+				noteText,                                    // %s: note
+				resolution,                                  // %s: resolution (instructions)
+				s.apiURL,                                    // %s: API URL
+				wakeup.SquadID.String(), agent.ID.String(),  // %s x2: squad ID, agent ID
+				agent.ID.String(),                           // %s: captain ID (hierarchy hint)
+				wakeup.SquadID.String(),                     // %s: squad ID (create agents body)
+				wakeup.SquadID.String(),                     // %s: squad ID (create issues)
+			)
+			envVars["ARI_PROMPT"] = prompt
+		} else {
+			slog.Warn("failed to load inbox item for invoke input", "inbox_item_id", inboxItemID, "error", err)
+		}
+	}
+
 	// Build conversation context when ARI_CONVERSATION_ID is present
 	var conversation *adapter.ConversationContext
 	if convID != nil {
@@ -611,25 +696,27 @@ Message thread:
 API: %s
 Auth: Use the ARI_API_KEY environment variable (already set). Always include "Authorization: Bearer $ARI_API_KEY" header.
 
+IMPORTANT: You MUST include -H "Authorization: Bearer $ARI_API_KEY" in EVERY curl call. Never omit it.
+
 == REPLY ==
 Reply to the user's latest message:
-POST %s/api/agent/me/reply
-Body: {"conversationId": "%s", "body": "<your reply>"}
+curl -s -X POST %s/api/agent/me/reply -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"conversationId": "%s", "body": "<your reply>"}'
 
 == INBOX ==
 When the user asks you to send something to their inbox (e.g. a question, decision, or approval request), create an inbox item:
-POST %s/api/agent/me/inbox
-Body: {"category": "<approval|question|decision>", "title": "<short title>", "body": "<details>", "urgency": "<low|medium|high|critical>"}
+curl -s -X POST %s/api/agent/me/inbox -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"category": "<approval|question|decision>", "title": "<short title>", "body": "<details>", "urgency": "<low|medium|high|critical>"}'
 
 == ISSUES ==
-When the user asks you to create an issue or task, use:
-POST %s/api/squads/%s/issues
-Body: {"title": "<title>", "type": "<task|bug|story|epic>", "priority": "<critical|high|medium|low|none>", "description": "<optional description>"}
+When the user asks you to create an issue or task:
+curl -s -X POST %s/api/squads/%s/issues -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"title": "<title>", "type": "<task|bug|story|epic>", "priority": "<critical|high|medium|low|none>", "description": "<optional>"}'
 
 == COMMENTS ON ISSUES ==
 To add a comment to an existing issue:
-POST %s/api/issues/<issueId>/comments
-Body: {"body": "<comment text>"}
+curl -s -X POST %s/api/issues/<issueId>/comments -H "Authorization: Bearer $ARI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"body": "<comment text>"}'
 
 IMPORTANT: Read the user's message carefully. If they ask you to send to inbox, use the inbox endpoint. If they ask to create an issue, use the issues endpoint. Do NOT just reply in the conversation when the user is asking you to perform an action.
 Always reply in the conversation as well to confirm what you did.`,
@@ -783,4 +870,31 @@ func extractConversationID(contextJSON json.RawMessage) *uuid.UUID {
 		}
 	}
 	return nil
+}
+
+// extractInboxItemID extracts inbox_item_id from wakeup context JSON.
+func extractInboxItemID(contextJSON json.RawMessage) *uuid.UUID {
+	var ctx map[string]any
+	if err := json.Unmarshal(contextJSON, &ctx); err != nil {
+		return nil
+	}
+	if idStr, ok := ctx["inbox_item_id"].(string); ok {
+		id, err := uuid.Parse(idStr)
+		if err == nil {
+			return &id
+		}
+	}
+	return nil
+}
+
+// extractStringField extracts a string field from wakeup context JSON.
+func extractStringField(contextJSON json.RawMessage, field string) string {
+	var ctx map[string]any
+	if err := json.Unmarshal(contextJSON, &ctx); err != nil {
+		return ""
+	}
+	if v, ok := ctx[field].(string); ok {
+		return v
+	}
+	return ""
 }

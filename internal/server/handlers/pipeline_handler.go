@@ -119,7 +119,7 @@ func dbStageToResponse(s db.PipelineStage) stageResponse {
 // --- Pipeline CRUD Endpoints ---
 
 func (h *PipelineHandler) CreatePipeline(w http.ResponseWriter, r *http.Request) {
-	user, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -147,7 +147,7 @@ func (h *PipelineHandler) CreatePipeline(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p, err := h.pipelineSvc.CreatePipeline(r.Context(), squadID, user.UserID, req)
+	p, err := h.pipelineSvc.CreatePipeline(r.Context(), squadID, caller.ID, req)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error(), Code: "INTERNAL_ERROR"})
 		return
@@ -157,7 +157,7 @@ func (h *PipelineHandler) CreatePipeline(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *PipelineHandler) ListPipelines(w http.ResponseWriter, r *http.Request) {
-	_, ok := auth.UserFromContext(r.Context())
+	_, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -226,7 +226,7 @@ func (h *PipelineHandler) ListPipelines(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *PipelineHandler) GetPipeline(w http.ResponseWriter, r *http.Request) {
-	_, ok := auth.UserFromContext(r.Context())
+	_, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -273,7 +273,7 @@ func (h *PipelineHandler) GetPipeline(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PipelineHandler) UpdatePipeline(w http.ResponseWriter, r *http.Request) {
-	user, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -327,7 +327,7 @@ func (h *PipelineHandler) UpdatePipeline(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p, err := h.pipelineSvc.UpdatePipeline(r.Context(), id, user.UserID, req)
+	p, err := h.pipelineSvc.UpdatePipeline(r.Context(), id, caller.ID, req)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error(), Code: "INTERNAL_ERROR"})
 		return
@@ -337,7 +337,7 @@ func (h *PipelineHandler) UpdatePipeline(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *PipelineHandler) DeletePipeline(w http.ResponseWriter, r *http.Request) {
-	user, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -365,7 +365,7 @@ func (h *PipelineHandler) DeletePipeline(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	err = h.pipelineSvc.DeletePipeline(r.Context(), id, user.UserID)
+	err = h.pipelineSvc.DeletePipeline(r.Context(), id, caller.ID)
 	if err != nil {
 		var inUseErr *PipelineInUseError
 		if errors.As(err, &inUseErr) {
@@ -382,7 +382,7 @@ func (h *PipelineHandler) DeletePipeline(w http.ResponseWriter, r *http.Request)
 // --- Stage CRUD Endpoints ---
 
 func (h *PipelineHandler) CreateStage(w http.ResponseWriter, r *http.Request) {
-	_, ok := auth.UserFromContext(r.Context())
+	_, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -440,7 +440,7 @@ func (h *PipelineHandler) CreateStage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PipelineHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
-	_, ok := auth.UserFromContext(r.Context())
+	_, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -520,7 +520,7 @@ func (h *PipelineHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PipelineHandler) DeleteStage(w http.ResponseWriter, r *http.Request) {
-	_, ok := auth.UserFromContext(r.Context())
+	_, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -570,7 +570,7 @@ func (h *PipelineHandler) DeleteStage(w http.ResponseWriter, r *http.Request) {
 // --- Advance / Reject Endpoints ---
 
 func (h *PipelineHandler) AdvanceIssue(w http.ResponseWriter, r *http.Request) {
-	user, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -598,7 +598,7 @@ func (h *PipelineHandler) AdvanceIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.pipelineSvc.AdvanceStage(r.Context(), issueID, user.UserID)
+	updated, err := h.pipelineSvc.AdvanceStage(r.Context(), issueID, caller.ID)
 	if err != nil {
 		h.handlePipelineError(w, err)
 		return
@@ -608,7 +608,7 @@ func (h *PipelineHandler) AdvanceIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PipelineHandler) RejectIssue(w http.ResponseWriter, r *http.Request) {
-	user, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -640,7 +640,7 @@ func (h *PipelineHandler) RejectIssue(w http.ResponseWriter, r *http.Request) {
 	// Body is optional for reject
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	updated, err := h.pipelineSvc.RejectStage(r.Context(), issueID, user.UserID, req.Reason)
+	updated, err := h.pipelineSvc.RejectStage(r.Context(), issueID, caller.ID, req.Reason)
 	if err != nil {
 		h.handlePipelineError(w, err)
 		return

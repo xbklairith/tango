@@ -68,30 +68,6 @@ func dbGoalToResponse(g db.Goal) goalResponse {
 	return resp
 }
 
-// --- Squad Membership Helper ---
-
-func (h *GoalHandler) verifySquadMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (uuid.UUID, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return uuid.Nil, false
-	}
-	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return uuid.Nil, false
-		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return uuid.Nil, false
-	}
-	return identity.UserID, true
-}
-
 // --- Handlers ---
 
 func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +78,7 @@ func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := h.verifySquadMembership(w, r, squadID)
+	_, ok := verifySquadAccess(w, r, squadID, h.queries)
 	if !ok {
 		return
 	}
@@ -185,10 +161,11 @@ func (h *GoalHandler) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actorType, actorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  actorType,
+		ActorID:    actorID,
 		Action:     "goal.created",
 		EntityType: "goal",
 		EntityID:   goal.ID,
@@ -217,7 +194,7 @@ func (h *GoalHandler) ListGoals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -273,7 +250,7 @@ func (h *GoalHandler) GetGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -353,7 +330,7 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := h.verifySquadMembership(w, r, existing.SquadID)
+	_, ok := verifySquadAccess(w, r, existing.SquadID, h.queries)
 	if !ok {
 		return
 	}
@@ -458,10 +435,11 @@ func (h *GoalHandler) UpdateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	goalActorType, goalActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    existing.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  goalActorType,
+		ActorID:    goalActorID,
 		Action:     "goal.updated",
 		EntityType: "goal",
 		EntityID:   goalID,

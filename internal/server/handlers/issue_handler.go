@@ -157,30 +157,6 @@ func dbCommentToResponse(c db.IssueComment) commentResponse {
 	}
 }
 
-// --- Squad Membership Helper ---
-
-func (h *IssueHandler) verifySquadMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (uuid.UUID, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return uuid.Nil, false
-	}
-	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return uuid.Nil, false
-		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return uuid.Nil, false
-	}
-	return identity.UserID, true
-}
-
 // --- Handlers ---
 
 func (h *IssueHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +167,7 @@ func (h *IssueHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -341,17 +317,21 @@ func (h *IssueHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get actor identity for activity logging
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
+	// Get actor identity for activity logging (supports both user and agent callers)
+	caller, callerOk := auth.CallerFromContext(r.Context())
+	if !callerOk {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
+	}
+	actorType := domain.ActivityActorUser
+	if caller.IsAgent() {
+		actorType = domain.ActivityActorAgent
 	}
 
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  actorType,
+		ActorID:    caller.ID,
 		Action:     "issue.created",
 		EntityType: "issue",
 		EntityID:   issue.ID,
@@ -392,7 +372,7 @@ func (h *IssueHandler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -486,13 +466,13 @@ func (h *IssueHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 
 	if identifierPattern.MatchString(idParam) {
 		// Identifier lookup — search across user's squads
-		identity, ok := auth.UserFromContext(r.Context())
+		caller, ok := auth.CallerFromContext(r.Context())
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 			return
 		}
 
-		memberships, err := h.queries.ListSquadMembershipsByUser(r.Context(), identity.UserID)
+		memberships, err := h.queries.ListSquadMembershipsByUser(r.Context(), caller.ID)
 		if err != nil {
 			slog.Error("failed to list user memberships", "error", err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
@@ -538,7 +518,7 @@ func (h *IssueHandler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Verify squad membership
-		if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
+		if _, ok := verifySquadAccess(w, r, issue.SquadID, h.queries); !ok {
 			return
 		}
 
@@ -615,7 +595,7 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, existing.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -750,7 +730,7 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get actor identity for activity logging
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -793,11 +773,12 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log activity: status change gets a separate action
+	issueActorType, issueActorID := resolveActor(r.Context())
 	if isStatusChange {
 		if err := logActivity(r.Context(), qtx, ActivityParams{
 			SquadID:    existing.SquadID,
-			ActorType:  domain.ActivityActorUser,
-			ActorID:    identity.UserID,
+			ActorType:  issueActorType,
+			ActorID:    issueActorID,
 			Action:     "issue.status_changed",
 			EntityType: "issue",
 			EntityID:   issueID,
@@ -814,8 +795,8 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    existing.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  issueActorType,
+		ActorID:    issueActorID,
 		Action:     "issue.updated",
 		EntityType: "issue",
 		EntityID:   issueID,
@@ -853,7 +834,7 @@ func (h *IssueHandler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-advance: if status changed to done and issue is in a pipeline, advance to next stage
 	if req.Status != nil && *req.Status == domain.IssueStatusDone && h.pipelineSvc != nil {
-		if handled, _, advErr := h.pipelineSvc.AutoAdvanceOnDone(r.Context(), issueID, identity.UserID); handled && advErr != nil {
+		if handled, _, advErr := h.pipelineSvc.AutoAdvanceOnDone(r.Context(), issueID, caller.ID); handled && advErr != nil {
 			slog.Warn("auto-advance on done failed", "issue_id", issueID, "error", advErr)
 		}
 	}
@@ -879,7 +860,7 @@ func (h *IssueHandler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, existing.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -944,16 +925,16 @@ func (h *IssueHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		actorType = domain.ActivityActorAgent
 		actorID = agentIdentity.AgentID
 	} else {
-		if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
+		if _, ok := verifySquadAccess(w, r, issue.SquadID, h.queries); !ok {
 			return
 		}
 		// Permission check: issue.update (comment creation maps to issue.update)
 		if !requirePermission(w, r, issue.SquadID, auth.ResourceIssue, auth.ActionUpdate, makeRoleLookup(h.queries)) {
 			return
 		}
-		userIdentity, _ := auth.UserFromContext(r.Context())
+		caller, _ := auth.CallerFromContext(r.Context())
 		actorType = domain.ActivityActorUser
-		actorID = userIdentity.UserID
+		actorID = caller.ID
 	}
 
 	var req domain.CreateCommentRequest
@@ -1080,7 +1061,7 @@ func (h *IssueHandler) ListComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, issue.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, issue.SquadID, h.queries); !ok {
 		return
 	}
 

@@ -63,30 +63,6 @@ func dbProjectToResponse(p db.Project) projectResponse {
 	return resp
 }
 
-// --- Squad Membership Helper ---
-
-func (h *ProjectHandler) verifySquadMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (uuid.UUID, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return uuid.Nil, false
-	}
-	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return uuid.Nil, false
-		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return uuid.Nil, false
-	}
-	return identity.UserID, true
-}
-
 // --- Handlers ---
 
 func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +73,7 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := h.verifySquadMembership(w, r, squadID)
+	_, ok := verifySquadAccess(w, r, squadID, h.queries)
 	if !ok {
 		return
 	}
@@ -160,10 +136,11 @@ func (h *ProjectHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actorType, actorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  actorType,
+		ActorID:    actorID,
 		Action:     "project.created",
 		EntityType: "project",
 		EntityID:   project.ID,
@@ -192,7 +169,7 @@ func (h *ProjectHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -230,7 +207,7 @@ func (h *ProjectHandler) GetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -307,7 +284,7 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := h.verifySquadMembership(w, r, existing.SquadID)
+	_, ok := verifySquadAccess(w, r, existing.SquadID, h.queries)
 	if !ok {
 		return
 	}
@@ -373,10 +350,11 @@ func (h *ProjectHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	projActorType, projActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    existing.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  projActorType,
+		ActorID:    projActorID,
 		Action:     "project.updated",
 		EntityType: "project",
 		EntityID:   projectID,

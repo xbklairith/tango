@@ -98,30 +98,6 @@ func dbAgentToResponse(a db.Agent) agentResponse {
 	return resp
 }
 
-// verifySquadMembership checks that the authenticated user is a member of the given squad.
-// Returns 401 if unauthenticated, 403 if not a member.
-func (h *AgentHandler) verifySquadMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (uuid.UUID, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return uuid.Nil, false
-	}
-	_, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusForbidden, errorResponse{Error: "Not a member of this squad", Code: "FORBIDDEN"})
-			return uuid.Nil, false
-		}
-		slog.Error("failed to check squad membership", "error", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-		return uuid.Nil, false
-	}
-	return identity.UserID, true
-}
-
 // checkCycleInHierarchy runs the recursive CTE to detect would-be cycles.
 func (h *AgentHandler) checkCycleInHierarchy(ctx context.Context, startID, targetID uuid.UUID) (bool, error) {
 	const query = `
@@ -179,7 +155,7 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify squad membership
-	if _, ok := h.verifySquadMembership(w, r, req.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, req.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -280,11 +256,7 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get actor identity for activity logging
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return
-	}
+	actorType, actorID := resolveActor(r.Context())
 
 	tx, err := h.dbConn.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -316,8 +288,8 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    agent.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  actorType,
+		ActorID:    actorID,
 		Action:     "agent.created",
 		EntityType: "agent",
 		EntityID:   agent.ID,
@@ -354,7 +326,7 @@ func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, squadID); !ok {
+	if _, ok := verifySquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -394,7 +366,7 @@ func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, agent.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, agent.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -463,7 +435,7 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, existing.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -615,11 +587,7 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get actor identity for activity logging
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return
-	}
+	actorType, actorID := resolveActor(r.Context())
 
 	tx, err := h.dbConn.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -651,8 +619,8 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    agent.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  actorType,
+		ActorID:    actorID,
 		Action:     "agent.updated",
 		EntityType: "agent",
 		EntityID:   agent.ID,
@@ -709,7 +677,7 @@ func (h *AgentHandler) TransitionAgentStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if _, ok := h.verifySquadMembership(w, r, existing.SquadID); !ok {
+	if _, ok := verifySquadAccess(w, r, existing.SquadID, h.queries); !ok {
 		return
 	}
 
@@ -746,11 +714,7 @@ func (h *AgentHandler) TransitionAgentStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Get actor identity for activity logging
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return
-	}
+	actorType, actorID := resolveActor(r.Context())
 
 	params := db.UpdateAgentParams{
 		ID:     agentID,
@@ -776,8 +740,8 @@ func (h *AgentHandler) TransitionAgentStatus(w http.ResponseWriter, r *http.Requ
 
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    agent.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  actorType,
+		ActorID:    actorID,
 		Action:     "agent.status_changed",
 		EntityType: "agent",
 		EntityID:   agent.ID,

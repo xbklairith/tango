@@ -52,10 +52,11 @@ func (s *PipelineService) CreatePipeline(ctx context.Context, squadID uuid.UUID,
 		return nil, fmt.Errorf("pipeline create: insert: %w", err)
 	}
 
+	pActorType, pActorID := resolveActor(ctx)
 	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  pActorType,
+		ActorID:    pActorID,
 		Action:     "pipeline.created",
 		EntityType: "pipeline",
 		EntityID:   p.ID,
@@ -109,10 +110,11 @@ func (s *PipelineService) UpdatePipeline(ctx context.Context, pipelineID uuid.UU
 		return nil, fmt.Errorf("pipeline update: %w", err)
 	}
 
+	uActorType, uActorID := resolveActor(ctx)
 	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    p.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  uActorType,
+		ActorID:    uActorID,
 		Action:     "pipeline.updated",
 		EntityType: "pipeline",
 		EntityID:   p.ID,
@@ -322,10 +324,11 @@ func (s *PipelineService) AttachIssueToPipeline(ctx context.Context, issueID, pi
 		return nil, fmt.Errorf("attach: update issue: %w", err)
 	}
 
+	aActorType, aActorID := resolveActor(ctx)
 	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    issue.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  aActorType,
+		ActorID:    aActorID,
 		Action:     "issue.pipeline.attached",
 		EntityType: "issue",
 		EntityID:   issueID,
@@ -393,10 +396,11 @@ func (s *PipelineService) DetachIssueFromPipeline(ctx context.Context, issueID u
 		return nil, fmt.Errorf("detach: update issue: %w", err)
 	}
 
+	dActorType, dActorID := resolveActor(ctx)
 	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    issue.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  dActorType,
+		ActorID:    dActorID,
 		Action:     "issue.pipeline.detached",
 		EntityType: "issue",
 		EntityID:   issueID,
@@ -471,10 +475,11 @@ func (s *PipelineService) AdvanceStage(ctx context.Context, issueID uuid.UUID, u
 			return nil, fmt.Errorf("advance: complete: %w", err)
 		}
 
+		cActorType, cActorID := resolveActor(ctx)
 		if err := logActivity(ctx, qtx, ActivityParams{
 			SquadID:    issue.SquadID,
-			ActorType:  domain.ActivityActorUser,
-			ActorID:    userID,
+			ActorType:  cActorType,
+			ActorID:    cActorID,
 			Action:     "issue.pipeline.completed",
 			EntityType: "issue",
 			EntityID:   issueID,
@@ -521,10 +526,11 @@ func (s *PipelineService) AdvanceStage(ctx context.Context, issueID uuid.UUID, u
 		return nil, fmt.Errorf("advance: update: %w", err)
 	}
 
+	advActorType, advActorID := resolveActor(ctx)
 	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    issue.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  advActorType,
+		ActorID:    advActorID,
 		Action:     "issue.pipeline.advanced",
 		EntityType: "issue",
 		EntityID:   issueID,
@@ -628,10 +634,11 @@ func (s *PipelineService) RejectStage(ctx context.Context, issueID uuid.UUID, us
 		}
 	}
 
+	rActorType, rActorID := resolveActor(ctx)
 	if err := logActivity(ctx, qtx, ActivityParams{
 		SquadID:    issue.SquadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    userID,
+		ActorType:  rActorType,
+		ActorID:    rActorID,
 		Action:     "issue.pipeline.rejected",
 		EntityType: "issue",
 		EntityID:   issueID,

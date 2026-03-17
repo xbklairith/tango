@@ -122,28 +122,6 @@ func dbSquadToResponse(s db.Squad) squadResponse {
 	return resp
 }
 
-// requireMembership checks the user has a membership in the given squad and returns it.
-func (h *SquadHandler) requireMembership(w http.ResponseWriter, r *http.Request, squadID uuid.UUID) (db.SquadMembership, bool) {
-	identity, ok := auth.UserFromContext(r.Context())
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
-		return db.SquadMembership{}, false
-	}
-	membership, err := h.queries.GetSquadMembership(r.Context(), db.GetSquadMembershipParams{
-		UserID:  identity.UserID,
-		SquadID: squadID,
-	})
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Error("failed to check membership", "error", err)
-			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
-			return db.SquadMembership{}, false
-		}
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: "Squad not found", Code: "SQUAD_NOT_FOUND"})
-		return db.SquadMembership{}, false
-	}
-	return membership, true
-}
 
 func parseSquadID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	idStr := r.PathValue("id")
@@ -158,9 +136,13 @@ func parseSquadID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 // --- Handlers ---
 
 func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
+		return
+	}
+	if caller.IsAgent() {
+		writeJSON(w, http.StatusForbidden, errorResponse{Error: "Agents cannot create squads", Code: "FORBIDDEN"})
 		return
 	}
 
@@ -311,7 +293,7 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Create owner membership
 	_, err = qtx.CreateSquadMembership(r.Context(), db.CreateSquadMembershipParams{
-		UserID:  identity.UserID,
+		UserID:  caller.ID,
 		SquadID: squad.ID,
 		Role:    string(domain.MemberRoleOwner),
 	})
@@ -344,10 +326,11 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	createActorType, createActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squad.ID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  createActorType,
+		ActorID:    createActorID,
 		Action:     "squad.created",
 		EntityType: "squad",
 		EntityID:   squad.ID,
@@ -360,8 +343,8 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squad.ID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    identity.UserID,
+		ActorType:  createActorType,
+		ActorID:    createActorID,
 		Action:     "agent.created",
 		EntityType: "agent",
 		EntityID:   captain.ID,
@@ -382,13 +365,13 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("squad created", "squad_id", squad.ID, "name", squad.Name, "user_id", identity.UserID)
+	slog.Info("squad created", "squad_id", squad.ID, "name", squad.Name, "user_id", caller.ID)
 
 	writeJSON(w, http.StatusCreated, dbSquadToResponse(squad))
 }
 
 func (h *SquadHandler) List(w http.ResponseWriter, r *http.Request) {
-	identity, ok := auth.UserFromContext(r.Context())
+	caller, ok := auth.CallerFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Authentication required", Code: "UNAUTHENTICATED"})
 		return
@@ -408,7 +391,7 @@ func (h *SquadHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.queries.ListSquadsByUser(r.Context(), db.ListSquadsByUserParams{
-		UserID: identity.UserID,
+		UserID: caller.ID,
 		Limit:  int32(limit),
 		Offset: int32(offset),
 	})
@@ -457,7 +440,7 @@ func (h *SquadHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, ok := h.requireMembership(w, r, squadID); !ok {
+	if _, ok := requireSquadAccess(w, r, squadID, h.queries); !ok {
 		return
 	}
 
@@ -475,7 +458,7 @@ func (h *SquadHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	membership, ok := h.requireMembership(w, r, squadID)
+	_, ok = requireSquadAccess(w, r, squadID, h.queries)
 	if !ok {
 		return
 	}
@@ -611,10 +594,11 @@ func (h *SquadHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	updateActorType, updateActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    membership.UserID,
+		ActorType:  updateActorType,
+		ActorID:    updateActorID,
 		Action:     "squad.updated",
 		EntityType: "squad",
 		EntityID:   squadID,
@@ -673,7 +657,7 @@ func (h *SquadHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	membership, ok := h.requireMembership(w, r, squadID)
+	_, ok = requireSquadAccess(w, r, squadID, h.queries)
 	if !ok {
 		return
 	}
@@ -698,10 +682,11 @@ func (h *SquadHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	deleteActorType, deleteActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    membership.UserID,
+		ActorType:  deleteActorType,
+		ActorID:    deleteActorID,
 		Action:     "squad.deleted",
 		EntityType: "squad",
 		EntityID:   squadID,
@@ -726,7 +711,7 @@ func (h *SquadHandler) UpdateBudget(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	membership, ok := h.requireMembership(w, r, squadID)
+	_, ok = requireSquadAccess(w, r, squadID, h.queries)
 	if !ok {
 		return
 	}
@@ -770,10 +755,11 @@ func (h *SquadHandler) UpdateBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	budgetActorType, budgetActorID := resolveActor(r.Context())
 	if err := logActivity(r.Context(), qtx, ActivityParams{
 		SquadID:    squadID,
-		ActorType:  domain.ActivityActorUser,
-		ActorID:    membership.UserID,
+		ActorType:  budgetActorType,
+		ActorID:    budgetActorID,
 		Action:     "squad.budget_updated",
 		EntityType: "squad",
 		EntityID:   squadID,
