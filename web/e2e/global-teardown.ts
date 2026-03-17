@@ -5,6 +5,12 @@ import { join } from "path";
 const STATE_FILE = join(tmpdir(), "ari-e2e-state.json");
 
 async function globalTeardown() {
+  // Skip teardown if KEEP_SERVER is set
+  if (process.env.KEEP_SERVER) {
+    console.log("[e2e] KEEP_SERVER set — skipping teardown, server stays running");
+    return;
+  }
+
   if (!existsSync(STATE_FILE)) {
     console.log("[e2e] No state file found, skipping teardown");
     return;
@@ -20,12 +26,15 @@ async function globalTeardown() {
     // already dead
   }
 
-  // Clean up temp dir
-  try {
-    rmSync(state.dataDir, { recursive: true, force: true });
-    console.log(`[e2e] Cleaned up ${state.dataDir}`);
-  } catch {
-    // ignore
+  // Clean up realm DB dir (postgres data) — keeps secrets/config intact for faster re-runs
+  if (state.ariHome && state.realmID) {
+    const realmDBDir = join(state.ariHome, "realms", state.realmID, "db");
+    try {
+      rmSync(realmDBDir, { recursive: true, force: true });
+      console.log(`[e2e] Cleaned up ${realmDBDir}`);
+    } catch {
+      // ignore
+    }
   }
 
   // Clean up binary

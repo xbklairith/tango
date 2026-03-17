@@ -1,6 +1,6 @@
 import { execSync, spawn, type ChildProcess } from "child_process";
-import { mkdtempSync, writeFileSync, existsSync } from "fs";
-import { tmpdir } from "os";
+import { writeFileSync, existsSync, rmSync, mkdirSync, openSync } from "fs";
+import { tmpdir, homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -11,7 +11,8 @@ const STATE_FILE = join(tmpdir(), "ari-e2e-state.json");
 interface E2EState {
   pid: number;
   baseURL: string;
-  dataDir: string;
+  ariHome: string;
+  realmID: string;
   adminEmail: string;
   adminPassword: string;
   adminName: string;
@@ -33,33 +34,54 @@ async function globalSetup() {
     stdio: "inherit",
   });
 
-  // 3. Start server
-  const dataDir = mkdtempSync(join(tmpdir(), "ari-e2e-data-"));
+  // 3. Start server using realm system
+  const ariHome = join(homedir(), ".ari");
+  const realmID = "testing";
+  const realmDBDir = join(ariHome, "realms", realmID, "db");
+
+  // Clean DB dir for fresh embedded PG each run
+  try {
+    rmSync(realmDBDir, { recursive: true, force: true });
+  } catch {
+    // ignore if doesn't exist
+  }
+
   // Use E2E_PORT env var or default 3199 — must match playwright.config.ts
   const port = parseInt(process.env.E2E_PORT || "3199", 10);
   const pgPort = 15432 + Math.floor(Math.random() * 10000);
   const baseURL = `http://127.0.0.1:${port}`;
 
   console.log(`[e2e] Starting server on ${baseURL}...`);
-  console.log(`[e2e] Data dir: ${dataDir}`);
+  console.log(`[e2e] Realm: ${ariHome}/realms/${realmID}`);
+
+  // When KEEP_SERVER is set, write logs to file so server survives playwright exit
+  const keepServer = !!process.env.KEEP_SERVER;
+  const serverLogPath = join(tmpdir(), "ari-e2e-server.log");
+  const logFd = keepServer ? openSync(serverLogPath, "w") : undefined;
+  if (keepServer) {
+    console.log(`[e2e] Server logs: ${serverLogPath}`);
+  }
+
   const server: ChildProcess = spawn(binPath, ["run"], {
     env: {
       ...process.env,
+      ARI_HOME: ariHome,
+      ARI_REALM_ID: realmID,
       ARI_PORT: String(port),
       ARI_HOST: "127.0.0.1",
-      ARI_DATA_DIR: dataDir,
+      ARI_DATA_DIR: "",  // ensure realm system is used
       ARI_DATABASE_URL: "",
       ARI_DEPLOYMENT_MODE: "authenticated",
       ARI_EMBEDDED_PG_PORT: String(pgPort),
       ARI_ENV: "development",
     },
-    stdio: "pipe",
+    stdio: keepServer ? ["ignore", logFd!, logFd!] : "pipe",
     detached: true,
   });
 
   server.unref();
 
-  // Always log server output during setup for debugging startup issues
+  // Log server output during setup for debugging (only when piped)
   server.stdout?.on("data", (data: Buffer) => {
     console.log(`[server:stdout] ${data.toString().trim()}`);
   });
@@ -123,7 +145,8 @@ async function globalSetup() {
   const state: E2EState = {
     pid: server.pid!,
     baseURL,
-    dataDir,
+    ariHome,
+    realmID,
     adminEmail,
     adminPassword,
     adminName,

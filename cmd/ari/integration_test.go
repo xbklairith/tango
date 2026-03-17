@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -25,11 +27,26 @@ func startTestServer(t *testing.T, envOverrides ...string) (baseURL string, canc
 	t.Helper()
 
 	port := freePort(t)
+	pgPort := freePort(t)
+
+	// Use realm system: ARI_HOME + ARI_REALM_ID=testing
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get home dir: %v", err)
+	}
+	ariHome := filepath.Join(homeDir, ".ari")
+	realmDBDir := filepath.Join(ariHome, "realms", "testing", "db")
+
+	// Clean DB dir for fresh embedded PG each run
+	os.RemoveAll(realmDBDir)
+
+	t.Setenv("ARI_HOME", ariHome)
+	t.Setenv("ARI_REALM_ID", "testing")
 	t.Setenv("ARI_PORT", fmt.Sprintf("%d", port))
 	t.Setenv("ARI_HOST", "127.0.0.1")
-	t.Setenv("ARI_DATA_DIR", t.TempDir())
-	t.Setenv("ARI_DATABASE_URL", "")                              // use embedded PG
-	t.Setenv("ARI_EMBEDDED_PG_PORT", fmt.Sprintf("%d", freePort(t))) // avoid port conflicts
+	t.Setenv("ARI_DATA_DIR", "")                                    // ensure realm system is used
+	t.Setenv("ARI_DATABASE_URL", "")                                 // use embedded PG
+	t.Setenv("ARI_EMBEDDED_PG_PORT", fmt.Sprintf("%d", pgPort))     // avoid port conflicts
 
 	// Apply optional env overrides (key=value pairs)
 	for _, kv := range envOverrides {

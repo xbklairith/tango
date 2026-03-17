@@ -19,18 +19,32 @@ Follow this procedure for every task assignment:
 4. **Update status**: `PATCH $ARI_API_URL/api/agent/me/issues/<id>` with `{"status": "done"}`
 5. **Add comment**: `POST $ARI_API_URL/api/agent/me/issues/<id>/comments` with `{"body": "<summary>"}`
 
+## API Helper
+
+For ALL API calls, use this pattern — never omit the Authorization header:
+
+```bash
+curl -s -X <METHOD> "$ARI_API_URL<path>" \
+  -H "Authorization: Bearer $ARI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '<json-body>'
+```
+
 ## Key API Endpoints
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | GET | /api/agent/me | Get your agent profile |
 | GET | /api/agent/me/assignments | List assigned tasks |
+| GET | /api/agent/me/team | List your team members |
 | POST | /api/agent/me/checkout | Checkout a task (CAS) |
 | PATCH | /api/agent/me/issues/:id | Update issue status |
 | POST | /api/agent/me/issues/:id/comments | Add comment to issue |
 | POST | /api/agent/me/reply | Reply in conversation |
 | POST | /api/agent/me/inbox | Send inbox item to user |
 | POST | /api/agent/me/heartbeat | Send heartbeat signal |
+| POST | /api/agents | Create a new agent (captain only) |
+| POST | /api/squads/:squadId/issues | Create an issue |
 
 ## Critical Rules
 

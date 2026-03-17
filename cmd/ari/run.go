@@ -121,11 +121,23 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 
 	slog.Info("starting ari", "version", version, "env", cfg.Env, "data_dir", cfg.DataDir, "legacy", isLegacy)
 
-	// Wire home paths into config for subsystems that still use cfg.DataDir
-	// This ensures database, secrets, and run logs use the correct realm paths
-	if !isLegacy && os.Getenv("ARI_DATA_DIR") == "" {
-		cfg.DataDir = paths.RealmRoot
+	// Wire realm-specific paths to subsystems.
+	// Each subsystem needs a different subdirectory of the realm root:
+	//   Database  → {realmRoot}/db/       (postgres/ and pg-runtime/ inside)
+	//   Secrets   → {realmRoot}/secrets/  (master.key, jwt.key)
+	//   Storage   → {realmRoot}/data/storage/ (runs/ logs)
+	// In legacy mode, all paths collapse to cfg.DataDir (flat layout).
+	dbDir := cfg.DataDir
+	secretsDir := cfg.DataDir
+	storageDir := cfg.DataDir
+	if !isLegacy {
+		dbDir = paths.DBDir
+		secretsDir = paths.SecretsDir
+		storageDir = paths.StorageDir
 	}
+
+	// Database uses cfg.DataDir for PG data/runtime paths
+	cfg.DataDir = dbDir
 
 	// 3. Start database (embedded or external)
 	db, cleanup, err := database.Open(ctx, cfg)
@@ -165,7 +177,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 
 	if mode == auth.ModeAuthenticated {
 		// Resolve JWT signing key
-		signingKey, err := resolveJWTKey(cfg)
+		signingKey, err := resolveJWTKey(secretsDir, cfg.JWTSecret)
 		if err != nil {
 			return fmt.Errorf("resolving JWT key: %w", err)
 		}
@@ -247,9 +259,9 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	issueHandler.SetWakeupService(wakeupSvc)
 	issueHandler.SetPipelineService(pipelineSvc)
 	pipelineHandler := handlers.NewPipelineHandler(queries, pipelineSvc)
-	runSvc := handlers.NewRunService(db, queries, adapterRegistry, runTokenSvc, sseHub, apiURL, cfg.DataDir)
+	runSvc := handlers.NewRunService(db, queries, adapterRegistry, runTokenSvc, sseHub, apiURL, storageDir)
 	taskHandler := handlers.NewTaskHandler(queries, db, sseHub)
-	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc, cfg.DataDir)
+	runtimeHandler := handlers.NewRuntimeHandler(queries, db, sseHub, wakeupSvc, runSvc, storageDir)
 
 	// Metrics (dashboard observability)
 	metricsSvc := handlers.NewMetricsService(queries)
@@ -265,7 +277,7 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 	runSvc.SetInboxService(inboxSvc)
 
 	// Initialize secrets management
-	keyMgr, err := secrets.NewMasterKeyManager(os.Getenv("ARI_MASTER_KEY"), cfg.DataDir)
+	keyMgr, err := secrets.NewMasterKeyManager(os.Getenv("ARI_MASTER_KEY"), secretsDir)
 	if err != nil {
 		return fmt.Errorf("initializing master key manager: %w", err)
 	}
@@ -409,18 +421,18 @@ func runServer(ctx context.Context, version string, portOverride int) error {
 }
 
 // resolveJWTKey loads the JWT signing key from config or generates one.
-func resolveJWTKey(cfg *config.Config) ([]byte, error) {
-	if cfg.JWTSecret != "" {
-		key, err := hex.DecodeString(cfg.JWTSecret)
+// secretsDir is the directory where jwt.key is stored (e.g. {realmRoot}/secrets/).
+func resolveJWTKey(secretsDir string, jwtSecret string) ([]byte, error) {
+	if jwtSecret != "" {
+		key, err := hex.DecodeString(jwtSecret)
 		if err != nil {
 			// Treat as raw bytes if not hex
-			return []byte(cfg.JWTSecret), nil
+			return []byte(jwtSecret), nil
 		}
 		return key, nil
 	}
 
 	// Auto-generate and persist
-	secretsDir := filepath.Join(cfg.DataDir, "secrets")
 	keyPath := filepath.Join(secretsDir, "jwt.key")
 
 	// Try to load existing key
