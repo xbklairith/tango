@@ -52,6 +52,12 @@ make ui-build       # Build frontend for production
 - All responses: `Content-Type: application/json`
 - Error format: `{"error": "message", "code": "CODE"}`
 
+## Validation Rules
+- **Always validate before declaring done** — never claim something works without proof
+- **Frontend**: Use `/dev-browser` skill to launch a real browser, navigate, take screenshots, and verify behavior (layout, scroll, clicks, form submissions)
+- **Backend**: Start the server (`make dev`), then make real HTTP calls to verify endpoints
+- **Plan validation first** — before implementing, decide how you'll verify the change
+
 ## Phase 1 Focus (v0.1)
 - Go scaffold with CLI + HTTP server
 - Database schema + migrations

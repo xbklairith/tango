@@ -6,7 +6,26 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "@/lib/utils"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
-const Select = SelectPrimitive.Root
+// base-ui doesn't support value="" for SelectItem — it can't resolve
+// the display text and shows the raw value (e.g. a UUID) instead.
+// We use a sentinel for SelectItem value="", and map value="" to null
+// on Select so base-ui shows the placeholder text.
+const EMPTY_SENTINEL = "__empty__"
+
+function Select({
+  value,
+  onValueChange,
+  ...props
+}: SelectPrimitive.Root.Props) {
+  // value="" → null tells base-ui "nothing selected" → shows placeholder
+  const mapped = value === "" ? null : value
+  const handleChange = onValueChange
+    ? (v: string) => onValueChange(v === EMPTY_SENTINEL ? "" : v)
+    : undefined
+  return (
+    <SelectPrimitive.Root value={mapped} onValueChange={handleChange} {...props} />
+  )
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
@@ -111,11 +130,13 @@ function SelectLabel({
 function SelectItem({
   className,
   children,
+  value,
   ...props
 }: SelectPrimitive.Item.Props) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
+      value={value === "" ? EMPTY_SENTINEL : value}
       className={cn(
         "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className
