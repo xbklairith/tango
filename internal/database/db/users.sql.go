@@ -123,6 +123,33 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow
 	return i, err
 }
 
+const listAllActiveUsers = `-- name: ListAllActiveUsers :many
+SELECT id FROM users WHERE status = 'active'
+`
+
+func (q *Queries) ListAllActiveUsers(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.QueryContext(ctx, listAllActiveUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateUserStatus = `-- name: UpdateUserStatus :exec
 UPDATE users SET status = $2, updated_at = now() WHERE id = $1
 `

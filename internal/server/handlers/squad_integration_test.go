@@ -163,18 +163,26 @@ func TestListSquads_OnlyMySquads(t *testing.T) {
 		"captainName": "Captain", "captainShortName": "captain-bsqd",
 	}, []*http.Cookie{cookieB})
 
-	// User A should see only their squad
+	// With shared squad model, both users see all squads
 	rr := doJSON(t, env.handler, "GET", "/api/squads", nil, []*http.Cookie{cookieA})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list: status = %d; body: %s", rr.Code, rr.Body.String())
 	}
 	var squads []squadResp
 	json.NewDecoder(rr.Body).Decode(&squads)
-	if len(squads) != 1 {
-		t.Fatalf("expected 1 squad, got %d", len(squads))
+	if len(squads) != 2 {
+		t.Fatalf("expected 2 squads (shared model), got %d", len(squads))
 	}
-	if squads[0].Name != "A Squad" {
-		t.Errorf("expected A Squad, got %q", squads[0].Name)
+
+	// User B also sees both squads
+	rrB := doJSON(t, env.handler, "GET", "/api/squads", nil, []*http.Cookie{cookieB})
+	if rrB.Code != http.StatusOK {
+		t.Fatalf("list B: status = %d; body: %s", rrB.Code, rrB.Body.String())
+	}
+	var squadsB []squadResp
+	json.NewDecoder(rrB.Body).Decode(&squadsB)
+	if len(squadsB) != 2 {
+		t.Fatalf("expected 2 squads for user B (shared model), got %d", len(squadsB))
 	}
 }
 
@@ -201,9 +209,10 @@ func TestGetSquad_NonMemberReturns404(t *testing.T) {
 	loginB, _ := loginUser(t, env, "intruder@example.com", strongPassword())
 	cookieB := sessionCookie(loginB)
 
+	// With shared squad model, User B is auto-added and can access
 	rr := doJSON(t, env.handler, "GET", "/api/squads/"+created.ID, nil, []*http.Cookie{cookieB})
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("non-member get: status = %d, want 404; body: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Errorf("shared model get: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
 	}
 }
 

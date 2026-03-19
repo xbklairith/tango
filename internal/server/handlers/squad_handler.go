@@ -303,6 +303,27 @@ func (h *SquadHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-add all existing users as members (shared squad model)
+	allUsers, err := qtx.ListAllActiveUsers(r.Context())
+	if err != nil {
+		slog.Error("failed to list users for auto-membership", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})
+		return
+	}
+	for _, u := range allUsers {
+		if u == caller.ID {
+			continue // owner already added above
+		}
+		_, err := qtx.CreateSquadMembership(r.Context(), db.CreateSquadMembershipParams{
+			UserID:  u,
+			SquadID: squad.ID,
+			Role:    string(domain.MemberRoleAdmin),
+		})
+		if err != nil {
+			slog.Warn("failed to auto-add user to squad", "user_id", u, "squad_id", squad.ID, "error", err)
+		}
+	}
+
 	// Create captain agent
 	captainParams := db.CreateAgentParams{
 		SquadID:     squad.ID,

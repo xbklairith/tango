@@ -135,6 +135,8 @@ type Querier interface {
 	ListAgentChildrenBySquad(ctx context.Context, arg ListAgentChildrenBySquadParams) ([]Agent, error)
 	ListAgentRunsWithContext(ctx context.Context, arg ListAgentRunsWithContextParams) ([]ListAgentRunsWithContextRow, error)
 	ListAgentsBySquad(ctx context.Context, squadID uuid.UUID) ([]Agent, error)
+	ListAllActiveSquadIDs(ctx context.Context) ([]uuid.UUID, error)
+	ListAllActiveUsers(ctx context.Context) ([]uuid.UUID, error)
 	ListAllSecrets(ctx context.Context) ([]SquadSecret, error)
 	ListAllSecretsForUpdate(ctx context.Context) ([]SquadSecret, error)
 	ListAssignmentsByAgent(ctx context.Context, arg ListAssignmentsByAgentParams) ([]Issue, error)

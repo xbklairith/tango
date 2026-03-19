@@ -139,6 +139,33 @@ func (q *Queries) IncrementIssueCounter(ctx context.Context, id uuid.UUID) (Incr
 	return i, err
 }
 
+const listAllActiveSquadIDs = `-- name: ListAllActiveSquadIDs :many
+SELECT id FROM squads WHERE status != 'archived'
+`
+
+func (q *Queries) ListAllActiveSquadIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.QueryContext(ctx, listAllActiveSquadIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSquadsByUser = `-- name: ListSquadsByUser :many
 SELECT s.id, s.name, s.slug, s.issue_prefix, s.description, s.status, s.settings, s.issue_counter, s.budget_monthly_cents, s.brand_color, s.created_at, s.updated_at, sm.role, sm.id AS membership_id
 FROM squads s

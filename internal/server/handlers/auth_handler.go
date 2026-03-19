@@ -198,6 +198,24 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-add new user to all existing squads (shared squad model)
+	allSquads, err := qtx.ListAllActiveSquadIDs(r.Context())
+	if err != nil {
+		slog.Error("failed to list squads for auto-membership", "error", err)
+		// Non-fatal: user is created, just won't see existing squads until manually added
+	} else {
+		for _, squadID := range allSquads {
+			_, err := qtx.CreateSquadMembership(r.Context(), db.CreateSquadMembershipParams{
+				UserID:  userID,
+				SquadID: squadID,
+				Role:    string("admin"),
+			})
+			if err != nil {
+				slog.Warn("failed to auto-add user to squad", "user_id", userID, "squad_id", squadID, "error", err)
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		slog.Error("failed to commit transaction", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Internal server error", Code: "INTERNAL_ERROR"})

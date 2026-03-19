@@ -31,14 +31,18 @@ func TestAddMember_Success(t *testing.T) {
 	var regUser userResp
 	json.NewDecoder(regRR.Body).Decode(&regUser)
 
-	// Add member
-	rr := doJSON(t, env.handler, "POST", "/api/squads/"+created.ID+"/members", map[string]any{
-		"userId": regUser.ID,
-		"role":   "viewer",
-	}, []*http.Cookie{cookieOwner})
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("add member: status = %d, want %d; body: %s", rr.Code, http.StatusCreated, rr.Body.String())
+	// With shared squad model, user is auto-added on registration.
+	// Verify the auto-added member can access the squad.
+	loginMember, _ := loginUser(t, env, "member-add@example.com", strongPassword())
+	cookieMember := sessionCookie(loginMember)
+	listRR := doJSON(t, env.handler, "GET", "/api/squads", nil, []*http.Cookie{cookieMember})
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("member list: status = %d; body: %s", listRR.Code, listRR.Body.String())
+	}
+	var squads []squadResp
+	json.NewDecoder(listRR.Body).Decode(&squads)
+	if len(squads) != 1 {
+		t.Fatalf("expected 1 squad for auto-added member, got %d", len(squads))
 	}
 }
 
@@ -60,15 +64,8 @@ func TestAddMember_AdminCannotGrantOwner(t *testing.T) {
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
 
-	// Register admin user
-	regAdmin := registerUser(t, env, "admin-acl@example.com", "AdminACL", strongPassword())
-	var adminUser userResp
-	json.NewDecoder(regAdmin.Body).Decode(&adminUser)
-
-	// Add as admin
-	doJSON(t, env.handler, "POST", "/api/squads/"+created.ID+"/members", map[string]any{
-		"userId": adminUser.ID, "role": "admin",
-	}, []*http.Cookie{cookieOwner})
+	// Register admin user (auto-added to squad with role=admin via shared model)
+	registerUser(t, env, "admin-acl@example.com", "AdminACL", strongPassword())
 
 	// Login as admin
 	loginAdmin, _ := loginUser(t, env, "admin-acl@example.com", strongPassword())
@@ -110,12 +107,7 @@ func TestAddMember_Duplicate(t *testing.T) {
 	var memberUser userResp
 	json.NewDecoder(regMember.Body).Decode(&memberUser)
 
-	// Add once
-	doJSON(t, env.handler, "POST", "/api/squads/"+created.ID+"/members", map[string]any{
-		"userId": memberUser.ID, "role": "viewer",
-	}, []*http.Cookie{cookieOwner})
-
-	// Add again
+	// User is auto-added via shared model; try to add again
 	rr := doJSON(t, env.handler, "POST", "/api/squads/"+created.ID+"/members", map[string]any{
 		"userId": memberUser.ID, "role": "admin",
 	}, []*http.Cookie{cookieOwner})
@@ -167,14 +159,8 @@ func TestLeaveSquad_NonOwnerSuccess(t *testing.T) {
 	var created squadResp
 	json.NewDecoder(createRR.Body).Decode(&created)
 
-	// Add member
-	regMember := registerUser(t, env, "leaver@example.com", "Leaver", strongPassword())
-	var memberUser userResp
-	json.NewDecoder(regMember.Body).Decode(&memberUser)
-
-	doJSON(t, env.handler, "POST", "/api/squads/"+created.ID+"/members", map[string]any{
-		"userId": memberUser.ID, "role": "viewer",
-	}, []*http.Cookie{cookieOwner})
+	// Register member (auto-added to squad via shared model)
+	registerUser(t, env, "leaver@example.com", "Leaver", strongPassword())
 
 	// Member leaves
 	loginMember, _ := loginUser(t, env, "leaver@example.com", strongPassword())

@@ -48,3 +48,6 @@ RETURNING issue_counter, issue_prefix;
 
 -- name: GetSquadSettings :one
 SELECT settings FROM squads WHERE id = $1;
+
+-- name: ListAllActiveSquadIDs :many
+SELECT id FROM squads WHERE status != 'archived';
